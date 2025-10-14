@@ -651,9 +651,16 @@ async def nango_list_gmail_records(
         response = await http_client.get(url, headers=headers, params=params)
         response.raise_for_status()
 
-        # Log response body for debugging
+        # Log FULL raw response for debugging
         response_text = response.text
-        logger.info(f"Nango records API response: {response_text[:500]}")
+        logger.info(f"=" * 80)
+        logger.info(f"NANGO RAW RESPONSE - FULL PAYLOAD")
+        logger.info(f"=" * 80)
+        logger.info(f"URL: {url}")
+        logger.info(f"Params: {params}")
+        logger.info(f"Response Length: {len(response_text)} bytes")
+        logger.info(f"Full Response:\n{response_text}")
+        logger.info(f"=" * 80)
 
         # Handle empty response
         if not response_text or response_text.strip() == "":
@@ -661,7 +668,18 @@ async def nango_list_gmail_records(
             return {"records": [], "next_cursor": None}
 
         try:
-            return response.json()
+            data = response.json()
+
+            # Log individual email record structure (first 3 records for inspection)
+            records = data.get("records", [])
+            if records:
+                logger.info(f"FIRST 3 EMAIL RECORDS FROM NANGO:")
+                for i, record in enumerate(records[:3], 1):
+                    logger.info(f"--- Email Record #{i} ---")
+                    logger.info(json.dumps(record, indent=2))
+                    logger.info(f"--- End Record #{i} ---")
+
+            return data
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse Nango response as JSON: {e}")
             logger.error(f"Response text: {response_text}")
