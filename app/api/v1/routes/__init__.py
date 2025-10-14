@@ -7,7 +7,6 @@ from app.api.v1.routes.oauth import router as oauth_router
 from app.api.v1.routes.webhook import router as webhook_router
 from app.api.v1.routes.sync import router as sync_router
 from app.api.v1.routes.search import router as search_router
-from app.api.v1.routes.legacy import router as legacy_router
 
 __all__ = [
     "health_router",
@@ -15,5 +14,4 @@ __all__ = [
     "webhook_router",
     "sync_router",
     "search_router",
-    "legacy_router",
 ]
