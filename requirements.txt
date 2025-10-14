@@ -1,0 +1,17 @@
+# FastAPI and server
+fastapi==0.115.12
+uvicorn[standard]==0.34.0
+pydantic==2.10.6
+
+# HTTP client
+httpx==0.28.1
+
+# Database
+psycopg[binary]==3.2.6
+supabase==2.12.0
+
+# Authentication
+pyjwt==2.10.1
+
+# Environment and utilities
+python-dotenv==1.0.1
