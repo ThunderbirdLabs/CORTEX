@@ -945,7 +945,8 @@ async def run_tenant_sync(tenant_id: str, provider_key: str) -> Dict[str, Any]:
 async def run_gmail_sync(
     tenant_id: str,
     provider_key: str,
-    modified_after: Optional[str] = None
+    modified_after: Optional[str] = None,
+    max_emails: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Run a full Gmail sync for a tenant using Nango unified API.
@@ -954,6 +955,7 @@ async def run_gmail_sync(
         tenant_id: Tenant identifier
         provider_key: Nango provider configuration key
         modified_after: Optional ISO datetime to filter records
+        max_emails: Optional max number of emails to sync (prevents runaway syncs)
 
     Returns:
         Dictionary with sync statistics
@@ -1009,11 +1011,19 @@ async def run_gmail_sync(
 
                 logger.info(f"Fetched {len(records)} Gmail records (cursor: {cursor[:20] if cursor else 'none'}...)")
 
+                # Log first email in full for debugging raw format
+                if records and messages_synced == 0:
+                    logger.info(f"RAW EMAIL SAMPLE FROM NANGO: {json.dumps(records[0], indent=2)}")
+
                 # Process each record
                 for record in records:
                     try:
                         # Normalize Gmail message
                         normalized = normalize_gmail_message(record, tenant_id)
+
+                        # Log first normalized email for debugging
+                        if messages_synced == 0:
+                            logger.info(f"NORMALIZED EMAIL SAMPLE: {json.dumps(normalized, indent=2, default=str)}")
 
                         # Persist to Supabase
                         await persist_email_row(normalized)
