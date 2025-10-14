@@ -68,6 +68,11 @@ NANGO_CONNECTION_ID_GMAIL = os.getenv("NANGO_CONNECTION_ID_GMAIL")
 # Debug configuration
 SAVE_JSONL = os.getenv("SAVE_JSONL", "false").lower() == "true"
 
+# Cortex API configuration
+CORTEX_API_URL = os.getenv("CORTEX_API_URL", "http://localhost:8000")
+CORTEX_API_KEY = os.getenv("CORTEX_API_KEY", "cortex_dev_key_12345")
+ENABLE_CORTEX_INGESTION = os.getenv("ENABLE_CORTEX_INGESTION", "false").lower() == "true"
+
 # Validate required config
 required_vars = [
     "DATABASE_URL", "SUPABASE_URL", "SUPABASE_ANON_KEY",
@@ -846,6 +851,76 @@ async def append_jsonl(email: Dict[str, Any]):
         logger.error(f"Error writing to JSONL: {e}")
 
 
+async def ingest_to_cortex(email: Dict[str, Any]):
+    """
+    Ingest email into Cortex Hybrid RAG system.
+
+    Sends email to Cortex API which will:
+    1. Chunk the document intelligently
+    2. Generate embeddings and store in Supabase vector DB
+    3. Extract entities and relationships for Neo4j knowledge graph
+    4. Link both systems with a shared episode_id UUID
+
+    Args:
+        email: Normalized email dictionary
+
+    Returns:
+        Dict with ingestion results or None if disabled/failed
+    """
+    if not ENABLE_CORTEX_INGESTION:
+        return None
+
+    try:
+        # Prepare payload for Cortex ingest API
+        cortex_payload = {
+            "content": email.get("full_body", ""),
+            "document_name": email.get("subject", "No Subject"),
+            "source": email.get("source", "gmail"),
+            "document_type": "email",
+            "reference_time": email.get("received_datetime"),
+            "metadata": {
+                "message_id": email.get("message_id"),
+                "sender_name": email.get("sender_name", ""),
+                "sender_address": email.get("sender_address", ""),
+                "to_addresses": email.get("to_addresses", []),
+                "tenant_id": email.get("tenant_id"),
+                "user_id": email.get("user_id"),
+                "web_link": email.get("web_link", "")
+            }
+        }
+
+        # Call Cortex ingest endpoint
+        cortex_url = f"{CORTEX_API_URL}/api/ingest"
+        headers = {
+            "X-API-Key": CORTEX_API_KEY,
+            "Content-Type": "application/json"
+        }
+
+        logger.info(f"Ingesting email to Cortex: {email.get('subject', 'No Subject')[:50]}...")
+
+        response = await http_client.post(
+            cortex_url,
+            headers=headers,
+            json=cortex_payload,
+            timeout=60.0  # Cortex processing may take longer
+        )
+        response.raise_for_status()
+
+        result = response.json()
+        logger.info(f"Cortex ingestion successful: episode_id={result.get('episode_id')}, chunks={result.get('num_chunks')}")
+
+        return result
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Cortex ingestion HTTP error: {e.response.status_code} - {e.response.text}")
+        # Don't raise - continue with other messages
+        return None
+    except Exception as e:
+        logger.error(f"Error ingesting email to Cortex: {e}")
+        # Don't raise - continue with other messages
+        return None
+
+
 # ============================================================================
 # CORE SYNC LOGIC
 # ============================================================================
@@ -1038,6 +1113,9 @@ async def run_gmail_sync(
 
                         # Optionally write to JSONL
                         await append_jsonl(normalized)
+
+                        # Ingest to Cortex Hybrid RAG system (if enabled)
+                        await ingest_to_cortex(normalized)
 
                         messages_synced += 1
                     except Exception as e:
