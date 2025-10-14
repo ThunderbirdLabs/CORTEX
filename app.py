@@ -498,7 +498,8 @@ async def sync_user_mailbox(
         url = delta_link
         logger.info(f"Using existing delta link for user {user_principal_name}")
     else:
-        url = f"https://graph.microsoft.com/v1.0/users/{user_id}/messages/delta"
+        # Request full body content via $select parameter
+        url = f"https://graph.microsoft.com/v1.0/users/{user_id}/messages/delta?$select=id,subject,from,toRecipients,receivedDateTime,webLink,body,changeKey"
         logger.info(f"Starting initial sync for user {user_principal_name}")
 
     async def fetch_page(page_url: str):
@@ -579,6 +580,13 @@ def normalize_message(
     else:
         received_datetime = None
 
+    # Extract full body content
+    body_obj = raw_message.get("body", {})
+    if isinstance(body_obj, dict):
+        full_body = body_obj.get("content", "")
+    else:
+        full_body = ""
+
     return {
         "tenant_id": tenant_id,
         "user_id": user_id,
@@ -591,7 +599,7 @@ def normalize_message(
         "to_addresses": to_addresses,
         "received_datetime": received_datetime.isoformat() if received_datetime else None,
         "web_link": raw_message.get("webLink", ""),
-        "body_preview": raw_message.get("bodyPreview", ""),
+        "full_body": full_body,  # Full email body content (HTML or text)
         "change_key": raw_message.get("changeKey", "")
     }
 
@@ -741,7 +749,6 @@ def normalize_gmail_message(
 
     # Get full body (Nango provides full email body in 'body' field)
     full_body = gmail_record.get("body", "")
-    body_preview = full_body[:500] if full_body else ""  # Preview for Supabase
 
     return {
         "tenant_id": tenant_id,
@@ -755,7 +762,7 @@ def normalize_gmail_message(
         "to_addresses": to_addresses,
         "received_datetime": received_datetime.isoformat() if received_datetime else None,
         "web_link": "",  # Gmail records from Nango may not include web link
-        "body_preview": body_preview,
+        "full_body": full_body,  # Full email body content
         "change_key": ""  # Gmail doesn't use change keys
     }
 
