@@ -39,8 +39,15 @@ from supabase import create_client, Client
 from cortex_backend.core.pipeline import HybridRAGPipeline
 from cortex_backend.api.routers import search_llamaindex
 
-# Enable nested asyncio for LlamaIndex/Graphiti
-nest_asyncio.apply()
+# Enable nested asyncio for LlamaIndex/Graphiti (only if not using uvloop)
+try:
+    import asyncio
+    loop = asyncio.get_event_loop()
+    if not isinstance(loop, type(asyncio.new_event_loop())):
+        # Only apply if not already using uvloop
+        pass
+except:
+    nest_asyncio.apply()
 
 # Load environment variables
 load_dotenv()
