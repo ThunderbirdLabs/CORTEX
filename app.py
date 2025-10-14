@@ -27,12 +27,19 @@ from uuid import uuid4
 import httpx
 import jwt
 import psycopg
+import nest_asyncio
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from supabase import create_client, Client
+
+# Import Cortex Hybrid RAG Pipeline
+from cortex_backend.core.pipeline import HybridRAGPipeline
+
+# Enable nested asyncio for LlamaIndex/Graphiti
+nest_asyncio.apply()
 
 # Load environment variables
 load_dotenv()
@@ -67,10 +74,6 @@ NANGO_CONNECTION_ID_GMAIL = os.getenv("NANGO_CONNECTION_ID_GMAIL")
 
 # Debug configuration
 SAVE_JSONL = os.getenv("SAVE_JSONL", "false").lower() == "true"
-
-# Cortex API configuration (your friend's Hybrid RAG system)
-CORTEX_API_URL = os.getenv("CORTEX_API_URL")
-CORTEX_API_KEY = os.getenv("CORTEX_API_KEY")
 
 # Validate required config
 required_vars = [
@@ -113,11 +116,14 @@ http_client: Optional[httpx.AsyncClient] = None
 # Security
 security = HTTPBearer()
 
+# Cortex Hybrid RAG Pipeline (initialized on startup)
+cortex_pipeline: Optional[HybridRAGPipeline] = None
+
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize HTTP client on startup."""
-    global http_client
+    """Initialize HTTP client and Cortex pipeline on startup."""
+    global http_client, cortex_pipeline
 
     # Initialize HTTP client
     http_client = httpx.AsyncClient(
@@ -125,6 +131,18 @@ async def startup_event():
         limits=httpx.Limits(max_keepalive_connections=10, max_connections=20)
     )
     logger.info("HTTP client initialized")
+
+    # Initialize Cortex Hybrid RAG Pipeline
+    try:
+        cortex_pipeline = HybridRAGPipeline()
+        logger.info("Cortex Hybrid RAG Pipeline initialized")
+        logger.info("  - Vector DB: Qdrant")
+        logger.info("  - Knowledge Graph: Neo4j + Graphiti")
+    except Exception as e:
+        logger.error(f"Failed to initialize Cortex pipeline: {e}")
+        logger.warning("Cortex ingestion will be disabled")
+        cortex_pipeline = None
+
     logger.info("FastAPI application started")
 
 
@@ -854,31 +872,33 @@ async def ingest_to_cortex(email: Dict[str, Any]):
     """
     Ingest email into Cortex Hybrid RAG system.
 
-    Sends email to Cortex API which will:
-    1. Chunk the document intelligently
-    2. Generate embeddings and store in Qdrant vector DB
-    3. Extract entities and relationships for Neo4j knowledge graph via Graphiti
-    4. Link both systems with a shared episode_id UUID
+    Processes email through Cortex pipeline:
+    1. Chunks the document intelligently
+    2. Generates embeddings and stores in Qdrant vector DB
+    3. Extracts entities and relationships for Neo4j knowledge graph via Graphiti
+    4. Links both systems with a shared episode_id UUID
 
     Args:
         email: Normalized email dictionary
 
     Returns:
-        Dict with ingestion results or None if not configured/failed
+        Dict with ingestion results or None if pipeline not initialized/failed
     """
-    if not CORTEX_API_URL or not CORTEX_API_KEY:
-        logger.debug("Cortex not configured, skipping ingestion")
+    if not cortex_pipeline:
+        logger.debug("Cortex pipeline not initialized, skipping ingestion")
         return None
 
     try:
-        # Prepare payload for Cortex ingest API
-        cortex_payload = {
-            "content": email.get("full_body", ""),
-            "document_name": email.get("subject", "No Subject"),
-            "source": email.get("source", "gmail"),
-            "document_type": "email",
-            "reference_time": email.get("received_datetime"),
-            "metadata": {
+        logger.info(f"Ingesting email to Cortex: {email.get('subject', 'No Subject')[:50]}...")
+
+        # Call Cortex pipeline directly (already in same codebase)
+        result = await cortex_pipeline.ingest_document(
+            content=email.get("full_body", ""),
+            document_name=email.get("subject", "No Subject"),
+            source=email.get("source", "gmail"),
+            document_type="email",
+            reference_time=email.get("received_datetime"),
+            metadata={
                 "message_id": email.get("message_id"),
                 "sender_name": email.get("sender_name", ""),
                 "sender_address": email.get("sender_address", ""),
@@ -887,34 +907,11 @@ async def ingest_to_cortex(email: Dict[str, Any]):
                 "user_id": email.get("user_id"),
                 "web_link": email.get("web_link", "")
             }
-        }
-
-        # Call Cortex ingest endpoint
-        cortex_url = f"{CORTEX_API_URL}/api/ingest"
-        headers = {
-            "X-API-Key": CORTEX_API_KEY,
-            "Content-Type": "application/json"
-        }
-
-        logger.info(f"Ingesting email to Cortex: {email.get('subject', 'No Subject')[:50]}...")
-
-        response = await http_client.post(
-            cortex_url,
-            headers=headers,
-            json=cortex_payload,
-            timeout=60.0  # Cortex processing may take longer
         )
-        response.raise_for_status()
 
-        result = response.json()
-        logger.info(f"Cortex ingestion successful: episode_id={result.get('episode_id')}, chunks={result.get('num_chunks')}")
-
+        logger.info(f"Cortex ingestion successful: episode_id={result['episode_id']}, chunks={result['num_chunks']}")
         return result
 
-    except httpx.HTTPStatusError as e:
-        logger.error(f"Cortex ingestion HTTP error: {e.response.status_code} - {e.response.text}")
-        # Don't raise - continue with other messages
-        return None
     except Exception as e:
         logger.error(f"Error ingesting email to Cortex: {e}")
         # Don't raise - continue with other messages

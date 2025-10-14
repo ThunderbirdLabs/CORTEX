@@ -1,0 +1,6 @@
+.env
+node_modules/
+.nango/
+build/
+*.pyc
+__pycache__/
