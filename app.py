@@ -68,10 +68,9 @@ NANGO_CONNECTION_ID_GMAIL = os.getenv("NANGO_CONNECTION_ID_GMAIL")
 # Debug configuration
 SAVE_JSONL = os.getenv("SAVE_JSONL", "false").lower() == "true"
 
-# Cortex API configuration
-CORTEX_API_URL = os.getenv("CORTEX_API_URL", "http://localhost:8000")
-CORTEX_API_KEY = os.getenv("CORTEX_API_KEY", "cortex_dev_key_12345")
-ENABLE_CORTEX_INGESTION = os.getenv("ENABLE_CORTEX_INGESTION", "false").lower() == "true"
+# Cortex API configuration (your friend's Hybrid RAG system)
+CORTEX_API_URL = os.getenv("CORTEX_API_URL")
+CORTEX_API_KEY = os.getenv("CORTEX_API_KEY")
 
 # Validate required config
 required_vars = [
@@ -857,17 +856,18 @@ async def ingest_to_cortex(email: Dict[str, Any]):
 
     Sends email to Cortex API which will:
     1. Chunk the document intelligently
-    2. Generate embeddings and store in Supabase vector DB
-    3. Extract entities and relationships for Neo4j knowledge graph
+    2. Generate embeddings and store in Qdrant vector DB
+    3. Extract entities and relationships for Neo4j knowledge graph via Graphiti
     4. Link both systems with a shared episode_id UUID
 
     Args:
         email: Normalized email dictionary
 
     Returns:
-        Dict with ingestion results or None if disabled/failed
+        Dict with ingestion results or None if not configured/failed
     """
-    if not ENABLE_CORTEX_INGESTION:
+    if not CORTEX_API_URL or not CORTEX_API_KEY:
+        logger.debug("Cortex not configured, skipping ingestion")
         return None
 
     try:
