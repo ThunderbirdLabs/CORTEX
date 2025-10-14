@@ -27,7 +27,6 @@ from uuid import uuid4
 import httpx
 import jwt
 import psycopg
-import nest_asyncio
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,9 +36,6 @@ from supabase import create_client, Client
 
 # Import Cortex Hybrid RAG Pipeline
 from cortex_backend.core.pipeline import HybridRAGPipeline
-
-# Enable nested asyncio for LlamaIndex/Graphiti
-nest_asyncio.apply()
 
 # Load environment variables
 load_dotenv()
