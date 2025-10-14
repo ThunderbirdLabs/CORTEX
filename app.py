@@ -27,6 +27,7 @@ from uuid import uuid4
 import httpx
 import jwt
 import psycopg
+import nest_asyncio
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,8 +35,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from supabase import create_client, Client
 
-# Import Cortex Hybrid RAG Pipeline
+# Import Cortex Hybrid RAG Pipeline and Search Router
 from cortex_backend.core.pipeline import HybridRAGPipeline
+from cortex_backend.api.routers import search_llamaindex
+
+# Enable nested asyncio for LlamaIndex/Graphiti
+nest_asyncio.apply()
 
 # Load environment variables
 load_dotenv()
@@ -102,6 +107,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount Cortex search router
+app.include_router(search_llamaindex.router)
 
 # Supabase client
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)

@@ -5,16 +5,16 @@ This is the NEW LlamaIndex-powered search endpoint.
 Compare with the old search.py to see the difference!
 """
 from fastapi import APIRouter, HTTPException, Depends
-from backend.models.api_models import (
+from cortex_backend.models.api_models import (
     SearchQuery,
     SearchResponse,
     VectorResult,
     GraphResult
 )
-from backend.middleware.auth import verify_api_key
-# from backend.services.llamaindex_service import LlamaIndexService  # Not needed for /search-optimized
-from backend.core.query_rewriter import rewrite_query_with_context
-from backend.core.hybrid_query_engine import GraphitiHybridQueryEngine
+from cortex_backend.middleware.auth import verify_api_key
+# from cortex_backend.services.llamaindex_service import LlamaIndexService  # Not needed for /search-optimized
+from cortex_backend.core.query_rewriter import rewrite_query_with_context
+from cortex_backend.core.hybrid_query_engine import GraphitiHybridQueryEngine
 from llama_index.core import VectorStoreIndex, Settings, StorageContext
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.embeddings.openai import OpenAIEmbedding
