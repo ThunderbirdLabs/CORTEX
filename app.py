@@ -982,12 +982,12 @@ async def run_gmail_sync(
         cursor = stored_cursor
 
         # If this is the first sync (no cursor) and no modified_after provided,
-        # default to 30 days ago
+        # default to 7 days ago for testing (reduces initial email load)
         if not stored_cursor and not modified_after:
-            thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+            seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
             # Format as ISO without microseconds, with Z timezone (Nango format)
-            modified_after = thirty_days_ago.strftime('%Y-%m-%dT%H:%M:%SZ')
-            logger.info(f"First sync detected - defaulting to 30 days: {modified_after}")
+            modified_after = seven_days_ago.strftime('%Y-%m-%dT%H:%M:%SZ')
+            logger.info(f"First sync detected - defaulting to 7 days: {modified_after}")
 
         # Override with modified_after for manual testing if provided
         if modified_after:
