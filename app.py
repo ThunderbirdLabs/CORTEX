@@ -981,18 +981,15 @@ async def run_gmail_sync(
         stored_cursor = await get_gmail_cursor(tenant_id, provider_key)
         cursor = stored_cursor
 
-        # If this is the first sync (no cursor) and no modified_after provided,
-        # default to 30 days ago (one month) to reduce initial email load
-        if not stored_cursor and not modified_after:
-            one_month_ago = datetime.now(timezone.utc) - timedelta(days=30)
-            # Format as ISO without microseconds, with Z timezone (Nango format)
-            modified_after = one_month_ago.strftime('%Y-%m-%dT%H:%M:%SZ')
-            logger.info(f"First sync detected - defaulting to 30 days: {modified_after}")
-
         # Override with modified_after for manual testing if provided
+        # Note: modified_after is a FILTER, not a limit - it will still paginate through
+        # all emails after that date. For full syncs, don't use modified_after at all.
         if modified_after:
             cursor = None
             logger.info(f"Using modified_after filter: {modified_after}")
+        elif not stored_cursor:
+            # First sync - sync all emails (no date filter)
+            logger.info(f"First sync detected - syncing all emails")
 
         # Paginate through all Gmail records
         has_more = True
