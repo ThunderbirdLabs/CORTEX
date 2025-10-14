@@ -1,0 +1,74 @@
+"""
+Dependency Injection
+Provides global clients and services to routes via FastAPI dependencies
+"""
+from typing import Optional
+import httpx
+from supabase import Client, create_client
+
+from app.core.config import settings
+
+# ============================================================================
+# GLOBAL CLIENTS (initialized at startup)
+# ============================================================================
+
+http_client: Optional[httpx.AsyncClient] = None
+supabase_client: Optional[Client] = None
+rag_pipeline: Optional[any] = None  # Will be imported from services.ingestion
+
+
+# ============================================================================
+# DEPENDENCY FUNCTIONS
+# ============================================================================
+
+async def get_http_client() -> httpx.AsyncClient:
+    """Get global HTTP client."""
+    if not http_client:
+        raise RuntimeError("HTTP client not initialized")
+    return http_client
+
+
+async def get_supabase() -> Client:
+    """Get Supabase client."""
+    if not supabase_client:
+        raise RuntimeError("Supabase client not initialized")
+    return supabase_client
+
+
+async def get_rag_pipeline():
+    """Get RAG pipeline instance."""
+    return rag_pipeline  # Can be None if not initialized
+
+
+# ============================================================================
+# STARTUP/SHUTDOWN
+# ============================================================================
+
+async def initialize_clients():
+    """Initialize all global clients at startup."""
+    global http_client, supabase_client, rag_pipeline
+
+    # HTTP client
+    http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0),
+        limits=httpx.Limits(max_keepalive_connections=10, max_connections=20)
+    )
+
+    # Supabase client
+    supabase_client = create_client(settings.supabase_url, settings.supabase_anon_key)
+
+    # RAG Pipeline (lazy import to avoid circular dependencies)
+    try:
+        from app.services.ingestion.pipeline import HybridRAGPipeline
+        rag_pipeline = HybridRAGPipeline()
+    except Exception as e:
+        print(f"Warning: Failed to initialize RAG pipeline: {e}")
+        rag_pipeline = None
+
+
+async def shutdown_clients():
+    """Cleanup clients at shutdown."""
+    global http_client
+
+    if http_client:
+        await http_client.aclose()
