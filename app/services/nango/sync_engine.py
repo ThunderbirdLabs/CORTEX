@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from supabase import Client
 
-from app.services.ingestion.pipeline import HybridRAGPipeline
+from app.services.ingestion.llamaindex.hybrid_property_graph_pipeline import HybridPropertyGraphPipeline
 from app.services.nango.database import get_connection, get_gmail_cursor, set_gmail_cursor
 from app.services.connectors.gmail import normalize_gmail_message
 from app.services.connectors.microsoft_graph import list_all_users, normalize_message, sync_user_mailbox
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 async def run_tenant_sync(
     http_client: httpx.AsyncClient,
     supabase: Client,
-    cortex_pipeline: Optional[HybridRAGPipeline],
+    cortex_pipeline: Optional[HybridPropertyGraphPipeline],
     tenant_id: str,
     provider_key: str
 ) -> Dict[str, Any]:
@@ -152,7 +152,7 @@ async def run_tenant_sync(
 async def run_gmail_sync(
     http_client: httpx.AsyncClient,
     supabase: Client,
-    cortex_pipeline: Optional[HybridRAGPipeline],
+    cortex_pipeline: Optional[HybridPropertyGraphPipeline],
     tenant_id: str,
     provider_key: str,
     modified_after: Optional[str] = None

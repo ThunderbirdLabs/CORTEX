@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 
 from supabase import Client
 
-from app.services.ingestion.pipeline import HybridRAGPipeline
+from app.services.ingestion.llamaindex.hybrid_property_graph_pipeline import HybridPropertyGraphPipeline
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -89,17 +89,18 @@ async def append_jsonl(email: Dict[str, Any]):
 # ============================================================================
 
 async def ingest_to_cortex(
-    cortex_pipeline: Optional[HybridRAGPipeline],
+    cortex_pipeline: Optional[HybridPropertyGraphPipeline],
     email: Dict[str, Any]
 ):
     """
-    Ingest email into Cortex Hybrid RAG system.
+    Ingest email into Cortex hybrid property graph system using LlamaIndex.
 
-    Processes email through Cortex pipeline:
-    1. Chunks the document intelligently
-    2. Generates embeddings and stores in Qdrant vector DB
-    3. Extracts entities and relationships for Neo4j knowledge graph via Graphiti
-    4. Links both systems with a shared episode_id UUID
+    Processes email through unified hybrid pipeline:
+    1. Extracts entities and relationships (schema-guided + implicit)
+    2. Stores graph structure in Neo4j PropertyGraphStore
+    3. Stores vector embeddings in Qdrant VectorStore
+    4. Links both systems seamlessly in single PropertyGraphIndex
+    5. Returns episode_id for linking with Supabase
 
     Args:
         cortex_pipeline: Cortex pipeline instance (or None if disabled)
@@ -133,7 +134,7 @@ async def ingest_to_cortex(
             }
         )
 
-        logger.info(f"Cortex ingestion successful: episode_id={result['episode_id']}, chunks={result['num_chunks']}")
+        logger.info(f"Cortex ingestion successful: episode_id={result['episode_id']}")
         return result
 
     except Exception as e:

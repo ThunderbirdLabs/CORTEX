@@ -59,8 +59,8 @@ async def initialize_clients():
 
     # RAG Pipeline (lazy import to avoid circular dependencies)
     try:
-        from app.services.ingestion.pipeline import HybridRAGPipeline
-        rag_pipeline = HybridRAGPipeline()
+        from app.services.ingestion.llamaindex.hybrid_property_graph_pipeline import HybridPropertyGraphPipeline
+        rag_pipeline = HybridPropertyGraphPipeline()
     except Exception as e:
         print(f"Warning: Failed to initialize RAG pipeline: {e}")
         rag_pipeline = None

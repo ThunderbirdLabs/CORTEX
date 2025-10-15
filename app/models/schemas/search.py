@@ -39,7 +39,7 @@ class VectorResult(BaseModel):
 
 
 class GraphResult(BaseModel):
-    """Knowledge graph result from Neo4j/Graphiti."""
+    """Knowledge graph result from Neo4j via LlamaIndex."""
     type: str
     relation_name: str
     fact: str

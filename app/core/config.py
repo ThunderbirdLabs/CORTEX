@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     # ============================================================================
 
     save_jsonl: bool = Field(default=False, description="Save emails to JSONL for debugging")
-    semaphore_limit: int = Field(default=10, description="Graphiti concurrency limit")
+    semaphore_limit: int = Field(default=10, description="LlamaIndex concurrency limit")
 
     class Config:
         env_file = ".env"
