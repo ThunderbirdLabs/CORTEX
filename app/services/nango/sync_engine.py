@@ -10,10 +10,12 @@ from supabase import Client
 
 from app.services.ingestion.llamaindex.hybrid_property_graph_pipeline import HybridPropertyGraphPipeline
 from app.services.nango.database import get_connection, get_gmail_cursor, set_gmail_cursor
-from app.services.connectors.gmail import normalize_gmail_message
+from app.services.connectors.gmail import normalize_gmail_message, download_gmail_attachment, is_supported_attachment_type
 from app.services.connectors.microsoft_graph import list_all_users, normalize_message, sync_user_mailbox
 from app.services.nango.nango_client import get_graph_token_via_nango, nango_list_gmail_records
 from app.services.nango.persistence import append_jsonl, ingest_to_cortex, persist_email_row
+from app.services.universal.ingest import ingest_document_universal
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +231,7 @@ async def run_gmail_sync(
                         # Normalize Gmail message
                         normalized = normalize_gmail_message(record, tenant_id)
 
-                        # Ingest using UNIVERSAL FLOW (documents table + PropertyGraph)
+                        # Ingest email body using UNIVERSAL FLOW (documents table + PropertyGraph)
                         cortex_result = await ingest_to_cortex(
                             cortex_pipeline,
                             normalized,
@@ -243,6 +245,73 @@ async def run_gmail_sync(
                         await append_jsonl(normalized)
 
                         messages_synced += 1
+
+                        # Process attachments (if any)
+                        attachments = normalized.get("attachments", [])
+                        if attachments and cortex_pipeline and supabase:
+                            logger.info(f"   📎 Processing {len(attachments)} attachments for message {normalized['message_id']}")
+
+                            # Get Gmail access token via Nango
+                            access_token = await get_graph_token_via_nango(
+                                http_client,
+                                provider_key,
+                                connection_id
+                            )
+
+                            for attachment in attachments:
+                                try:
+                                    filename = attachment.get("filename", "attachment")
+                                    mime_type = attachment.get("mimeType", "")
+                                    attachment_id = attachment.get("attachmentId") or attachment.get("id")
+                                    size = attachment.get("size", 0)
+
+                                    # Skip if not supported
+                                    if not is_supported_attachment_type(mime_type):
+                                        logger.debug(f"      ⏭️  Skipping unsupported attachment: {filename} ({mime_type})")
+                                        continue
+
+                                    # Skip large files (>10MB)
+                                    if size > 10 * 1024 * 1024:
+                                        logger.warning(f"      ⏭️  Skipping large attachment: {filename} ({size} bytes)")
+                                        continue
+
+                                    # Download attachment
+                                    logger.info(f"      📥 Downloading: {filename}")
+                                    attachment_bytes = await download_gmail_attachment(
+                                        http_client,
+                                        access_token,
+                                        normalized["message_id"],
+                                        attachment_id
+                                    )
+
+                                    # Universal ingestion (Unstructured.io parses it!)
+                                    await ingest_document_universal(
+                                        supabase=supabase,
+                                        cortex_pipeline=cortex_pipeline,
+                                        tenant_id=tenant_id,
+                                        source="gmail",
+                                        source_id=f"{normalized['message_id']}_{attachment_id}",  # Unique ID
+                                        document_type="attachment",
+                                        title=f"[Attachment] {filename}",
+                                        file_bytes=attachment_bytes,
+                                        filename=filename,
+                                        file_type=mime_type,
+                                        raw_data=attachment,  # Preserve attachment metadata
+                                        metadata={
+                                            "email_subject": normalized.get("subject"),
+                                            "email_id": normalized["message_id"],
+                                            "sender": normalized.get("sender_address"),
+                                            "attached_to": "email"
+                                        }
+                                    )
+
+                                    logger.info(f"      ✅ Attachment ingested: {filename}")
+
+                                except Exception as e:
+                                    error_msg = f"Error processing attachment {filename}: {e}"
+                                    logger.error(f"      ❌ {error_msg}")
+                                    errors.append(error_msg)
+
                     except Exception as e:
                         error_msg = f"Error processing Gmail message: {e}"
                         logger.error(error_msg)
