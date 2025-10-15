@@ -229,14 +229,14 @@ async def run_gmail_sync(
                         # Normalize Gmail message
                         normalized = normalize_gmail_message(record, tenant_id)
 
-                        # Ingest to Cortex Hybrid RAG system FIRST (to get episode_id)
-                        cortex_result = await ingest_to_cortex(cortex_pipeline, normalized)
+                        # Ingest using UNIVERSAL FLOW (documents table + PropertyGraph)
+                        cortex_result = await ingest_to_cortex(
+                            cortex_pipeline,
+                            normalized,
+                            supabase  # Pass supabase for universal ingestion
+                        )
 
-                        # Add episode_id to email if Cortex ingestion succeeded
-                        if cortex_result and cortex_result.get('episode_id'):
-                            normalized['episode_id'] = cortex_result['episode_id']
-
-                        # Persist to Supabase (now with episode_id)
+                        # Persist to emails table (for email-specific queries)
                         await persist_email_row(supabase, normalized)
 
                         # Optionally write to JSONL

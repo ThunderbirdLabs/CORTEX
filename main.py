@@ -35,7 +35,8 @@ from app.api.v1.routes import (
     webhook_router,
     sync_router,
     search_router,
-    emails_router
+    emails_router,
+    upload_router
 )
 
 # Enable nested asyncio for LlamaIndex/Graphiti compatibility
@@ -91,6 +92,7 @@ app.include_router(webhook_router)
 app.include_router(sync_router)
 app.include_router(search_router)
 app.include_router(emails_router)
+app.include_router(upload_router)
 
 # ============================================================================
 # LIFECYCLE EVENTS

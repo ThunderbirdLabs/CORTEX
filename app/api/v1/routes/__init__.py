@@ -8,6 +8,7 @@ from app.api.v1.routes.webhook import router as webhook_router
 from app.api.v1.routes.sync import router as sync_router
 from app.api.v1.routes.search import router as search_router
 from app.api.v1.routes.emails import router as emails_router
+from app.api.v1.routes.upload import router as upload_router
 
 __all__ = [
     "health_router",
@@ -16,4 +17,5 @@ __all__ = [
     "sync_router",
     "search_router",
     "emails_router",
+    "upload_router",
 ]
