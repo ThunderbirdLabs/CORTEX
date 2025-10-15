@@ -229,14 +229,18 @@ async def run_gmail_sync(
                         # Normalize Gmail message
                         normalized = normalize_gmail_message(record, tenant_id)
 
-                        # Persist to Supabase
+                        # Ingest to Cortex Hybrid RAG system FIRST (to get episode_id)
+                        cortex_result = await ingest_to_cortex(cortex_pipeline, normalized)
+
+                        # Add episode_id to email if Cortex ingestion succeeded
+                        if cortex_result and cortex_result.get('episode_id'):
+                            normalized['episode_id'] = cortex_result['episode_id']
+
+                        # Persist to Supabase (now with episode_id)
                         await persist_email_row(supabase, normalized)
 
                         # Optionally write to JSONL
                         await append_jsonl(normalized)
-
-                        # Ingest to Cortex Hybrid RAG system (if enabled)
-                        await ingest_to_cortex(cortex_pipeline, normalized)
 
                         messages_synced += 1
                     except Exception as e:
