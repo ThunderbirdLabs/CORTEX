@@ -22,6 +22,7 @@ class SearchQuery(BaseModel):
     graph_limit: int = Field(5, description="Max knowledge graph results", ge=1, le=20)
     source_filter: Optional[str] = Field(None, description="Filter by source (gmail, slack, etc.)")
     conversation_history: Optional[List[Message]] = Field(default=[], description="Previous messages for context")
+    include_full_emails: bool = Field(True, description="Auto-fetch full emails from Supabase using episode_ids")
 
 
 class VectorResult(BaseModel):
@@ -60,3 +61,4 @@ class SearchResponse(BaseModel):
     graph_results: List[GraphResult]
     num_episodes: int
     message: str
+    full_emails: Optional[List[Dict[str, Any]]] = Field(None, description="Full email objects from Supabase (if include_full_emails=true)")

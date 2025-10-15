@@ -9,9 +9,11 @@ from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.openai import OpenAI as LlamaOpenAI
 from qdrant_client import QdrantClient, AsyncQdrantClient
+from supabase import Client
 
 from app.core.config import settings
-from app.core.security import verify_api_key
+from app.core.security import verify_api_key, get_current_user_id
+from app.core.dependencies import get_supabase
 from app.models.schemas import SearchQuery, SearchResponse, VectorResult, GraphResult
 from app.services.search.query_rewriter import rewrite_query_with_context
 from app.services.ingestion import HybridRAGPipeline
@@ -88,28 +90,34 @@ async def _initialize_optimized_engine():
 @router.post("/search", response_model=SearchResponse)
 async def search(
     query: SearchQuery,
-    api_key: str = Depends(verify_api_key)
+    api_key: str = Depends(verify_api_key),
+    user_id: str = Depends(get_current_user_id),
+    supabase: Client = Depends(get_supabase)
 ):
     """
-    Optimized Hybrid Search with Episode Linking.
-    
+    Optimized Hybrid Search with Episode Linking & Full Email Retrieval.
+
     This endpoint uses GraphitiHybridQueryEngine which:
     - Executes vector search first
     - Extracts episode_ids from results
     - Queries graph FILTERED by those episode_ids only
     - Synthesizes focused answer
-    
+    - Optionally fetches full email objects from Supabase (default: enabled)
+
     Performance benefits:
     - 10x fewer tokens (graph filtered by relevance)
     - 5x faster (smaller graph queries)
     - More accurate (focused context, less noise)
-    
+    - One-call convenience (search + full emails in single request)
+
     Args:
-        query: Search parameters (query, vector_limit, graph_limit, etc.)
+        query: Search parameters (query, vector_limit, graph_limit, include_full_emails)
         api_key: Validated API key (X-API-Key header)
-    
+        user_id: Authenticated user (from JWT)
+        supabase: Supabase client (dependency injection)
+
     Returns:
-        SearchResponse: AI-generated answer with vector and graph sources
+        SearchResponse: AI answer + vector/graph sources + full email objects
     """
     try:
         # Query rewriting with conversation context
@@ -162,6 +170,31 @@ async def search(
                 episodes=[fact_dict.get('episode_id')] if fact_dict.get('episode_id') else []
             ))
 
+        # Optionally fetch full emails from Supabase
+        full_emails = None
+        if query.include_full_emails:
+            # Collect unique episode_ids from vector results
+            episode_ids = list(set(
+                vr.episode_id for vr in vector_results
+                if vr.episode_id
+            ))
+
+            if episode_ids:
+                try:
+                    # Fetch all emails for these episode_ids
+                    emails_result = supabase.table("emails").select("*").in_(
+                        "episode_id", episode_ids
+                    ).eq(
+                        "tenant_id", user_id
+                    ).execute()
+
+                    full_emails = emails_result.data if emails_result.data else []
+                    logger.info(f"Fetched {len(full_emails)} full email(s) for {len(episode_ids)} episode(s)")
+                except Exception as e:
+                    logger.warning(f"Failed to fetch full emails: {e}")
+                    # Don't fail the whole request if email fetch fails
+                    pass
+
         return SearchResponse(
             success=True,
             query=query.query,
@@ -169,7 +202,8 @@ async def search(
             vector_results=vector_results,
             graph_results=graph_results,
             num_episodes=result['metadata']['num_episodes'],
-            message=f"Found {result['metadata']['num_vector_results']} vector results + {result['metadata']['num_graph_facts']} graph facts"
+            message=f"Found {result['metadata']['num_vector_results']} vector results + {result['metadata']['num_graph_facts']} graph facts",
+            full_emails=full_emails
         )
 
     except Exception as e:
