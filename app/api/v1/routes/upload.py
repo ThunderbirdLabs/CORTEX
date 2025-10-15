@@ -7,7 +7,7 @@ from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from supabase import Client
 
 from app.core.security import get_current_user_id
-from app.core.dependencies import get_supabase, get_cortex_pipeline
+from app.core.dependencies import get_supabase, get_rag_pipeline
 from app.services.universal.ingest import ingest_document_universal
 from app.services.ingestion.llamaindex.hybrid_property_graph_pipeline import HybridPropertyGraphPipeline
 
@@ -21,7 +21,7 @@ async def upload_file(
     file: UploadFile = File(...),
     user_id: str = Depends(get_current_user_id),
     supabase: Client = Depends(get_supabase),
-    cortex_pipeline: HybridPropertyGraphPipeline = Depends(get_cortex_pipeline)
+    cortex_pipeline: HybridPropertyGraphPipeline = Depends(get_rag_pipeline)
 ):
     """
     Upload and ingest a file.
@@ -107,7 +107,7 @@ async def upload_multiple_files(
     files: list[UploadFile] = File(...),
     user_id: str = Depends(get_current_user_id),
     supabase: Client = Depends(get_supabase),
-    cortex_pipeline: HybridPropertyGraphPipeline = Depends(get_cortex_pipeline)
+    cortex_pipeline: HybridPropertyGraphPipeline = Depends(get_rag_pipeline)
 ):
     """
     Upload and ingest multiple files.
