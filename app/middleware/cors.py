@@ -16,6 +16,8 @@ def get_cors_middleware():
             "https://connectorfrontend.vercel.app",
             "http://localhost:3000",
             "http://localhost:5173",
+            "http://localhost:8080",
+            "null",  # Allow file:// protocol for local testing
         ],
         "allow_credentials": True,
         "allow_methods": ["*"],

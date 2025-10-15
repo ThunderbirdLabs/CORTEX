@@ -350,6 +350,48 @@ Instead of global variables:
 
 ---
 
+## 📁 Project Structure
+
+```
+NANGO-CONNECTION-ONLY/
+├── main.py                    # FastAPI application entry point
+├── requirements.txt           # Python dependencies
+├── runtime.txt                # Python version for deployment
+├── README.md                  # This file
+│
+├── app/                       # Main application code
+│   ├── api/v1/routes/        # API endpoints (OAuth, sync, search, chat)
+│   ├── core/                 # Config, dependencies, security
+│   ├── middleware/           # CORS, logging, error handling
+│   ├── models/               # Pydantic schemas
+│   └── services/             # Business logic
+│       ├── connectors/       # Gmail/Outlook email fetching
+│       ├── ingestion/        # RAG ingestion (LlamaIndex)
+│       ├── nango/            # Nango OAuth integration
+│       └── search/           # Query rewriting
+│
+├── scripts/                   # Utility scripts (organized)
+│   ├── ingestion/            # Data ingestion scripts
+│   │   └── ingest_from_supabase.py
+│   ├── testing/              # Test scripts
+│   │   ├── test_hybrid.py
+│   │   └── test_query.py
+│   └── database_tools/       # Database inspection/management
+│       ├── audit_databases.py
+│       ├── check_databases.py
+│       └── clear_databases.py
+│
+├── docs/                      # Documentation
+│   └── TYPED_ENTITIES_IMPLEMENTATION.md
+│
+└── public/                    # Static files
+    └── chat.html             # Simple chat UI for testing
+
+See scripts/README.md for detailed script documentation.
+```
+
+---
+
 ## 📈 Monitoring & Debugging
 
 ### **View Logs (Render)**

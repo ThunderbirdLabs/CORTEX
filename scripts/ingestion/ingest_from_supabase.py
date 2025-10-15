@@ -35,8 +35,8 @@ async def ingest_from_supabase(
     tenant_id: str = None
 ):
     """
-    Fetch rows from Supabase and ingest into dual pipeline.
-    
+    Fetch rows from Supabase and ingest into hybrid property graph pipeline.
+
     Args:
         table_name: Supabase table to fetch from (emails, documents, messages, etc.)
         limit: Maximum number of rows to process
@@ -202,7 +202,7 @@ async def ingest_from_supabase(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Ingest Supabase data into DualPipeline")
+    parser = argparse.ArgumentParser(description="Ingest Supabase data into Hybrid Property Graph Pipeline")
     parser.add_argument("--table", default="emails", help="Supabase table name (default: emails)")
     parser.add_argument("--limit", type=int, default=25, help="Max rows to process (default: 25)")
     parser.add_argument("--tenant", help="Filter by tenant_id (optional)")
