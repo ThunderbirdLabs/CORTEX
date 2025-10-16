@@ -39,3 +39,4 @@ python-docx>=1.0.0
 python-pptx>=1.0.0
 openpyxl>=3.1.0
 pdfminer.six>=20221105
+pillow-heif>=0.10.0
