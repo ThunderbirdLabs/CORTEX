@@ -132,24 +132,9 @@ def extract_text_from_file(
                 )
                 text = "\n\n".join([str(el) for el in elements])
                 
-                # Step 2: If we got barely any text, it's probably scanned
+                # Step 2: If we got barely any text, it's probably scanned (skip OCR to save memory)
                 if len(text.strip()) < 100:
-                    logger.warning(f"   ⚠️  Only {len(text)} chars extracted, likely scanned PDF - compressing and running OCR")
-                    
-                    # Compress PDF first to reduce OCR costs
-                    compressed_path = compress_pdf_ghostscript(file_path)
-                    
-                    # OCR the compressed version
-                    elements = partition_pdf(
-                        filename=compressed_path,
-                        strategy="hi_res",  # Full OCR mode
-                        extract_images_in_pdf=False,  # Still skip image extraction
-                    )
-                    text = "\n\n".join([str(el) for el in elements])
-                    
-                    # Clean up compressed file
-                    if compressed_path != file_path:
-                        os.remove(compressed_path)
+                    logger.warning(f"   ⚠️  Only {len(text)} chars extracted - PDF might be scanned (OCR disabled for low memory)")
                 
                 metadata = {
                     "parser": "unstructured_pdf",
