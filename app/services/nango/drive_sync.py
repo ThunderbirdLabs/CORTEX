@@ -27,6 +27,7 @@ async def nango_list_drive_files(
     connection_id: str,
     folder_ids: Optional[List[str]] = None,
     page_token: Optional[str] = None,
+    modified_after: Optional[str] = None,
     limit: int = 100
 ) -> Dict[str, Any]:
     """
@@ -38,6 +39,7 @@ async def nango_list_drive_files(
         connection_id: Connection ID
         folder_ids: Optional list of folder IDs to filter by
         page_token: Pagination token from Drive API
+        modified_after: ISO timestamp - only fetch files modified after this time
         limit: Results per page
 
     Returns:
@@ -48,6 +50,11 @@ async def nango_list_drive_files(
 
     # Build query for Drive API
     query_parts = ["trashed = false"]
+    
+    # Add modified time filter for incremental sync
+    if modified_after:
+        query_parts.append(f"modifiedTime > '{modified_after}'")
+    
     if folder_ids:
         folder_conditions = " or ".join([f"'{fid}' in parents" for fid in folder_ids])
         query_parts.append(f"({folder_conditions})")
@@ -142,14 +149,15 @@ async def run_drive_sync(
     download_files: bool = True
 ) -> Dict[str, Any]:
     """
-    Sync Google Drive files for a tenant.
+    Sync Google Drive files for a tenant (incremental sync supported).
 
     Flow:
-    1. Fetch file metadata from Nango (/documents endpoint)
-    2. For each supported file:
-       a. Download file content
+    1. Check last sync time from documents table
+    2. Fetch only new/updated files from Drive (modifiedTime > last_sync)
+    3. For each supported file:
+       a. Download file content via /fetch-document
        b. Ingest via universal ingestion (Unstructured.io parses it)
-    3. Pagination until all files synced
+    4. Pagination until all files synced
 
     Args:
         http_client: HTTP client
@@ -164,6 +172,23 @@ async def run_drive_sync(
         Sync statistics
     """
     logger.info(f"🚀 Starting Drive sync for tenant {tenant_id}")
+
+    # Get last sync time for incremental sync
+    last_sync_time = None
+    try:
+        result = supabase.table("documents").select("source_modified_at").eq(
+            "tenant_id", tenant_id
+        ).eq(
+            "source", "googledrive"
+        ).order("source_modified_at", desc=True).limit(1).execute()
+        
+        if result.data and result.data[0].get("source_modified_at"):
+            last_sync_time = result.data[0]["source_modified_at"]
+            logger.info(f"   📅 Incremental sync: fetching files modified after {last_sync_time}")
+        else:
+            logger.info(f"   📅 First sync: fetching all files")
+    except Exception as e:
+        logger.warning(f"Could not get last sync time: {e}. Doing full sync.")
 
     if folder_ids:
         logger.info(f"   Syncing specific folders: {folder_ids}")
@@ -194,13 +219,14 @@ async def run_drive_sync(
 
         while has_more:
             try:
-                # Fetch page of files
+                # Fetch page of files (with incremental sync support)
                 result = await nango_list_drive_files(
                     http_client,
                     provider_key,
                     connection_id,
                     folder_ids=folder_ids,
-                    cursor=cursor,
+                    page_token=cursor,
+                    modified_after=last_sync_time,  # Incremental sync
                     limit=100
                 )
 
