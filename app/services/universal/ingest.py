@@ -4,8 +4,9 @@ Normalizes ALL sources (Gmail, Drive, Slack, HubSpot, uploads, etc.) into unifie
 
 Flow for ANY source:
 1. Extract text (if file provided) → Plain text
-2. Save to documents table → Supabase
-3. Ingest to PropertyGraph → Neo4j + Qdrant
+2. Check for duplicates (content-based deduplication)
+3. Save to documents table → Supabase
+4. Ingest to PropertyGraph → Neo4j + Qdrant
 """
 import logging
 from typing import Dict, Any, Optional
@@ -14,6 +15,7 @@ from supabase import Client
 
 from app.services.ingestion.llamaindex.hybrid_property_graph_pipeline import HybridPropertyGraphPipeline
 from app.services.parsing.file_parser import extract_text_from_file, extract_text_from_bytes
+from app.services.deduplication import should_ingest_document
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +115,31 @@ async def ingest_document_universal(
         logger.info(f"   ✅ Text extracted: {len(content)} characters")
 
         # ========================================================================
-        # STEP 2: Ingest to PropertyGraph (Neo4j + Qdrant)
+        # STEP 2: Check for duplicates (content-based deduplication)
+        # ========================================================================
+
+        should_ingest, content_hash = await should_ingest_document(
+            supabase=supabase,
+            tenant_id=tenant_id,
+            content=content,
+            source=source
+        )
+
+        if not should_ingest:
+            logger.info(f"   ⏭️  Skipping duplicate document: {title}")
+            return {
+                'status': 'skipped',
+                'reason': 'duplicate',
+                'source': source,
+                'source_id': source_id,
+                'title': title,
+                'content_hash': content_hash
+            }
+
+        logger.info(f"   ✅ No duplicate found (hash: {content_hash[:16]}...)")
+
+        # ========================================================================
+        # STEP 3: Ingest to PropertyGraph (Neo4j + Qdrant)
         # ========================================================================
 
         logger.info(f"   🕸️  Ingesting to PropertyGraph...")
@@ -137,7 +163,7 @@ async def ingest_document_universal(
         logger.info(f"   ✅ PropertyGraph ingestion complete")
 
         # ========================================================================
-        # STEP 3: Save to Unified Documents Table (Supabase)
+        # STEP 4: Save to Unified Documents Table (Supabase)
         # ========================================================================
 
         logger.info(f"   💾 Saving to documents table...")
@@ -149,6 +175,7 @@ async def ingest_document_universal(
             'document_type': document_type,
             'title': title,
             'content': content,
+            'content_hash': content_hash,  # Add content hash for deduplication
             'raw_data': raw_data,
             'file_type': file_type,
             'file_size': parse_metadata.get('file_size') or (len(file_bytes) if file_bytes else None),
