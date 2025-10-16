@@ -66,7 +66,18 @@ async def nango_list_drive_files(
     )
 
     response.raise_for_status()
-    return response.json()
+    
+    # Handle empty response (sync not run yet)
+    if not response.text or response.text.strip() == "":
+        logger.warning("Nango returned empty response - Documents sync may not have run yet")
+        return {"records": [], "next_cursor": None}
+    
+    try:
+        return response.json()
+    except Exception as e:
+        logger.error(f"Failed to parse Nango response: {e}")
+        logger.error(f"Response text: {response.text}")
+        return {"records": [], "next_cursor": None}
 
 
 async def get_drive_access_token(
