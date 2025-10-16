@@ -113,6 +113,15 @@ async def ingest_document_universal(
             file_type = parse_metadata['file_type']
 
         logger.info(f"   ✅ Text extracted: {len(content)} characters")
+        
+        # Strip null bytes (Postgres can't handle them)
+        content = content.replace('\x00', '')
+        
+        # Limit content size to prevent runaway processing costs
+        MAX_CHARS = 100000  # 100K chars max (~50 pages of text)
+        if len(content) > MAX_CHARS:
+            logger.warning(f"   ⚠️  Content too large ({len(content)} chars), truncating to {MAX_CHARS}")
+            content = content[:MAX_CHARS]
 
         # ========================================================================
         # STEP 2: Check for duplicates (content-based deduplication)

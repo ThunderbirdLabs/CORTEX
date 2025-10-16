@@ -9,6 +9,18 @@ export interface IdEntity {
   id: string;
 };
 
+export interface DriveFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  webViewLink: string | undefined;
+  parents: string[] | undefined;
+  modifiedTime: string;
+  createdTime: string;
+  size: number | undefined;
+  trashed: boolean;
+};
+
 export type Anonymous_googledrive_action_fetchdocument_output = string
 // ------ /Models
 
@@ -446,7 +458,36 @@ export {};
 export const NangoFlows = [
   {
     "providerConfigKey": "google-drive",
-    "syncs": [],
+    "syncs": [
+      {
+        "name": "all-files",
+        "type": "sync",
+        "description": "Syncs ALL files from Google Drive (auto-runs every hour).\nReturns metadata only - use fetch-document action to download content.",
+        "sync_type": "incremental",
+        "usedModels": [
+          "DriveFile"
+        ],
+        "runs": "every hour",
+        "version": "",
+        "track_deletes": false,
+        "auto_start": true,
+        "input": null,
+        "output": [
+          "DriveFile"
+        ],
+        "scopes": [
+          "https://www.googleapis.com/auth/drive.readonly"
+        ],
+        "endpoints": [
+          {
+            "method": "GET",
+            "path": "/all-files",
+            "group": "Documents"
+          }
+        ],
+        "webhookSubscriptions": []
+      }
+    ],
     "actions": [
       {
         "name": "fetch-document",

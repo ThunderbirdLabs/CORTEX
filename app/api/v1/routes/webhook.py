@@ -21,7 +21,7 @@ router = APIRouter(prefix="/nango", tags=["webhook"])
 
 @router.post("/webhook")
 async def nango_webhook(
-    payload: NangoWebhook,
+    payload: dict,  # Accept raw dict to see what's coming in
     background_tasks: BackgroundTasks,
     http_client: httpx.AsyncClient = Depends(get_http_client),
     supabase: Client = Depends(get_supabase),
@@ -35,20 +35,27 @@ async def nango_webhook(
     - sync: Incremental sync completion
     - forward: Passthrough API calls
     """
-    nango_connection_id = payload.connectionId
-    logger.info(f"Received Nango webhook: type={payload.type}, connection={nango_connection_id}, provider={payload.providerConfigKey}")
+    logger.info(f"Received Nango webhook (raw): {payload}")
+    
+    # Parse webhook (flexible for different event types)
+    webhook_type = payload.get("type")
+    nango_connection_id = payload.get("connectionId")
+    provider_key = payload.get("providerConfigKey")
+    
+    logger.info(f"Webhook parsed: type={webhook_type}, connection={nango_connection_id}, provider={provider_key}")
 
     # Handle auth events
-    if payload.type == "auth" and payload.success:
+    if webhook_type == "auth" and payload.get("success"):
         try:
-            logger.info(f"Full webhook payload: {payload.model_dump_json()}")
+            logger.info(f"Full webhook payload: {payload}")
 
             end_user_id = None
-            if hasattr(payload, 'end_user') and payload.end_user:
-                end_user_id = payload.end_user.get("id") if isinstance(payload.end_user, dict) else None
+            end_user = payload.get('endUser') or payload.get('end_user')
+            if end_user:
+                end_user_id = end_user.get("endUserId") or end_user.get("id")
 
             if not end_user_id:
-                conn_url = f"https://api.nango.dev/connection/{nango_connection_id}?provider_config_key={payload.providerConfigKey}"
+                conn_url = f"https://api.nango.dev/connection/{nango_connection_id}?provider_config_key={provider_key}"
                 headers = {"Authorization": f"Bearer {settings.nango_secret}"}
                 response = await http_client.get(conn_url, headers=headers)
                 response.raise_for_status()
@@ -60,7 +67,7 @@ async def nango_webhook(
                 return {"status": "error", "message": "Missing end_user information"}
 
             logger.info(f"OAuth successful for user {end_user_id}, saving connection")
-            await save_connection(end_user_id, payload.providerConfigKey, nango_connection_id)
+            await save_connection(end_user_id, provider_key, nango_connection_id)
             return {"status": "connection_saved", "user": end_user_id}
 
         except Exception as e:
@@ -68,8 +75,14 @@ async def nango_webhook(
             return {"status": "error", "message": str(e)}
 
     # Handle sync events - get tenant_id
+    if webhook_type == "sync":
+        logger.info(f"Sync webhook received: model={payload.get('model')}, success={payload.get('success')}")
+        # For now, just acknowledge sync webhooks
+        return {"status": "sync_acknowledged"}
+    
+    # Other webhook types - get tenant_id
     try:
-        conn_url = f"https://api.nango.dev/connection/{payload.providerConfigKey}/{nango_connection_id}"
+        conn_url = f"https://api.nango.dev/connection/{provider_key}/{nango_connection_id}"
         headers = {"Authorization": f"Bearer {settings.nango_secret}"}
         response = await http_client.get(conn_url, headers=headers)
         response.raise_for_status()

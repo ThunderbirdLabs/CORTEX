@@ -1,5 +1,18 @@
 integrations:
     google-drive:
+        syncs:
+            all-files:
+                description: |
+                    Syncs ALL files from Google Drive (auto-runs every hour).
+                    Returns metadata only - use fetch-document action to download content.
+                runs: every hour
+                output: DriveFile
+                sync_type: incremental
+                endpoint:
+                    method: GET
+                    path: /all-files
+                    group: Documents
+                scopes: https://www.googleapis.com/auth/drive.readonly
         actions:
             fetch-document:
                 input: IdEntity
@@ -18,3 +31,14 @@ integrations:
 models:
     IdEntity:
         id: string
+    
+    DriveFile:
+        id: string
+        name: string
+        mimeType: string
+        webViewLink: string | undefined
+        parents: string[] | undefined
+        modifiedTime: string
+        createdTime: string
+        size: number | undefined
+        trashed: boolean
