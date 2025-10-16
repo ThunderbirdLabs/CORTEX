@@ -1,17 +1,17 @@
 """
 Universal File Parser using Unstructured + LlamaIndex
-Extracts plain text from ANY file type (PDF, Word, Excel, images, etc.)
-100% LOCAL - no API calls
+Extracts plain text from ANY file type (PDF, Word, Excel, etc.)
+100% LOCAL - no API calls (except OpenAI for embeddings/entities)
 
 Strategy:
-1. Fast mode first (text extraction, no OCR)
-2. If result < 100 chars → compress with Ghostscript → OCR
-3. Keeps costs low, handles scanned PDFs
+1. PDFs: Fast mode (text extraction only, NO OCR)
+2. Office files: Unstructured parsing (lightweight)
+3. Lazy loading: Heavy ML models only loaded when needed
+4. Memory optimized for 512MB deployment
 """
 import logging
 import tempfile
 import os
-import subprocess
 from typing import Tuple, Dict, Optional
 from pathlib import Path
 
@@ -55,41 +55,7 @@ def detect_file_type(file_path: str) -> str:
         return ext_to_mime.get(ext, 'application/octet-stream')
 
 
-def compress_pdf_ghostscript(input_path: str) -> str:
-    """
-    Compress PDF with Ghostscript to reduce image quality (faster OCR, lower cost).
-    
-    Args:
-        input_path: Path to original PDF
-        
-    Returns:
-        Path to compressed PDF
-    """
-    output_path = input_path.replace('.pdf', '_compressed.pdf')
-    
-    try:
-        cmd = [
-            'gs',
-            '-sDEVICE=pdfwrite',
-            '-dCompatibilityLevel=1.4',
-            '-dPDFSETTINGS=/ebook',  # Low quality images (150 DPI)
-            '-dNOPAUSE',
-            '-dQUIET',
-            '-dBATCH',
-            f'-sOutputFile={output_path}',
-            input_path
-        ]
-        
-        subprocess.run(cmd, check=True, capture_output=True)
-        logger.info(f"   📉 Compressed PDF: {os.path.getsize(input_path)} → {os.path.getsize(output_path)} bytes")
-        return output_path
-        
-    except subprocess.CalledProcessError as e:
-        logger.warning(f"Ghostscript compression failed: {e}, using original")
-        return input_path
-    except FileNotFoundError:
-        logger.warning("Ghostscript not installed, skipping compression")
-        return input_path
+# Ghostscript PDF compression removed - OCR disabled for memory optimization
 
 
 def extract_text_from_file(

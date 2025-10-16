@@ -13,7 +13,7 @@ Architecture:
 - app/api/v1/routes/: API endpoints
 
 Author: Nicolas Codet
-Version: 1.0.0
+Version: 0.3.0
 """
 import sys
 import logging
