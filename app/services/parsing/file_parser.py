@@ -17,8 +17,9 @@ from pathlib import Path
 
 from llama_index.core import SimpleDirectoryReader, Document
 from llama_index.readers.file import UnstructuredReader
-from unstructured.partition.pdf import partition_pdf
-from unstructured.partition.auto import partition
+# Lazy import to avoid loading heavy ML models at startup
+# from unstructured.partition.pdf import partition_pdf
+# from unstructured.partition.auto import partition
 import magic
 
 logger = logging.getLogger(__name__)
@@ -124,6 +125,7 @@ def extract_text_from_file(
         if file_type == 'application/pdf':
             # Step 1: Try fast mode (text extraction only, no OCR)
             try:
+                from unstructured.partition.pdf import partition_pdf
                 elements = partition_pdf(
                     filename=file_path,
                     strategy="fast",

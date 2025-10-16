@@ -31,7 +31,7 @@ llama-index-vector-stores-qdrant>=0.4.0
 llama-index-graph-stores-neo4j>=0.4.0
 llama-index-readers-file>=0.4.0
 
-# File parsing (lightweight - no heavy ML models)
+# File parsing (lightweight - lazy loaded, no heavy ML at startup)
 unstructured>=0.16.0
 python-magic>=0.4.27
 pypdf>=5.0.0
