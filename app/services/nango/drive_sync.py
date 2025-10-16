@@ -201,6 +201,8 @@ async def run_drive_sync(
                         # Download and ingest file
                         if download_files:
                             file_bytes = None
+                            document_type = "file"  # Default
+                            original_mime = normalized["mime_type"]
 
                             # Handle Google Workspace files (need export)
                             if normalized["mime_type"].startswith("application/vnd.google-apps"):
@@ -215,6 +217,16 @@ async def run_drive_sync(
                                     )
                                     # Update mime type to exported format
                                     normalized["mime_type"] = export_mime
+
+                                    # Set specific document type for Google Workspace files
+                                    if original_mime == "application/vnd.google-apps.document":
+                                        document_type = "googledoc"
+                                    elif original_mime == "application/vnd.google-apps.spreadsheet":
+                                        document_type = "googlesheet"
+                                    elif original_mime == "application/vnd.google-apps.presentation":
+                                        document_type = "googleslide"
+                                    else:
+                                        document_type = "file"
                                 else:
                                     logger.warning(f"   ⚠️  No export format for: {normalized['mime_type']}")
                                     files_skipped += 1
@@ -233,9 +245,9 @@ async def run_drive_sync(
                                 supabase=supabase,
                                 cortex_pipeline=cortex_pipeline,
                                 tenant_id=tenant_id,
-                                source="gdrive",
+                                source="googledrive",
                                 source_id=normalized["file_id"],
-                                document_type="file",
+                                document_type=document_type,  # googledoc, googlesheet, googleslide, or file
                                 title=normalized["file_name"],
                                 file_bytes=file_bytes,
                                 filename=normalized["file_name"],
@@ -247,7 +259,8 @@ async def run_drive_sync(
                                     "owner_email": normalized["owner_email"],
                                     "owner_name": normalized["owner_name"],
                                     "web_view_link": normalized["web_view_link"],
-                                    "parent_folders": normalized["parent_folders"]
+                                    "parent_folders": normalized["parent_folders"],
+                                    "original_mime_type": original_mime  # Preserve original type
                                 }
                             )
 
