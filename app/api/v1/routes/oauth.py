@@ -19,7 +19,7 @@ router = APIRouter(prefix="", tags=["oauth"])
 
 @router.get("/connect/start")
 async def connect_start(
-    provider: str = Query(..., description="Provider name (microsoft or gmail)"),
+    provider: str = Query(..., description="Provider name (microsoft | gmail | google-drive)"),
     user_id: str = Depends(get_current_user_id),
     http_client: httpx.AsyncClient = Depends(get_http_client)
 ):
@@ -46,6 +46,15 @@ async def connect_start(
         if not settings.nango_provider_key_gmail:
             raise HTTPException(status_code=400, detail="Gmail provider not configured")
         integration_id = "google-mail"
+    elif provider.lower() in ["google-drive", "drive", "googledrive"]:
+        # Prefer dedicated Drive provider if configured; fall back to Gmail provider (same Google account)
+        if settings.nango_provider_key_google_drive:
+            integration_id = "google-drive"
+        elif settings.nango_provider_key_gmail:
+            # Allow connect via Gmail integration if Drive scopes are configured there
+            integration_id = "google-mail"
+        else:
+            raise HTTPException(status_code=400, detail="Google Drive provider not configured")
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
 
@@ -109,6 +118,7 @@ async def get_status(user_id: str = Depends(get_current_user_id)):
     try:
         outlook_connection = await get_connection(user_id, settings.nango_provider_key_outlook) if settings.nango_provider_key_outlook else None
         gmail_connection = await get_connection(user_id, settings.nango_provider_key_gmail) if settings.nango_provider_key_gmail else None
+        drive_connection = await get_connection(user_id, settings.nango_provider_key_google_drive) if settings.nango_provider_key_google_drive else gmail_connection
 
         return {
             "tenant_id": user_id,
@@ -122,6 +132,11 @@ async def get_status(user_id: str = Depends(get_current_user_id)):
                     "configured": settings.nango_provider_key_gmail is not None,
                     "connected": gmail_connection is not None,
                     "connection_id": gmail_connection
+                },
+                "google_drive": {
+                    "configured": (settings.nango_provider_key_google_drive is not None) or (settings.nango_provider_key_gmail is not None),
+                    "connected": drive_connection is not None,
+                    "connection_id": drive_connection
                 }
             }
         }

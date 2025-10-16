@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     # Provider configurations
     nango_provider_key_outlook: Optional[str] = Field(default=None, description="Nango provider key for Outlook")
     nango_provider_key_gmail: Optional[str] = Field(default=None, description="Nango provider key for Gmail")
+    nango_provider_key_google_drive: Optional[str] = Field(default=None, description="Nango provider key for Google Drive")
 
     # Connection IDs (optional - set after OAuth)
     nango_connection_id_outlook: Optional[str] = Field(default=None)

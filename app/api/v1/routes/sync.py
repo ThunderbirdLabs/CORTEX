@@ -107,7 +107,8 @@ async def sync_once_drive(
             supabase,
             rag_pipeline,
             user_id,
-            settings.nango_provider_key_gmail,  # Use same provider key as Gmail (both are Google)
+            # Prefer dedicated Drive provider key if available, else fall back to Gmail provider key
+            settings.nango_provider_key_google_drive or settings.nango_provider_key_gmail,
             folder_ids=folder_list,
             download_files=True  # Download and parse files
         )
