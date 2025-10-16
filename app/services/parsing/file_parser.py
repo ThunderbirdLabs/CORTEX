@@ -2,15 +2,23 @@
 Universal File Parser using Unstructured + LlamaIndex
 Extracts plain text from ANY file type (PDF, Word, Excel, images, etc.)
 100% LOCAL - no API calls
+
+Strategy:
+1. Fast mode first (text extraction, no OCR)
+2. If result < 100 chars → compress with Ghostscript → OCR
+3. Keeps costs low, handles scanned PDFs
 """
 import logging
 import tempfile
 import os
+import subprocess
 from typing import Tuple, Dict, Optional
 from pathlib import Path
 
 from llama_index.core import SimpleDirectoryReader, Document
 from llama_index.readers.file import UnstructuredReader
+from unstructured.partition.pdf import partition_pdf
+from unstructured.partition.auto import partition
 import magic
 
 logger = logging.getLogger(__name__)
@@ -46,21 +54,54 @@ def detect_file_type(file_path: str) -> str:
         return ext_to_mime.get(ext, 'application/octet-stream')
 
 
+def compress_pdf_ghostscript(input_path: str) -> str:
+    """
+    Compress PDF with Ghostscript to reduce image quality (faster OCR, lower cost).
+    
+    Args:
+        input_path: Path to original PDF
+        
+    Returns:
+        Path to compressed PDF
+    """
+    output_path = input_path.replace('.pdf', '_compressed.pdf')
+    
+    try:
+        cmd = [
+            'gs',
+            '-sDEVICE=pdfwrite',
+            '-dCompatibilityLevel=1.4',
+            '-dPDFSETTINGS=/ebook',  # Low quality images (150 DPI)
+            '-dNOPAUSE',
+            '-dQUIET',
+            '-dBATCH',
+            f'-sOutputFile={output_path}',
+            input_path
+        ]
+        
+        subprocess.run(cmd, check=True, capture_output=True)
+        logger.info(f"   📉 Compressed PDF: {os.path.getsize(input_path)} → {os.path.getsize(output_path)} bytes")
+        return output_path
+        
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Ghostscript compression failed: {e}, using original")
+        return input_path
+    except FileNotFoundError:
+        logger.warning("Ghostscript not installed, skipping compression")
+        return input_path
+
+
 def extract_text_from_file(
     file_path: str,
     file_type: Optional[str] = None
 ) -> Tuple[str, Dict]:
     """
-    Extract text from any file type using LlamaIndex + Unstructured.
+    Extract text from any file type using hybrid strategy.
 
-    Supports:
-    - PDFs (application/pdf)
-    - Word docs (.docx, .doc)
-    - PowerPoint (.pptx)
-    - Excel (.xlsx)
-    - Images (with OCR)
-    - Text files (.txt, .md, .html)
-    - And 20+ more file types
+    Strategy:
+    1. PDFs → Try fast mode first (text only, no OCR)
+    2. If < 100 chars → compress + OCR (scanned PDF)
+    3. Other files → standard Unstructured parsing
 
     Args:
         file_path: Path to file
@@ -79,59 +120,106 @@ def extract_text_from_file(
 
         logger.info(f"📄 Parsing file: {Path(file_path).name} ({file_type})")
 
-        # Use LlamaIndex SimpleDirectoryReader with UnstructuredReader backend
-        # UnstructuredReader runs 100% locally (no API calls)
-        reader = SimpleDirectoryReader(
-            input_files=[file_path],
-            file_extractor={
-                ".pdf": UnstructuredReader(),
-                ".docx": UnstructuredReader(),
-                ".doc": UnstructuredReader(),
-                ".pptx": UnstructuredReader(),
-                ".ppt": UnstructuredReader(),
-                ".xlsx": UnstructuredReader(),
-                ".xls": UnstructuredReader(),
-                ".txt": UnstructuredReader(),
-                ".md": UnstructuredReader(),
-                ".html": UnstructuredReader(),
-                ".htm": UnstructuredReader(),
-                ".csv": UnstructuredReader(),
-                ".json": UnstructuredReader(),
-                ".xml": UnstructuredReader(),
-                ".eml": UnstructuredReader(),
-                ".msg": UnstructuredReader(),
-                ".rtf": UnstructuredReader(),
-                ".odt": UnstructuredReader(),
-            }
-        )
-
-        # Load documents (returns list of LlamaIndex Document objects)
-        documents = reader.load_data()
-
-        if not documents:
-            raise ValueError("No content extracted from file")
-
-        # Combine all document text (in case file was split into multiple docs)
-        text = "\n\n".join([doc.text for doc in documents])
-
-        # Build metadata
-        metadata = {
-            "parser": "unstructured",
-            "file_type": file_type,
-            "file_name": Path(file_path).name,
-            "file_size": os.path.getsize(file_path),
-            "num_documents": len(documents),
-            "characters": len(text),
-        }
+        # Special handling for PDFs (hybrid approach)
+        if file_type == 'application/pdf':
+            # Step 1: Try fast mode (text extraction only, no OCR)
+            try:
+                elements = partition_pdf(
+                    filename=file_path,
+                    strategy="fast",
+                    extract_images_in_pdf=False,
+                    infer_table_structure=False
+                )
+                text = "\n\n".join([str(el) for el in elements])
+                
+                # Step 2: If we got barely any text, it's probably scanned
+                if len(text.strip()) < 100:
+                    logger.warning(f"   ⚠️  Only {len(text)} chars extracted, likely scanned PDF - compressing and running OCR")
+                    
+                    # Compress PDF first to reduce OCR costs
+                    compressed_path = compress_pdf_ghostscript(file_path)
+                    
+                    # OCR the compressed version
+                    elements = partition_pdf(
+                        filename=compressed_path,
+                        strategy="hi_res",  # Full OCR mode
+                        extract_images_in_pdf=False,  # Still skip image extraction
+                    )
+                    text = "\n\n".join([str(el) for el in elements])
+                    
+                    # Clean up compressed file
+                    if compressed_path != file_path:
+                        os.remove(compressed_path)
+                
+                metadata = {
+                    "parser": "unstructured_pdf",
+                    "file_type": file_type,
+                    "file_name": Path(file_path).name,
+                    "file_size": os.path.getsize(file_path),
+                    "characters": len(text),
+                }
+                
+            except Exception as pdf_error:
+                logger.warning(f"PDF-specific parsing failed: {pdf_error}, falling back to generic parser")
+                # Fall back to generic parser
+                text, metadata = extract_with_generic_parser(file_path, file_type)
+        else:
+            # Non-PDF files: use standard Unstructured
+            text, metadata = extract_with_generic_parser(file_path, file_type)
 
         logger.info(f"✅ Extracted {len(text)} chars from {Path(file_path).name}")
-
         return text, metadata
 
     except Exception as e:
         error_msg = f"Failed to parse file {Path(file_path).name}: {str(e)}"
         logger.error(error_msg)
         raise ValueError(error_msg)
+
+
+def extract_with_generic_parser(file_path: str, file_type: str) -> Tuple[str, Dict]:
+    """
+    Extract text using generic Unstructured parser (for non-PDFs).
+    """
+    reader = SimpleDirectoryReader(
+        input_files=[file_path],
+        file_extractor={
+            ".docx": UnstructuredReader(),
+            ".doc": UnstructuredReader(),
+            ".pptx": UnstructuredReader(),
+            ".ppt": UnstructuredReader(),
+            ".xlsx": UnstructuredReader(),
+            ".xls": UnstructuredReader(),
+            ".txt": UnstructuredReader(),
+            ".md": UnstructuredReader(),
+            ".html": UnstructuredReader(),
+            ".htm": UnstructuredReader(),
+            ".csv": UnstructuredReader(),
+            ".json": UnstructuredReader(),
+            ".xml": UnstructuredReader(),
+            ".eml": UnstructuredReader(),
+            ".msg": UnstructuredReader(),
+            ".rtf": UnstructuredReader(),
+            ".odt": UnstructuredReader(),
+        }
+    )
+
+    documents = reader.load_data()
+    
+    if not documents:
+        raise ValueError("No content extracted from file")
+
+    text = "\n\n".join([doc.text for doc in documents])
+    
+    metadata = {
+        "parser": "unstructured",
+        "file_type": file_type,
+        "file_name": Path(file_path).name,
+        "file_size": os.path.getsize(file_path),
+        "num_documents": len(documents),
+        "characters": len(text),
+    }
+    
+    return text, metadata
 
 
 def extract_text_from_bytes(
