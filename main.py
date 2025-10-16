@@ -15,30 +15,38 @@ Architecture:
 Author: Nicolas Codet
 Version: 1.0.0
 """
+import sys
 import logging
+import traceback
 import nest_asyncio
 from fastapi import FastAPI
 
-# Import core components
-from app.core.config import settings
-from app.core.dependencies import initialize_clients, shutdown_clients
+# Startup error handling
+try:
+    # Import core components
+    from app.core.config import settings
+    from app.core.dependencies import initialize_clients, shutdown_clients
 
-# Import middleware
-from app.middleware.error_handler import ErrorHandlerMiddleware
-from app.middleware.logging import RequestLoggingMiddleware
-from app.middleware.cors import get_cors_middleware
+    # Import middleware
+    from app.middleware.error_handler import ErrorHandlerMiddleware
+    from app.middleware.logging import RequestLoggingMiddleware
+    from app.middleware.cors import get_cors_middleware
 
-# Import routes
-from app.api.v1.routes import (
-    health_router,
-    oauth_router,
-    webhook_router,
-    sync_router,
-    search_router,
-    emails_router,
-    upload_router,
-    chat_router
-)
+    # Import routes
+    from app.api.v1.routes import (
+        health_router,
+        oauth_router,
+        webhook_router,
+        sync_router,
+        search_router,
+        emails_router,
+        upload_router,
+        chat_router
+    )
+except Exception as e:
+    print(f"🚨 FATAL STARTUP ERROR: {e}", file=sys.stderr)
+    print(f"Traceback:\n{traceback.format_exc()}", file=sys.stderr)
+    sys.exit(1)
 
 # Enable nested asyncio for LlamaIndex/Graphiti compatibility
 try:
@@ -46,7 +54,8 @@ try:
     loop = asyncio.get_event_loop()
     if not isinstance(loop, type(asyncio.new_event_loop())):
         pass
-except:
+except Exception as e:
+    print(f"Applying nest_asyncio: {e}")
     nest_asyncio.apply()
 
 # Configure logging
