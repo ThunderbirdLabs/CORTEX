@@ -26,58 +26,80 @@ async def nango_list_drive_files(
     provider_key: str,
     connection_id: str,
     folder_ids: Optional[List[str]] = None,
-    cursor: Optional[str] = None,
+    page_token: Optional[str] = None,
     limit: int = 100
 ) -> Dict[str, Any]:
     """
-    List Drive files using Nango /documents sync endpoint.
+    List Drive files using Nango proxy to Drive API (direct, no sync needed).
 
     Args:
         http_client: HTTP client
         provider_key: Nango provider key
         connection_id: Connection ID
         folder_ids: Optional list of folder IDs to filter by
-        cursor: Pagination cursor
+        page_token: Pagination token from Drive API
         limit: Results per page
 
     Returns:
-        Dict with records and next_cursor
+        Dict with files list and nextPageToken
     """
-    url = "https://api.nango.dev/sync/records"
+    # Use Nango proxy to call Drive API directly
+    url = "https://api.nango.dev/proxy/drive/v3/files"
 
+    # Build query for Drive API
+    query_parts = ["trashed = false"]
+    if folder_ids:
+        folder_conditions = " or ".join([f"'{fid}' in parents" for fid in folder_ids])
+        query_parts.append(f"({folder_conditions})")
+    
     params = {
-        "provider_config_key": provider_key,
-        "connection_id": connection_id,
-        "model": "Document",  # Nango model name for Drive files
-        "limit": limit
+        "fields": "files(id,name,mimeType,webViewLink,parents,modifiedTime,createdTime,size,owners),nextPageToken",
+        "pageSize": str(limit),
+        "corpora": "user",  # User's Drive (not shared drives)
+        "q": " and ".join(query_parts)
     }
 
-    if cursor:
-        params["cursor"] = cursor
-
-    # Add metadata filter for specific folders
-    if folder_ids:
-        params["metadata"] = {"folders": folder_ids}
+    if page_token:
+        params["pageToken"] = page_token
 
     response = await http_client.get(
         url,
         params=params,
-        headers={"Authorization": f"Bearer {settings.nango_secret}"}
+        headers={
+            "Authorization": f"Bearer {settings.nango_secret}",
+            "Connection-Id": connection_id,
+            "Provider-Config-Key": provider_key
+        }
     )
 
     response.raise_for_status()
     
-    # Handle empty response (sync not run yet)
-    if not response.text or response.text.strip() == "":
-        logger.warning("Nango returned empty response - Documents sync may not have run yet")
-        return {"records": [], "next_cursor": None}
+    data = response.json()
     
-    try:
-        return response.json()
-    except Exception as e:
-        logger.error(f"Failed to parse Nango response: {e}")
-        logger.error(f"Response text: {response.text}")
-        return {"records": [], "next_cursor": None}
+    # Transform Drive API response to match expected format
+    files = data.get("files", [])
+    next_page_token = data.get("nextPageToken")
+    
+    # Convert to our expected format
+    records = []
+    for file in files:
+        records.append({
+            "id": file.get("id"),
+            "name": file.get("name"),
+            "mimeType": file.get("mimeType"),
+            "webViewLink": file.get("webViewLink"),
+            "parents": file.get("parents", []),
+            "modifiedTime": file.get("modifiedTime"),
+            "createdTime": file.get("createdTime"),
+            "size": file.get("size"),
+            "owners": file.get("owners", []),
+            "trashed": False
+        })
+    
+    return {
+        "records": records,
+        "next_cursor": next_page_token
+    }
 
 
 async def get_drive_access_token(
