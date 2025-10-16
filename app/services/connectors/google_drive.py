@@ -163,9 +163,9 @@ def get_export_mime_type(google_mime_type: str) -> Optional[str]:
         Export MIME type or None
     """
     export_map = {
-        "application/vnd.google-apps.document": "application/pdf",  # Docs → PDF
-        "application/vnd.google-apps.spreadsheet": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # Sheets → Excel
-        "application/vnd.google-apps.presentation": "application/pdf",  # Slides → PDF
+        "application/vnd.google-apps.document": "text/plain",  # Docs → Plain text (no images!)
+        "application/vnd.google-apps.spreadsheet": "text/csv",  # Sheets → CSV (lightweight)
+        "application/vnd.google-apps.presentation": "text/plain",  # Slides → Plain text (no images!)
     }
 
     return export_map.get(google_mime_type)

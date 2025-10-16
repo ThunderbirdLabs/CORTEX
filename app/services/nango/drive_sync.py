@@ -266,13 +266,13 @@ async def run_drive_sync(
                                 
                                 if original_mime == "application/vnd.google-apps.document":
                                     document_type = "googledoc"
-                                    normalized["mime_type"] = "application/pdf"  # Exported as PDF
+                                    normalized["mime_type"] = "text/plain"  # Exported as plain text
                                 elif original_mime == "application/vnd.google-apps.spreadsheet":
                                     document_type = "googlesheet"
-                                    normalized["mime_type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"  # Excel
+                                    normalized["mime_type"] = "text/csv"  # Exported as CSV
                                 elif original_mime == "application/vnd.google-apps.presentation":
                                     document_type = "googleslide"
-                                    normalized["mime_type"] = "application/pdf"  # Exported as PDF
+                                    normalized["mime_type"] = "text/plain"  # Exported as plain text
                                 else:
                                     document_type = "file"
 
