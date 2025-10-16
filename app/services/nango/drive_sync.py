@@ -258,30 +258,35 @@ async def run_drive_sync(
                             file_bytes = None
                             document_type = "file"  # Default
                             original_mime = normalized["mime_type"]
+                            export_mime = None
 
-                            # Download file using Nango fetch-document action
-                            logger.info(f"   📥 Downloading: {normalized['file_name']}")
-
-                            file_bytes = await nango_fetch_file(
-                                http_client,
-                                provider_key,
-                                connection_id,
-                                normalized["file_id"]
-                            )
-
-                            # Set specific document type for Google Workspace files
+                            # Check if Google Workspace file needs export
                             if normalized["mime_type"].startswith("application/vnd.google-apps"):
+                                export_mime = get_export_mime_type(original_mime)
+                                
                                 if original_mime == "application/vnd.google-apps.document":
                                     document_type = "googledoc"
-                                    normalized["mime_type"] = "application/pdf"  # Nango exports to PDF
+                                    normalized["mime_type"] = "application/pdf"  # Exported as PDF
                                 elif original_mime == "application/vnd.google-apps.spreadsheet":
                                     document_type = "googlesheet"
                                     normalized["mime_type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"  # Excel
                                 elif original_mime == "application/vnd.google-apps.presentation":
                                     document_type = "googleslide"
-                                    normalized["mime_type"] = "application/pdf"  # Exported to PDF
+                                    normalized["mime_type"] = "application/pdf"  # Exported as PDF
                                 else:
                                     document_type = "file"
+
+                            # Download/export file using Nango proxy
+                            logger.info(f"   📥 {'Exporting' if export_mime else 'Downloading'}: {normalized['file_name']}")
+
+                            file_bytes = await nango_fetch_file(
+                                http_client,
+                                provider_key,
+                                connection_id,
+                                normalized["file_id"],
+                                mime_type=original_mime,
+                                export_mime_type=export_mime
+                            )
 
                             # Universal ingestion (Unstructured.io parses the file!)
                             result = await ingest_document_universal(
