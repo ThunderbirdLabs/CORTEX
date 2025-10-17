@@ -1,6 +1,6 @@
 """
 Chat Routes - Simple Query Interface for Hybrid Property Graph System
-Uses HybridPropertyGraphPipeline + HybridRetriever (Single PropertyGraphIndex with Neo4j + Qdrant)
+Uses HybridQueryEngine with SubQuestionQueryEngine (VectorStoreIndex + PropertyGraphIndex)
 """
 import logging
 from fastapi import APIRouter, HTTPException, Depends

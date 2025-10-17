@@ -56,7 +56,7 @@ async def ingest_document_universal(
 
     Args:
         supabase: Supabase client
-        cortex_pipeline: HybridPropertyGraphPipeline instance
+        cortex_pipeline: UniversalIngestionPipeline instance
         tenant_id: Tenant/user ID
         source: Source identifier ('gmail', 'gdrive', 'slack', etc.)
         source_id: External ID from source system
