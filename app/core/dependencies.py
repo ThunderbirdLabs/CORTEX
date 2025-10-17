@@ -2,7 +2,7 @@
 Dependency Injection
 Provides global clients and services to routes via FastAPI dependencies
 """
-from typing import Optional
+from typing import Optional, Any
 import httpx
 from supabase import Client, create_client
 
@@ -14,7 +14,7 @@ from app.core.config import settings
 
 http_client: Optional[httpx.AsyncClient] = None
 supabase_client: Optional[Client] = None
-rag_pipeline: Optional[any] = None  # Will be imported from services.ingestion
+rag_pipeline: Optional[Any] = None  # UniversalIngestionPipeline instance
 
 
 # ============================================================================

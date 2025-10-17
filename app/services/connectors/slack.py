@@ -1,6 +1,9 @@
 """
 Slack Message Connector
 Normalizes Slack messages from Nango unified API
+
+NOTE: Slack integration ready but not yet active in production.
+TODO: Activate when NANGO_PROVIDER_KEY_SLACK is configured and integrated into sync_engine.py
 """
 import logging
 from typing import Dict, Any

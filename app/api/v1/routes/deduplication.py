@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
-from app.core.dependencies import get_settings
+from app.core.config import settings
 from app.core.security import verify_api_key
 from app.services.deduplication.entity_deduplication import EntityDeduplicationService
 
@@ -36,7 +36,6 @@ async def run_deduplication(
     dry_run: bool = Query(False, description="If true, only preview duplicates without merging"),
     similarity_threshold: Optional[float] = Query(None, description="Cosine similarity threshold (0.0-1.0)"),
     levenshtein_max_distance: Optional[int] = Query(None, description="Max Levenshtein distance for name matching"),
-    settings = Depends(get_settings),
     _ = Depends(verify_api_key)
 ):
     """
@@ -57,7 +56,7 @@ async def run_deduplication(
     - levenshtein_max_distance: 2-5 characters, default 3
     """
 
-    logger.info(f"= Deduplication request: dry_run={dry_run}")
+    logger.info(f"Deduplication request: dry_run={dry_run}")
 
     # Build service kwargs
     service_kwargs = {
@@ -78,7 +77,7 @@ async def run_deduplication(
 
         # Alert if high merge count
         if not dry_run and service.should_alert(results):
-            logger.error(f"=¨ ALERT: High merge count - {results.get('entities_merged')} entities merged!")
+            logger.error(f"ALERT: High merge count - {results.get('entities_merged')} entities merged!")
 
         return DeduplicationResponse(
             success=True,
@@ -86,7 +85,7 @@ async def run_deduplication(
         )
 
     except Exception as e:
-        logger.error(f"L Deduplication failed: {e}", exc_info=True)
+        logger.error(f"Deduplication failed: {e}", exc_info=True)
         return DeduplicationResponse(
             success=False,
             results={"error": str(e)}
@@ -98,7 +97,6 @@ async def run_deduplication(
 
 @router.get("/stats", response_model=DeduplicationStatsResponse)
 async def get_deduplication_stats(
-    settings = Depends(get_settings),
     _ = Depends(verify_api_key)
 ):
     """
@@ -120,7 +118,7 @@ async def get_deduplication_stats(
         return DeduplicationStatsResponse(**stats)
 
     except Exception as e:
-        logger.error(f"L Failed to get stats: {e}", exc_info=True)
+        logger.error(f"Failed to get stats: {e}", exc_info=True)
         raise
 
     finally:

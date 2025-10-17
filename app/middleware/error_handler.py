@@ -3,7 +3,6 @@ Global Error Handler Middleware
 Catches all unhandled exceptions and returns structured error responses
 """
 import logging
-import traceback
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
