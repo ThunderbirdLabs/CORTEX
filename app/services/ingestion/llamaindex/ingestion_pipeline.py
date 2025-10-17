@@ -22,7 +22,7 @@ import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from llama_index.core import Document
+from llama_index.core import Document, PromptTemplate
 from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.embeddings.openai import OpenAIEmbedding
@@ -99,6 +99,87 @@ class UniversalIngestionPipeline:
             api_key=OPENAI_API_KEY
         )
 
+        # Custom extraction prompt for accurate entity/relationship extraction
+        extraction_prompt = PromptTemplate(
+            """You are extracting a knowledge graph for a CEO business intelligence system. Extract entities and relationships that help the CEO understand business operations, communications, and relationships.
+
+ENTITY TYPES (extract these):
+- PERSON: Individuals (employees, customers, contacts, vendors, anyone mentioned)
+- COMPANY: Organizations (clients, suppliers, competitors, partners, departments, any business)
+- EMAIL: Specific email messages referenced in the text
+- DOCUMENT: Specific files mentioned (contracts, reports, invoices, PDFs)
+- DEAL: Sales opportunities, orders, quotes, business transactions
+- TASK: Action items, to-dos, follow-ups, assignments, requests
+- MEETING: Specific meetings, calls, appointments with details
+- PAYMENT: Invoices, payments, expenses, purchase orders
+- TOPIC: Subjects, projects, products, technical concepts, issues, themes
+- EVENT: Conferences, launches, deadlines, milestones, significant events
+
+RELATIONSHIP EXTRACTION GUIDELINES:
+
+1. EMPLOYMENT & ORGANIZATION:
+   - WORKS_FOR: Employment relationship (e.g., "Sarah works for Acme Corp", "John is employed at TechCo")
+     Direction: PERSON → COMPANY or COMPANY → COMPANY (subsidiary)
+   - WORKS_WITH: Collaboration between peers (e.g., "John collaborates with Sarah", "Acme partners with TechCo")
+     Direction: PERSON ↔ PERSON or COMPANY ↔ COMPANY
+   - REPORTS_TO: Reporting hierarchy (e.g., "John reports to Sarah")
+     Direction: PERSON → PERSON
+
+2. COMMUNICATION & CREATION:
+   - SENT_BY: Who sent an email/message
+     Allowed: EMAIL → PERSON, EMAIL → COMPANY, DOCUMENT → PERSON, DOCUMENT → COMPANY
+   - SENT_TO: Who received an email
+     Allowed: EMAIL → PERSON, PERSON → EMAIL
+   - CREATED_BY: Who authored/created something
+     Allowed: DOCUMENT/DEAL/TASK/EVENT → PERSON
+   - ASSIGNED_TO: Who is responsible for a task/deal
+     Allowed: DEAL/TASK → PERSON
+
+3. PARTICIPATION:
+   - ATTENDED_BY: Who attended a meeting/event
+     Allowed: MEETING/EVENT → PERSON
+
+4. BUSINESS RELATIONSHIPS:
+   - CLIENT_OF: Customer relationship
+     Direction: COMPANY → COMPANY
+   - VENDOR_OF: Supplier relationship
+     Direction: COMPANY → COMPANY
+
+5. CONTENT RELATIONSHIPS:
+   - ABOUT: Primary subject/topic (e.g., "Meeting about Q4 budget")
+   - MENTIONS: Brief reference or mention (e.g., "Email mentions the new product")
+   - RELATES_TO: General connection (e.g., "Task relates to Project Alpha")
+   - ATTACHED_TO: File attachments
+     Allowed: EMAIL/DOCUMENT → DOCUMENT
+
+6. WORKFLOW:
+   - REQUIRES: Dependencies (e.g., "Task requires approval document")
+     Allowed: TASK/DEAL → TASK/DOCUMENT
+   - FOLLOWS_UP: Follow-up action (e.g., "Email follows up on previous meeting")
+     Allowed: EMAIL/DEAL/MEETING → EMAIL/TASK/MEETING
+   - RESOLVES: Resolution (e.g., "Task resolves the bug report")
+     Allowed: EMAIL/TASK → TASK
+
+7. FINANCIAL:
+   - PAID_BY: Who made the payment
+     Allowed: PAYMENT → PERSON/COMPANY
+   - PAID_TO: Who received the payment
+     Allowed: PAYMENT → PERSON/COMPANY
+
+CRITICAL DISTINCTIONS:
+- Use WORKS_FOR for employment ("works for", "employed by", "employee of", "first employees")
+- Use WORKS_WITH for collaboration ("works with", "collaborates with", "partners with")
+- Use CREATED_BY for authorship of documents/deals/tasks
+- Use SENT_BY for email communications
+- Use ABOUT for primary topics, MENTIONS for brief references
+
+Extract up to {max_triplets_per_chunk} entity-relationship triplets from the text below.
+
+Text:
+{text}
+"""
+        )
+
         # Entity extractor (for Person/Company/Deal/etc.)
         # Using SchemaLLMPathExtractor for consistent, validated entity extraction
         # strict=False allows flexibility while guiding toward schema
@@ -109,9 +190,10 @@ class UniversalIngestionPipeline:
             possible_entities=POSSIBLE_ENTITIES,
             possible_relations=POSSIBLE_RELATIONS,
             kg_validation_schema=KG_VALIDATION_SCHEMA,
-            strict=False  # Guide toward schema but allow exceptions
+            strict=False,  # Guide toward schema but allow exceptions
+            extract_prompt=extraction_prompt  # Custom prompt for accurate extraction
         )
-        logger.info(f"✅ Entity Extractor: SchemaLLMPathExtractor (validated business schema)")
+        logger.info(f"✅ Entity Extractor: SchemaLLMPathExtractor (validated business schema + custom prompt)")
 
         # Production caching setup (optional but recommended)
         cache = None
@@ -394,16 +476,37 @@ class UniversalIngestionPipeline:
 
                     # Use entity extractor on the minimal-metadata document
                     # SchemaLLMPathExtractor uses acall (async) internally
-                    extracted = await self.entity_extractor.acall([document_for_extraction])
+                    extracted_nodes = await self.entity_extractor.acall([document_for_extraction])
 
-                    # Extract entities and relationships from metadata
-                    # SchemaLLMPathExtractor uses 'nodes' and 'relations' keys
+                    # Extract entities, relationships, AND chunk nodes from extraction
+                    # SchemaLLMPathExtractor stores: 'nodes' (entities), 'relations', and creates chunk nodes with MENTIONS
                     total_entities = 0
                     total_relations = 0
+                    total_chunks = 0
 
-                    for node in extracted:
-                        entities = node.metadata.get("nodes", [])
-                        relations = node.metadata.get("relations", [])
+                    for llama_node in extracted_nodes:
+                        # 1. Extract entities from metadata
+                        entities = llama_node.metadata.get("nodes", [])
+
+                        # 2. Extract relationships from metadata
+                        relations = llama_node.metadata.get("relations", [])
+
+                        # 3. Create chunk node (TextNode) for provenance
+                        # This is the key fix: we need chunk nodes in Neo4j for MENTIONS relationships
+                        from llama_index.core.schema import TextNode
+                        chunk_node = EntityNode(
+                            label="Chunk",  # LlamaIndex default label for text chunks
+                            name=llama_node.node_id,
+                            properties={
+                                "text": llama_node.text,
+                                "document_id": document_row.get("id"),
+                                "node_id": llama_node.node_id
+                            }
+                        )
+                        # Embed the chunk for semantic retrieval
+                        chunk_node.embedding = await self.embed_model.aget_text_embedding(llama_node.text)
+                        self.graph_store.upsert_nodes([chunk_node])
+                        total_chunks += 1
 
                         if entities:
                             # Embed and upsert entities for graph retrieval
@@ -416,11 +519,26 @@ class UniversalIngestionPipeline:
                             self.graph_store.upsert_nodes(entities)
                             total_entities += len(entities)
 
+                            # Create MENTIONS relationships from chunk → entities
+                            mentions_relations = []
+                            for entity in entities:
+                                mentions_rel = Relation(
+                                    label="MENTIONS",
+                                    source_id=chunk_node.id,
+                                    target_id=entity.id
+                                )
+                                mentions_relations.append(mentions_rel)
+
+                            if mentions_relations:
+                                self.graph_store.upsert_relations(mentions_relations)
+
                         if relations:
                             # Upsert extracted relationships between entities
                             self.graph_store.upsert_relations(relations)
                             total_relations += len(relations)
 
+                    if total_chunks > 0:
+                        logger.info(f"   ✅ Created {total_chunks} chunk nodes (provenance)")
                     if total_entities > 0:
                         logger.info(f"   ✅ Extracted {total_entities} entities (embedded)")
                     if total_relations > 0:
@@ -720,13 +838,29 @@ class UniversalIngestionPipeline:
                 excluded_llm_metadata_keys=list(doc_row.keys())
             )
 
-            extracted = await self.entity_extractor.acall([document_for_extraction])
+            extracted_nodes = await self.entity_extractor.acall([document_for_extraction])
 
             # FIXED: SchemaLLMPathExtractor stores entities/relations in metadata
             # Source: llama_index/core/graph_stores/types.py
             # KG_NODES_KEY = "nodes", KG_RELATIONS_KEY = "relations"
-            entities = extracted[0].metadata.get("nodes", [])
-            relations = extracted[0].metadata.get("relations", [])
+            # ALSO: We need to upsert chunk nodes with MENTIONS relationships for provenance
+            llama_node = extracted_nodes[0]
+            entities = llama_node.metadata.get("nodes", [])
+            relations = llama_node.metadata.get("relations", [])
+
+            # Create chunk node for provenance (key fix for graph retrieval)
+            chunk_node = EntityNode(
+                label="Chunk",
+                name=llama_node.node_id,
+                properties={
+                    "text": llama_node.text,
+                    "document_id": doc_row.get("id"),
+                    "node_id": llama_node.node_id
+                }
+            )
+            chunk_node.embedding = await self.embed_model.aget_text_embedding(llama_node.text)
+            self.graph_store.upsert_nodes([chunk_node])
+            logger.info(f"   ✅ Created chunk node (provenance)")
 
             if entities:
                 logger.info(f"   → Extracted {len(entities)} entities, embedding them...")
@@ -737,6 +871,20 @@ class UniversalIngestionPipeline:
 
                 self.graph_store.upsert_nodes(entities)
                 logger.info(f"   ✅ Upserted {len(entities)} entities to Neo4j")
+
+                # Create MENTIONS relationships from chunk → entities
+                mentions_relations = []
+                for entity in entities:
+                    mentions_rel = Relation(
+                        label="MENTIONS",
+                        source_id=chunk_node.id,
+                        target_id=entity.id
+                    )
+                    mentions_relations.append(mentions_rel)
+
+                if mentions_relations:
+                    self.graph_store.upsert_relations(mentions_relations)
+                    logger.info(f"   ✅ Created {len(mentions_relations)} MENTIONS relationships")
 
             if relations:
                 self.graph_store.upsert_relations(relations)

@@ -11,10 +11,11 @@ Architecture:
 import logging
 from typing import Dict, Any, Optional
 
-from llama_index.core import VectorStoreIndex
+from llama_index.core import VectorStoreIndex, PromptTemplate
 from llama_index.core.query_engine import SubQuestionQueryEngine
 from llama_index.core.tools import QueryEngineTool
 from llama_index.core.indices.property_graph import PropertyGraphIndex
+from llama_index.core.response_synthesizers import get_response_synthesizer
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.graph_stores.neo4j import Neo4jPropertyGraphStore
 from llama_index.embeddings.openai import OpenAIEmbedding
@@ -106,15 +107,42 @@ class HybridQueryEngine:
         )
         logger.info("✅ PropertyGraphIndex created for graph queries")
 
-        # Create query engines
+        # Custom prompts for sub-question query engines to preserve direct quotes
+        vector_qa_prompt = PromptTemplate(
+            "Context information from documents is below.\n"
+            "---------------------\n"
+            "{context_str}\n"
+            "---------------------\n\n"
+            "Given the context information, answer the question. "
+            "IMPORTANT: Use direct quotes from the documents whenever possible. "
+            "Wrap quotes in quotation marks and use the exact words from the context.\n\n"
+            "Question: {query_str}\n"
+            "Answer: "
+        )
+
+        graph_qa_prompt = PromptTemplate(
+            "Context information from the knowledge graph is below.\n"
+            "---------------------\n"
+            "{context_str}\n"
+            "---------------------\n\n"
+            "Given the context information, answer the question about relationships and entities. "
+            "IMPORTANT: Use direct quotes and specific names from the context whenever possible. "
+            "Be precise and cite exact information.\n\n"
+            "Question: {query_str}\n"
+            "Answer: "
+        )
+
+        # Create query engines with custom prompts
         self.vector_query_engine = self.vector_index.as_query_engine(
             similarity_top_k=SIMILARITY_TOP_K,
-            llm=self.llm
+            llm=self.llm,
+            text_qa_template=vector_qa_prompt
         )
 
         self.graph_query_engine = self.property_graph_index.as_query_engine(
             llm=self.llm,
-            include_text=True  # Include node text in retrieval
+            include_text=True,  # Include node text in retrieval
+            text_qa_template=graph_qa_prompt
         )
 
         # Wrap as tools for SubQuestionQueryEngine
@@ -138,12 +166,38 @@ class HybridQueryEngine:
             )
         )
 
-        # SubQuestionQueryEngine (expert recommended)
+        # Custom CEO Assistant prompt for final response synthesis
+        ceo_assistant_prompt = PromptTemplate(
+            "You are an intelligent personal assistant to the CEO. You have access to the entire company's knowledge. "
+            "All emails, documents, deals, activities, orders, etc. that go on in this business are in your knowledge bases. "
+            "Because of this, you know more about what is happening in the company than anyone. "
+            "You can access and uncover unique relationships and patterns that otherwise would go unseen.\n\n"
+            "Below are answers from the knowledge base with direct quotes from documents:\n"
+            "---------------------\n"
+            "{context_str}\n"
+            "---------------------\n\n"
+            "Given these answers (which contain direct quotes), synthesize a comprehensive response to the CEO's question. "
+            "PRESERVE and USE the direct quotes from the answers above - these show you truly see what is happening. "
+            "Make cool connections, provide insightful suggestions, and point the CEO in the right direction. "
+            "Your job is to knock the CEO's socks off with how much you know about the business.\n\n"
+            "Question: {query_str}\n"
+            "Answer: "
+        )
+
+        # Create custom response synthesizer with CEO Assistant prompt
+        response_synthesizer = get_response_synthesizer(
+            llm=self.llm,
+            text_qa_template=ceo_assistant_prompt
+        )
+
+        # SubQuestionQueryEngine with custom response synthesizer
         self.query_engine = SubQuestionQueryEngine.from_defaults(
             query_engine_tools=[vector_tool, graph_tool],
-            llm=self.llm
+            llm=self.llm,
+            response_synthesizer=response_synthesizer
         )
         logger.info("✅ SubQuestionQueryEngine ready (vector + graph)")
+        logger.info("✅ CEO Assistant prompts applied (sub-queries + final synthesis)")
 
         logger.info("✅ Hybrid Query Engine ready")
         logger.info("   Architecture: SubQuestionQueryEngine")
