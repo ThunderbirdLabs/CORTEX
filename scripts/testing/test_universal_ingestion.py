@@ -13,7 +13,7 @@ from supabase import create_client
 from app.core.config import settings
 from app.services.parsing.file_parser import extract_text_from_bytes
 from app.services.universal.ingest import ingest_document_universal
-from app.services.ingestion.llamaindex.hybrid_property_graph_pipeline import HybridPropertyGraphPipeline
+from app.services.ingestion.llamaindex import UniversalIngestionPipeline
 
 
 async def test_universal_ingestion():
@@ -92,7 +92,7 @@ async def test_universal_ingestion():
     # Step 4: Initialize PropertyGraph Pipeline
     print("\n4️⃣ Initializing PropertyGraph Pipeline (Neo4j + Qdrant)...")
     try:
-        cortex_pipeline = HybridPropertyGraphPipeline()
+        cortex_pipeline = UniversalIngestionPipeline()
         print(f"✅ PropertyGraph pipeline initialized")
         print(f"   Vector DB: Qdrant")
         print(f"   Graph DB: Neo4j")

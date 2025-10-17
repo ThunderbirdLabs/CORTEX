@@ -19,6 +19,7 @@ import sys
 import logging
 import traceback
 import nest_asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 # Startup error handling
@@ -67,6 +68,35 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# LIFECYCLE MANAGEMENT
+# ============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan event handler for startup and shutdown."""
+    # Startup
+    logger.info("=" * 80)
+    logger.info("Starting Email Connector & RAG Search Backend")
+    logger.info("=" * 80)
+    logger.info(f"Environment: {settings.environment}")
+    logger.info(f"Port: {settings.port}")
+    logger.info(f"Debug: {settings.debug}")
+
+    await initialize_clients()
+
+    logger.info("=" * 80)
+    logger.info("✅ Application started successfully")
+    logger.info("=" * 80)
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down application...")
+    await shutdown_clients()
+    logger.info("✅ Application shutdown complete")
+
+
+# ============================================================================
 # APP INITIALIZATION
 # ============================================================================
 
@@ -75,7 +105,8 @@ app = FastAPI(
     description="Unified backend for email sync (Gmail/Outlook) and hybrid RAG search",
     version="1.0.0",
     docs_url="/docs" if settings.debug else None,  # Disable docs in production
-    redoc_url="/redoc" if settings.debug else None
+    redoc_url="/redoc" if settings.debug else None,
+    lifespan=lifespan
 )
 
 # ============================================================================
@@ -104,36 +135,6 @@ app.include_router(search_router)
 app.include_router(emails_router)
 app.include_router(upload_router)
 app.include_router(chat_router)
-
-# ============================================================================
-# LIFECYCLE EVENTS
-# ============================================================================
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize all global clients and services."""
-    logger.info("=" * 80)
-    logger.info("Starting Email Connector & RAG Search Backend")
-    logger.info("=" * 80)
-    logger.info(f"Environment: {settings.environment}")
-    logger.info(f"Port: {settings.port}")
-    logger.info(f"Debug: {settings.debug}")
-    
-    # Initialize clients (HTTP, Supabase, RAG Pipeline)
-    await initialize_clients()
-    
-    logger.info("=" * 80)
-    logger.info("✅ Application started successfully")
-    logger.info("=" * 80)
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup all global clients."""
-    logger.info("Shutting down application...")
-    await shutdown_clients()
-    logger.info("✅ Application shutdown complete")
-
 
 # ============================================================================
 # MAIN

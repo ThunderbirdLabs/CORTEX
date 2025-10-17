@@ -9,7 +9,7 @@ from datetime import datetime
 
 from supabase import Client
 
-from app.services.ingestion.llamaindex.hybrid_property_graph_pipeline import HybridPropertyGraphPipeline
+from app.services.ingestion.llamaindex import UniversalIngestionPipeline
 from app.services.universal.ingest import ingest_document_universal
 from app.core.config import settings
 
@@ -91,7 +91,7 @@ async def append_jsonl(email: Dict[str, Any]):
 # ============================================================================
 
 async def ingest_to_cortex(
-    cortex_pipeline: Optional[HybridPropertyGraphPipeline],
+    cortex_pipeline: Optional[UniversalIngestionPipeline],
     email: Dict[str, Any],
     supabase: Optional[Client] = None
 ):

@@ -1,6 +1,16 @@
+# Environment
 .env
+
+# Dependencies
 node_modules/
 .nango/
+
+# Build
 build/
+
+# Python
 *.pyc
 __pycache__/
+
+# macOS
+.DS_Store

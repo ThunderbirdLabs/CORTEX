@@ -17,9 +17,6 @@ from pathlib import Path
 
 from llama_index.core import SimpleDirectoryReader, Document
 from llama_index.readers.file import UnstructuredReader
-# Lazy import to avoid loading heavy ML models at startup
-# from unstructured.partition.pdf import partition_pdf
-# from unstructured.partition.auto import partition
 import magic
 
 logger = logging.getLogger(__name__)
@@ -35,24 +32,28 @@ def detect_file_type(file_path: str) -> str:
     Returns:
         MIME type string (e.g., 'application/pdf')
     """
+    # Fallback: guess from extension
+    ext_to_mime = {
+        '.pdf': 'application/pdf',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.doc': 'application/msword',
+        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.txt': 'text/plain',
+        '.html': 'text/html',
+        '.md': 'text/markdown',
+    }
+
+    # Try magic
     try:
         mime = magic.Magic(mime=True)
         return mime.from_file(file_path)
     except Exception as e:
-        logger.warning(f"Failed to detect MIME type: {e}, using extension fallback")
-        # Fallback: guess from extension
-        ext_to_mime = {
-            '.pdf': 'application/pdf',
-            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            '.doc': 'application/msword',
-            '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-            '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            '.txt': 'text/plain',
-            '.html': 'text/html',
-            '.md': 'text/markdown',
-        }
-        ext = Path(file_path).suffix.lower()
-        return ext_to_mime.get(ext, 'application/octet-stream')
+        logger.warning(f"Failed to detect MIME type with magic: {e}, using extension fallback")
+
+    # Use extension fallback
+    ext = Path(file_path).suffix.lower()
+    return ext_to_mime.get(ext, 'application/octet-stream')
 
 
 # Ghostscript PDF compression removed - OCR disabled for memory optimization
