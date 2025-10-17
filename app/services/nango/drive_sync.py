@@ -8,7 +8,7 @@ import httpx
 from supabase import Client
 
 from app.core.config import settings
-from app.services.ingestion.llamaindex.hybrid_property_graph_pipeline import HybridPropertyGraphPipeline
+from app.services.ingestion.llamaindex import UniversalIngestionPipeline
 from app.services.nango.database import get_connection
 from app.services.connectors.google_drive import (
     normalize_drive_file,
@@ -142,7 +142,7 @@ async def get_drive_access_token(
 async def run_drive_sync(
     http_client: httpx.AsyncClient,
     supabase: Client,
-    cortex_pipeline: Optional[HybridPropertyGraphPipeline],
+    cortex_pipeline: Optional[UniversalIngestionPipeline],
     tenant_id: str,
     provider_key: str,
     folder_ids: Optional[List[str]] = None,
