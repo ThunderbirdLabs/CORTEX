@@ -1,9 +1,9 @@
 # Cortex - Enterprise RAG Platform
-**v0.3.0**
+**v0.4.5**
 
 Enterprise-grade unified backend for **multi-source data ingestion** (Gmail, Outlook, Google Drive, file uploads) with **AI-powered hybrid RAG search** (vector + knowledge graph).
 
-Built with FastAPI, LlamaIndex, Graphiti, Qdrant, Neo4j, and OpenAI.
+Built with FastAPI, LlamaIndex, Qdrant, Neo4j, and OpenAI.
 
 ---
 
@@ -21,56 +21,100 @@ Built with FastAPI, LlamaIndex, Graphiti, Qdrant, Neo4j, and OpenAI.
 │   - Gmail OAuth         │           │   FastAPI - main.py          │
 │   - Outlook OAuth       │◄──────────┤   - OAuth webhooks           │
 │   - Google Drive OAuth  │           │   - Multi-source sync        │
-│   - Token management    │           │   - Universal ingestion      │
-└─────────────────────────┘           │   - Hybrid RAG search        │
-                                      └───────┬──────────────┬───────┘
-                                              │              │
-                ┌─────────────────────────────┼──────────────┼─────────┐
-                │                             │              │         │
-                ▼                             ▼              ▼         ▼
-       ┌────────────────┐          ┌─────────────────┐  ┌────────┐ ┌────────┐
-       │   SUPABASE     │          │   QDRANT CLOUD  │  │ NEO4J  │ │OPENAI  │
-       │   PostgreSQL   │          │   Vector Store  │  │ Graph  │ │  LLM   │
-       │   - Documents  │          │   - Embeddings  │  │Graphiti│ │Embedder│
-       │   - Emails     │          │   - Chunks      │  │Entities│ │        │
-       │   - Metadata   │          │   - Hybrid idx  │  │Relations│ │        │
-       └────────────────┘          └─────────────────┘  └────────┘ └────────┘
+│   - Token management    │           │   - Normalization            │
+└─────────────────────────┘           └──────────────┬───────────────┘
+                                                     │
+                                                     ▼
+                                      ┌──────────────────────────────┐
+                                      │   SUPABASE (PostgreSQL)      │
+                                      │   - documents table          │
+                                      │   - emails table             │
+                                      │   - Content dedupe (SHA256)  │
+                                      └──────────────┬───────────────┘
+                                                     │
+                                    ┌────────────────┴────────────────┐
+                                    │  UNIVERSAL INGESTION PIPELINE   │
+                                    │  (UniversalIngestionPipeline)   │
+                                    └────────────────┬────────────────┘
+                                                     │
+                                    ┌────────────────┴────────────────┐
+                                    │                                 │
+                         ┌──────────▼──────────┐         ┌───────────▼──────────┐
+                         │   QDRANT CLOUD      │         │      NEO4J AURA      │
+                         │   Vector Store      │         │   Property Graph     │
+                         │                     │         │                      │
+                         │ - Text chunks       │         │ - EMAIL nodes        │
+                         │ - Embeddings        │         │ - PERSON nodes       │
+                         │ - Metadata          │         │ - COMPANY nodes      │
+                         └─────────────────────┘         │ - Relationships      │
+                                                         │ - Entity embeddings  │
+                                                         │                      │
+                                                         │ + Hourly entity      │
+                                                         │   deduplication      │
+                                                         │   (vector similarity)│
+                                                         └──────────────────────┘
+                                                     ┬────────────────┘
+                                                     │
+                                                     |
+                                                     │                 
+                                    ┌────────────────▼─────────────────-──┐
+                                    │     HYBRID QUERY ENGINE             │
+                                    │     (HybridQueryEngine)             │
+                                    │                                     │
+                                    │  SubQuestionQueryEngine combines:   │
+                                    │  ├─ VectorStoreIndex (Qdrant)       │
+                                    │  └─ PropertyGraphIndex (Neo4j)      │
+                                    │                                     │
+                                    │  Routes sub-questions to best index │
+                                    │  Synthesizes comprehensive answers  │
+                                    └─────────────────▲───────────────────┘
+                                                      │
+                                           User queries via:
+                                           /api/v1/chat
+                                           /api/v1/search
 ```
 
 ---
 
-## 🚀 What's New in v0.3.0
+## 🚀 What's New in v0.4.5
 
-### **Google Drive Integration**
-- ✅ Full Google Drive OAuth & sync
-- ✅ Incremental sync (only new/updated files)
-- ✅ Automatic Google Workspace export:
-  - **Docs** → `text/plain`
-  - **Sheets** → `text/csv`
-  - **Slides** → `text/plain`
-- ✅ Support for PDF, Word, Excel, PowerPoint
-- ✅ Content-based deduplication (SHA256 hashing)
+### **Schema-Validated Knowledge Graph**
+- ✅ **SchemaLLMPathExtractor** - Strict entity/relationship validation
+- ✅ 10 entity types (PERSON, COMPANY, EMAIL, DOCUMENT, etc.)
+- ✅ 18 relationship types (SENT_BY, WORKS_AT, MENTIONS, etc.)
+- ✅ Entity embeddings for graph-aware retrieval
+- ✅ Unique document IDs (`title|doc_id`) - prevents duplicate merging
+- ✅ Neo4j label reordering for better visualization
+
+### **Hybrid Query Engine**
+- ✅ **SubQuestionQueryEngine** - Intelligent query decomposition
+- ✅ **VectorStoreIndex** (Qdrant) - Semantic search over chunks
+- ✅ **PropertyGraphIndex** (Neo4j) - Graph queries over entities
+- ✅ Automatic routing to best retrieval strategy
+- ✅ Multi-strategy synthesis for comprehensive answers
+
+### **Entity Deduplication System**
+- ✅ **Vector similarity** (cosine > 0.92) + Levenshtein distance (< 3 chars)
+- ✅ Hourly scheduled deduplication (APScheduler)
+- ✅ API endpoints for manual triggering (`/api/v1/deduplication/run`)
+- ✅ Dry-run mode for preview before merging
+- ✅ Prevents array IDs (fixed `title|doc_id` bug)
+- ✅ Configurable thresholds via environment variables
 
 ### **Universal Ingestion Pipeline**
-- ✅ Any source → unified format → RAG
-- ✅ Lightweight file parsing (no heavy ML at startup)
-- ✅ Lazy-loaded PDF parser (memory optimized)
+- ✅ Dual ingestion: Qdrant (chunks) + Neo4j (entities/documents)
+- ✅ Content-based deduplication (SHA256 hashing)
+- ✅ Batch processing with 4 workers
 - ✅ 100k character limit per document (cost control)
-- ✅ Null byte stripping for Postgres compatibility
+- ✅ Any source → unified format → RAG
+- ✅ Lightweight file parsing (lazy-loaded)
 
-### **Modern Frontend (Aetheris Design)**
-- ✅ Beautiful Next.js UI with glassmorphic design
-- ✅ Sidebar navigation (New chat, Settings)
-- ✅ Gradient orb welcome screen
-- ✅ Suggestion chips for quick actions
-- ✅ Dedicated Connections page for OAuth/sync
-- ✅ Real-time chat with RAG search
-
-### **Production Optimizations**
-- ✅ Memory-optimized for Render free tier (512MB)
-- ✅ Comprehensive startup error handling
-- ✅ Improved dependency management
-- ✅ Removed heavy ML models from startup
+### **Production Fixes**
+- ✅ Fixed array ID bug (toString() errors in Neo4j queries)
+- ✅ Fixed entity extraction field names (sender_name, to_addresses)
+- ✅ Removed 464 lines of dead code
+- ✅ Fixed encoding issues for Python 3.13
+- ✅ Memory-optimized for Render (512MB)
 
 ---
 
@@ -92,37 +136,56 @@ Built with FastAPI, LlamaIndex, Graphiti, Qdrant, Neo4j, and OpenAI.
    └─> Query Supabase by (tenant_id + content_hash + source)
    └─> Skip if duplicate found
 
-4. UNIVERSAL INGESTION
-   ├─> Extract text (100k char limit)
-   ├─> Strip null bytes
-   ├─> Create Document object
-   └─> Parallel ingestion:
-       ├─> SUPABASE: Full document + metadata
-       └─> HYBRID RAG: Intelligent processing
-           ├─> LlamaIndex: Semantic chunking
-           ├─> OpenAI: Entity extraction (GPT-4o-mini)
-           ├─> Qdrant: Vector embeddings
-           └─> Neo4j: Knowledge graph (Graphiti)
+4. SAVE TO SUPABASE
+   └─> Insert into documents table (full text + metadata)
+
+5. DUAL INGESTION (UniversalIngestionPipeline)
+   ├─> QDRANT PATH:
+   │   ├─> SentenceSplitter (chunk_size=1024, overlap=200)
+   │   ├─> OpenAIEmbedding (text-embedding-3-small)
+   │   └─> Store chunks + embeddings in Qdrant
+   │
+   └─> NEO4J PATH:
+       ├─> Create document node (EMAIL/DOCUMENT)
+       │   └─> Unique ID: "title|doc_id" (prevents duplicate merging)
+       ├─> SchemaLLMPathExtractor (GPT-4o-mini)
+       │   ├─> Extract entities: PERSON, COMPANY, etc.
+       │   ├─> Extract relationships: SENT_BY, WORKS_AT, etc.
+       │   └─> Generate entity embeddings
+       └─> Store in Neo4j Property Graph
+
+6. HOURLY ENTITY DEDUPLICATION (Neo4j only)
+   ├─> Find similar entities (vector similarity > 0.92)
+   ├─> Verify with Levenshtein distance (< 3 chars)
+   └─> Merge duplicates with apoc.refactor.mergeNodes
 ```
 
 ### **FLOW 2: AI Search (Hybrid RAG)**
 
 ```
-1. USER query → POST /api/v1/search
+1. USER QUERY → POST /api/v1/chat or /api/v1/search
 
-2. QUERY REWRITING
-   └─> Context-aware expansion (conversation history)
+2. HYBRID QUERY ENGINE (HybridQueryEngine)
+   └─> SubQuestionQueryEngine breaks down complex questions
 
-3. HYBRID RETRIEVAL (LlamaIndex)
-   ├─> VectorContextRetriever (graph-aware)
-   ├─> LLMSynonymRetriever (entity expansion)
-   └─> Concurrent multi-strategy search
+3. PARALLEL RETRIEVAL
+   ├─> VectorStoreIndex (Qdrant):
+   │   ├─> Embed query with OpenAI
+   │   ├─> Semantic search over text chunks
+   │   └─> Return top K similar chunks (default: 10)
+   │
+   └─> PropertyGraphIndex (Neo4j):
+       ├─> Graph queries for relationships
+       ├─> Entity lookups (PERSON, COMPANY, EMAIL)
+       └─> Return relevant entities + relationships
 
 4. SYNTHESIS
-   └─> GPT-4o-mini generates answer from combined context
+   ├─> SubQuestionQueryEngine combines results
+   ├─> GPT-4o-mini generates comprehensive answer
+   └─> Cites sources from both indexes
 
 5. RESPONSE
-   └─> {answer, vector_results[], graph_results[], sources[]}
+   └─> {answer, source_count, sources: [{node_id, text, score}]}
 ```
 
 ---
