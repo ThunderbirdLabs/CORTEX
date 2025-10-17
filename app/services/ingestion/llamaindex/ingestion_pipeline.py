@@ -830,9 +830,3 @@ class UniversalIngestionPipeline:
         except Exception as e:
             # Don't fail ingestion if label reordering fails
             logger.warning(f"⚠️  Label reordering failed (non-critical): {e}")
-
-
-# Convenience factory function
-def create_ingestion_pipeline() -> UniversalIngestionPipeline:
-    """Create UniversalIngestionPipeline instance."""
-    return UniversalIngestionPipeline()

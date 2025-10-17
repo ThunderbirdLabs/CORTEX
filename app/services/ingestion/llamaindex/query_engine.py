@@ -36,8 +36,8 @@ class HybridQueryEngine:
     Hybrid query engine using SubQuestionQueryEngine.
 
     Combines:
-    1. VectorStoreIndex (Qdrant) - Semantic search over email chunks
-    2. PropertyGraphIndex (Neo4j) - Graph queries over Email/Person/Company nodes
+    1. VectorStoreIndex (Qdrant) - Semantic search over document chunks
+    2. PropertyGraphIndex (Neo4j) - Graph queries over Document/Person/Company/Entity nodes
 
     The SubQuestionQueryEngine:
     - Breaks down complex questions
@@ -111,9 +111,9 @@ class HybridQueryEngine:
             query_engine=self.vector_query_engine,
             name="vector_search",
             description=(
-                "Useful for semantic search over email content. "
-                "Use this for questions about what was said in emails, "
-                "email content, topics discussed, specific information mentioned."
+                "Useful for semantic search over document content. "
+                "Use this for questions about what was said in documents, "
+                "document content, topics discussed, specific information mentioned."
             )
         )
 
@@ -121,7 +121,7 @@ class HybridQueryEngine:
             query_engine=self.graph_query_engine,
             name="graph_search",
             description=(
-                "Useful for querying relationships between people, companies, and emails. "
+                "Useful for querying relationships between people, companies, and documents. "
                 "Use this for questions about who sent what, who works where, "
                 "connections between people, organizational structure."
             )
@@ -229,7 +229,3 @@ class HybridQueryEngine:
         return nodes
 
 
-# Convenience factory function
-def create_query_engine() -> HybridQueryEngine:
-    """Create HybridQueryEngine instance."""
-    return HybridQueryEngine()
