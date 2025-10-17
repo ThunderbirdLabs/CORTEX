@@ -1,19 +1,17 @@
 """
-LlamaIndex Hybrid Property Graph System
-Unified PropertyGraphIndex for Neo4j + Qdrant with multi-strategy retrieval
+LlamaIndex Universal Ingestion System (Expert Pattern)
+IngestionPipeline → Qdrant + Neo4j with SubQuestionQueryEngine
 """
-from app.services.ingestion.llamaindex.hybrid_property_graph_pipeline import (
-    HybridPropertyGraphPipeline,
-    create_hybrid_pipeline
-)
-from app.services.ingestion.llamaindex.hybrid_retriever import (
-    HybridRetriever,
-    create_hybrid_retriever
+from app.services.ingestion.llamaindex import (
+    UniversalIngestionPipeline,
+    create_ingestion_pipeline,
+    HybridQueryEngine,
+    create_query_engine
 )
 
 __all__ = [
-    "HybridPropertyGraphPipeline",
-    "create_hybrid_pipeline",
-    "HybridRetriever",
-    "create_hybrid_retriever"
+    "UniversalIngestionPipeline",
+    "create_ingestion_pipeline",
+    "HybridQueryEngine",
+    "create_query_engine"
 ]

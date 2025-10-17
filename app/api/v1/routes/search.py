@@ -11,38 +11,27 @@ from app.core.security import verify_api_key, get_current_user_id
 from app.core.dependencies import get_supabase
 from app.models.schemas import SearchQuery, SearchResponse, VectorResult, GraphResult
 from app.services.search.query_rewriter import rewrite_query_with_context
-from app.services.ingestion.llamaindex.hybrid_property_graph_pipeline import HybridPropertyGraphPipeline
-from app.services.ingestion.llamaindex.hybrid_retriever import create_hybrid_retriever
+from app.services.ingestion.llamaindex import HybridQueryEngine
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["search"])
 
-# Global hybrid pipeline and retriever (lazy initialized)
-hybrid_pipeline = None
-hybrid_retriever = None
+# Global hybrid query engine (lazy initialized)
+query_engine = None
 _engine_initialized = False
 
 
-async def _initialize_hybrid_retriever():
-    """Initialize the LlamaIndex hybrid retriever (lazy)"""
-    global hybrid_pipeline, hybrid_retriever, _engine_initialized
+async def _initialize_query_engine():
+    """Initialize the LlamaIndex hybrid query engine (lazy)"""
+    global query_engine, _engine_initialized
 
     if not _engine_initialized:
-        # Initialize hybrid pipeline
-        hybrid_pipeline = HybridPropertyGraphPipeline()
-
-        # Create hybrid retriever with multi-strategy retrieval
-        hybrid_retriever = create_hybrid_retriever(
-            pipeline=hybrid_pipeline,
-            similarity_top_k=10,
-            use_cypher=False
-        )
-
+        query_engine = HybridQueryEngine()
         _engine_initialized = True
-        logger.info("✅ Hybrid retriever initialized")
+        logger.info("✅ Hybrid query engine initialized")
 
-    return hybrid_retriever
+    return query_engine
 
 
 @router.post("/search", response_model=SearchResponse)
@@ -83,11 +72,11 @@ async def search(
         logger.info(f"Search - Original: {query.query}")
         logger.info(f"Search - Rewritten: {rewritten_query}")
 
-        # Initialize hybrid retriever (lazy)
-        retriever = await _initialize_hybrid_retriever()
+        # Initialize hybrid query engine (lazy)
+        engine = await _initialize_query_engine()
 
         # Execute query using hybrid retrieval
-        result = await retriever.query(query_str=rewritten_query)
+        result = await engine.query(question=rewritten_query)
 
         # Extract episode_ids and metadata from source nodes
         episode_ids = set()

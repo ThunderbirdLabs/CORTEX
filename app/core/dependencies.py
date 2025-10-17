@@ -40,6 +40,12 @@ async def get_rag_pipeline():
     return rag_pipeline  # Can be None if not initialized
 
 
+# Alias for consistency (some routes use get_cortex_pipeline)
+async def get_cortex_pipeline():
+    """Get Cortex pipeline instance (alias for get_rag_pipeline)."""
+    return rag_pipeline
+
+
 # ============================================================================
 # STARTUP/SHUTDOWN
 # ============================================================================
@@ -59,8 +65,8 @@ async def initialize_clients():
 
     # RAG Pipeline (lazy import to avoid circular dependencies)
     try:
-        from app.services.ingestion.llamaindex.hybrid_property_graph_pipeline import HybridPropertyGraphPipeline
-        rag_pipeline = HybridPropertyGraphPipeline()
+        from app.services.ingestion.llamaindex import UniversalIngestionPipeline
+        rag_pipeline = UniversalIngestionPipeline()
     except Exception as e:
         print(f"Warning: Failed to initialize RAG pipeline: {e}")
         rag_pipeline = None

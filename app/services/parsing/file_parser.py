@@ -11,7 +11,13 @@ from pathlib import Path
 
 from llama_index.core import SimpleDirectoryReader, Document
 from llama_index.readers.file import UnstructuredReader
-import magic
+
+# Optional: python-magic for MIME type detection
+try:
+    import magic
+    HAS_MAGIC = True
+except ImportError:
+    HAS_MAGIC = False
 
 logger = logging.getLogger(__name__)
 
@@ -26,24 +32,29 @@ def detect_file_type(file_path: str) -> str:
     Returns:
         MIME type string (e.g., 'application/pdf')
     """
-    try:
-        mime = magic.Magic(mime=True)
-        return mime.from_file(file_path)
-    except Exception as e:
-        logger.warning(f"Failed to detect MIME type: {e}, using extension fallback")
-        # Fallback: guess from extension
-        ext_to_mime = {
-            '.pdf': 'application/pdf',
-            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            '.doc': 'application/msword',
-            '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-            '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            '.txt': 'text/plain',
-            '.html': 'text/html',
-            '.md': 'text/markdown',
-        }
-        ext = Path(file_path).suffix.lower()
-        return ext_to_mime.get(ext, 'application/octet-stream')
+    # Fallback: guess from extension
+    ext_to_mime = {
+        '.pdf': 'application/pdf',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.doc': 'application/msword',
+        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.txt': 'text/plain',
+        '.html': 'text/html',
+        '.md': 'text/markdown',
+    }
+
+    # Try magic if available
+    if HAS_MAGIC:
+        try:
+            mime = magic.Magic(mime=True)
+            return mime.from_file(file_path)
+        except Exception as e:
+            logger.warning(f"Failed to detect MIME type with magic: {e}, using extension fallback")
+
+    # Use extension fallback
+    ext = Path(file_path).suffix.lower()
+    return ext_to_mime.get(ext, 'application/octet-stream')
 
 
 def extract_text_from_file(

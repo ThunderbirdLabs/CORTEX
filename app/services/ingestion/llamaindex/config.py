@@ -1,11 +1,10 @@
 """
-LlamaIndex Hybrid Property Graph Configuration
-Uses existing schema from app/models/schemas/knowledge_graph.py
+LlamaIndex Configuration (Expert Recommended Pattern)
 
-Architecture: Hybrid Property Graph (single unified PropertyGraphIndex)
-- Recommended official LlamaIndex pattern
-- Neo4j PropertyGraphStore + Qdrant VectorStore
-- Multi-strategy hybrid retrieval (VectorContext + LLMSynonym)
+Architecture:
+- IngestionPipeline → Qdrant (vector store) + Neo4j (knowledge graph)
+- Custom Email, Person, Company nodes
+- SubQuestionQueryEngine for hybrid retrieval
 """
 
 import os
@@ -21,7 +20,7 @@ load_dotenv()
 NEO4J_URI = os.getenv("NEO4J_URI")
 NEO4J_USERNAME = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
-NEO4J_DATABASE = "neo4j"  # Production database
+NEO4J_DATABASE = "neo4j"
 
 # ============================================
 # QDRANT CONFIGURATION
@@ -29,7 +28,7 @@ NEO4J_DATABASE = "neo4j"  # Production database
 
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
-QDRANT_COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME", "cortex_documents")  # Production collection
+QDRANT_COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME", "cortex_documents")
 
 # ============================================
 # OPENAI CONFIGURATION
@@ -50,92 +49,136 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMENSIONS = 1536
 
 # ============================================
-# SCHEMA CONFIGURATION (From knowledge_graph.py)
+# SCHEMA CONFIGURATION (SchemaLLMPathExtractor)
 # ============================================
 
-# Entity types - matches your existing schema
-ENTITIES = Literal[
-    "PERSON",
-    "COMPANY",
-    "DEAL",
-    "PROJECT",
-    "DOCUMENT",
-    "MESSAGE",
-    "MEETING",
-    "PRODUCT",
-    "LOCATION",
-    "TASK"
+# Entity Types - Optimized for CEO business intelligence
+# These are the ONLY entity types that will be extracted
+POSSIBLE_ENTITIES = [
+    "PERSON",      # Anyone: employees, customers, vendors, contacts
+    "COMPANY",     # Any business: clients, suppliers, competitors, departments
+    "EMAIL",       # Email messages (extracted from content, not document nodes)
+    "DOCUMENT",    # Files: contracts, invoices, reports, PDFs (extracted from content)
+    "DEAL",        # Opportunities, sales, orders, quotes
+    "TASK",        # Action items, follow-ups, requests
+    "MEETING",     # Calls, meetings, appointments
+    "PAYMENT",     # Invoices, payments, expenses, POs
+    "TOPIC",       # Subjects, projects, products, issues
+    "EVENT"        # Catch-all: conferences, launches, deadlines, milestones
 ]
 
-# Relationship types - matches your existing schema
-RELATIONS = Literal[
-    "WORKS_FOR",
-    "WORKS_ON",
-    "MANAGES",
-    "REPORTS_TO",
-    "COLLABORATES_WITH",
-    "WITH_CUSTOMER",
-    "PARTNER_WITH",
-    "COMPETES_WITH",
-    "OWNS_DEAL",
-    "ASSOCIATED_WITH",
-    "USES_PRODUCT",
-    "ATTENDED_MEETING",
-    "SENT_EMAIL",
-    "RECEIVED_EMAIL",
-    "MENTIONED_IN",
-    "CREATED_DOCUMENT",
-    "REFERENCES",
-    "LOCATED_IN"
+# Relationship Types - Natural language for LLM understanding
+# These are the ONLY relationship types that will be extracted
+POSSIBLE_RELATIONS = [
+    # Who did what
+    "SENT_BY", "SENT_TO", "CREATED_BY", "ASSIGNED_TO", "ATTENDED_BY",
+    # Organization
+    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO",
+    # Business relationships
+    "CLIENT_OF", "VENDOR_OF",
+    # Content connections
+    "ABOUT", "MENTIONS", "RELATES_TO", "ATTACHED_TO",
+    # Status & actions
+    "REQUIRES", "FOLLOWS_UP", "RESOLVES",
+    # Financial
+    "PAID_BY", "PAID_TO"
 ]
 
-# Validation schema - defines which entities can have which relationships
-VALIDATION_SCHEMA = {
+# Validation Schema - Defines which entities can have which relationships
+# SchemaLLMPathExtractor uses this to validate extracted relationships
+KG_VALIDATION_SCHEMA = {
     "PERSON": [
-        "WORKS_FOR", "WORKS_ON", "MANAGES", "REPORTS_TO",
-        "COLLABORATES_WITH", "ATTENDED_MEETING", "CREATED_DOCUMENT",
-        "SENT_EMAIL", "RECEIVED_EMAIL", "LOCATED_IN"
+        "SENT_BY", "SENT_TO", "CREATED_BY", "ASSIGNED_TO", "ATTENDED_BY",
+        "WORKS_FOR", "WORKS_WITH", "REPORTS_TO",
+        "PAID_BY", "PAID_TO",
+        "MENTIONS", "RELATES_TO", "ABOUT"
     ],
     "COMPANY": [
-        "WITH_CUSTOMER", "PARTNER_WITH", "COMPETES_WITH",
-        "LOCATED_IN", "USES_PRODUCT"
+        "SENT_BY", "SENT_TO",
+        "WORKS_FOR", "CLIENT_OF", "VENDOR_OF",
+        "PAID_BY", "PAID_TO",
+        "MENTIONS", "RELATES_TO", "ABOUT"
     ],
-    "DEAL": [
-        "OWNS_DEAL", "WITH_CUSTOMER", "ASSOCIATED_WITH",
-        "MENTIONED_IN", "REFERENCES"
-    ],
-    "PROJECT": [
-        "WORKS_ON", "ASSOCIATED_WITH", "MENTIONED_IN",
-        "REFERENCES"
+    "EMAIL": [
+        "SENT_BY", "SENT_TO",
+        "ABOUT", "MENTIONS", "RELATES_TO", "ATTACHED_TO",
+        "FOLLOWS_UP", "RESOLVES"
     ],
     "DOCUMENT": [
-        "CREATED_DOCUMENT", "REFERENCES", "MENTIONED_IN"
+        "SENT_BY", "CREATED_BY",
+        "ABOUT", "MENTIONS", "RELATES_TO", "ATTACHED_TO"
     ],
-    "MESSAGE": [
-        "SENT_EMAIL", "RECEIVED_EMAIL", "MENTIONED_IN"
-    ],
-    "MEETING": [
-        "ATTENDED_MEETING", "MENTIONED_IN"
-    ],
-    "PRODUCT": [
-        "USES_PRODUCT", "ASSOCIATED_WITH"
-    ],
-    "LOCATION": [
-        "LOCATED_IN"
+    "DEAL": [
+        "CREATED_BY", "ASSIGNED_TO",
+        "ABOUT", "MENTIONS", "RELATES_TO",
+        "REQUIRES", "FOLLOWS_UP"
     ],
     "TASK": [
-        "ASSOCIATED_WITH", "WORKS_ON"
+        "CREATED_BY", "ASSIGNED_TO",
+        "ABOUT", "RELATES_TO",
+        "REQUIRES", "RESOLVES"
+    ],
+    "MEETING": [
+        "ATTENDED_BY",
+        "ABOUT", "MENTIONS", "RELATES_TO",
+        "FOLLOWS_UP"
+    ],
+    "PAYMENT": [
+        "PAID_BY", "PAID_TO",
+        "RELATES_TO", "ABOUT"
+    ],
+    "TOPIC": [
+        "ABOUT", "MENTIONS", "RELATES_TO"
+    ],
+    "EVENT": [
+        "CREATED_BY", "ATTENDED_BY",
+        "ABOUT", "MENTIONS", "RELATES_TO"
     ]
 }
 
+# Legacy Literal types (for backward compatibility)
+ENTITIES = Literal[
+    "PERSON", "COMPANY", "EMAIL", "DOCUMENT", "DEAL", "TASK",
+    "MEETING", "PAYMENT", "TOPIC", "EVENT"
+]
+
+RELATIONS = Literal[
+    "SENT_BY", "SENT_TO", "CREATED_BY", "ASSIGNED_TO", "ATTENDED_BY",
+    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO",
+    "CLIENT_OF", "VENDOR_OF",
+    "ABOUT", "MENTIONS", "RELATES_TO", "ATTACHED_TO",
+    "REQUIRES", "FOLLOWS_UP", "RESOLVES",
+    "PAID_BY", "PAID_TO"
+]
+
+VALIDATION_SCHEMA = KG_VALIDATION_SCHEMA  # Alias for backward compatibility
+
 # ============================================
-# PIPELINE CONFIGURATION
+# INGESTION PIPELINE CONFIGURATION
 # ============================================
 
-# Vector Pipeline
-VECTOR_CHUNK_SIZE = 1000
-VECTOR_CHUNK_OVERLAP = 200
-VECTOR_SIMILARITY_TOP_K = 10
+# Text chunking (per expert guidance)
+CHUNK_SIZE = 512
+CHUNK_OVERLAP = 50
 
-# PropertyGraph Pipeline
-GRAPH_SHOW_PROGRESS = True
+# Vector search
+SIMILARITY_TOP_K = 10
+
+# Progress display
+SHOW_PROGRESS = True
+
+# Parallel processing (production optimization)
+NUM_WORKERS = 4  # For parallel node processing
+
+# ============================================
+# CACHING CONFIGURATION (Production)
+# ============================================
+
+# Redis cache for IngestionPipeline (optional but recommended for production)
+# Set to None to disable caching, or provide Redis connection details
+REDIS_HOST = os.getenv("REDIS_HOST", None)  # e.g., "127.0.0.1" or "redis.example.com"
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+CACHE_COLLECTION = "cortex_ingestion_cache"
+
+# Enable caching if Redis is configured
+ENABLE_CACHE = REDIS_HOST is not None

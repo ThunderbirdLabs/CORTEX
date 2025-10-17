@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from supabase import Client
 
-from app.services.ingestion.llamaindex.hybrid_property_graph_pipeline import HybridPropertyGraphPipeline
+from app.services.ingestion.llamaindex import UniversalIngestionPipeline
 from app.services.parsing.file_parser import extract_text_from_file, extract_text_from_bytes
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 async def ingest_document_universal(
     supabase: Client,
-    cortex_pipeline: HybridPropertyGraphPipeline,
+    cortex_pipeline: UniversalIngestionPipeline,
     tenant_id: str,
     source: str,  # 'gmail', 'gdrive', 'slack', 'hubspot', 'outlook', 'upload'
     source_id: str,  # External ID from source system
@@ -118,20 +118,25 @@ async def ingest_document_universal(
 
         logger.info(f"   🕸️  Ingesting to PropertyGraph...")
 
+        # Construct document_row in Supabase format for UniversalIngestionPipeline
+        document_row_for_ingestion = {
+            'id': source_id,  # Use source_id as document ID
+            'title': title,
+            'content': content,
+            'source': source,
+            'document_type': document_type,
+            'tenant_id': tenant_id,
+            'source_id': source_id,
+            'source_created_at': source_created_at.isoformat() if source_created_at else None,
+            'metadata': metadata or {}
+        }
+
         cortex_result = await cortex_pipeline.ingest_document(
-            content=content,
-            document_name=title,
-            source=source,
-            document_type=document_type,
-            reference_time=source_created_at or datetime.now(),
-            metadata={
-                'tenant_id': tenant_id,
-                'source_id': source_id,
-                **(metadata or {})
-            }
+            document_row=document_row_for_ingestion,
+            extract_entities=True
         )
 
-        if cortex_result['status'] != 'success':
+        if cortex_result.get('status') != 'success':
             raise Exception(f"PropertyGraph ingestion failed: {cortex_result.get('error')}")
 
         logger.info(f"   ✅ PropertyGraph ingestion complete")

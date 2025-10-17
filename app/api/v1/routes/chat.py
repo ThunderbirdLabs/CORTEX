@@ -7,16 +7,14 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 
-from app.services.ingestion.llamaindex.hybrid_property_graph_pipeline import HybridPropertyGraphPipeline
-from app.services.ingestion.llamaindex.hybrid_retriever import create_hybrid_retriever
+from app.services.ingestion.llamaindex import HybridQueryEngine
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
 
-# Global hybrid property graph pipeline and retriever (lazy initialized)
-hybrid_pipeline = None
-hybrid_retriever = None
+# Global hybrid query engine (lazy initialized)
+query_engine = None
 _initialized = False
 
 
@@ -34,30 +32,17 @@ class ChatResponse(BaseModel):
     sources: List[Dict[str, Any]]
 
 
-async def _initialize_hybrid_retriever():
-    """Initialize the hybrid retriever (lazy)"""
-    global hybrid_pipeline, hybrid_retriever, _initialized
+async def _initialize_query_engine():
+    """Initialize the hybrid query engine (lazy)"""
+    global query_engine, _initialized
 
     if not _initialized:
-        logger.info("🚀 Initializing Hybrid PropertyGraph System...")
-
-        # Initialize hybrid property graph pipeline (Single PropertyGraphIndex with Neo4j + Qdrant)
-        hybrid_pipeline = HybridPropertyGraphPipeline()
-
-        # Create hybrid retriever with 3 strategies:
-        # 1. VectorContextRetriever - Graph-aware vector search
-        # 2. LLMSynonymRetriever - Query expansion
-        # 3. (Optional) CypherTemplateRetriever - Graph patterns
-        hybrid_retriever = create_hybrid_retriever(
-            pipeline=hybrid_pipeline,
-            similarity_top_k=5,
-            use_cypher=False  # Enable if you want Cypher templates
-        )
-
+        logger.info("🚀 Initializing Hybrid Query Engine...")
+        query_engine = HybridQueryEngine()
         _initialized = True
-        logger.info("✅ Hybrid Retriever ready (VectorContext + LLMSynonym)")
+        logger.info("✅ Hybrid Query Engine ready")
 
-    return hybrid_retriever
+    return query_engine
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -78,13 +63,13 @@ async def chat(message: ChatMessage):
         ChatResponse: Answer + sources
     """
     try:
-        # Initialize retriever (lazy)
-        retriever = await _initialize_hybrid_retriever()
+        # Initialize query engine (lazy)
+        engine = await _initialize_query_engine()
 
         logger.info(f"💬 Chat query: {message.question}")
 
         # Execute hybrid query
-        result = await retriever.query(message.question)
+        result = await engine.query(message.question)
 
         # Format source nodes
         sources = []
@@ -118,9 +103,8 @@ async def chat(message: ChatMessage):
 
 @router.get("/chat/health")
 async def chat_health():
-    """Check if hybrid property graph system is initialized"""
+    """Check if hybrid query engine is initialized"""
     return {
         "initialized": _initialized,
-        "pipeline": "HybridPropertyGraphPipeline" if hybrid_pipeline else None,
-        "retriever": "HybridRetriever" if hybrid_retriever else None
+        "engine": "HybridQueryEngine" if query_engine else None
     }
