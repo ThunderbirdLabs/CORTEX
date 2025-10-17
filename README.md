@@ -1,6 +1,7 @@
-# Email Sync & Hybrid RAG Platform
+# Cortex - Enterprise RAG Platform
+**v0.3.0**
 
-**Enterprise-grade unified backend** for email synchronization (Gmail/Outlook) with AI-powered hybrid RAG search (vector + knowledge graph).
+Enterprise-grade unified backend for **multi-source data ingestion** (Gmail, Outlook, Google Drive, file uploads) with **AI-powered hybrid RAG search** (vector + knowledge graph).
 
 Built with FastAPI, LlamaIndex, Graphiti, Qdrant, Neo4j, and OpenAI.
 
@@ -10,16 +11,17 @@ Built with FastAPI, LlamaIndex, Graphiti, Qdrant, Neo4j, and OpenAI.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                      FRONTEND (Vercel)                               │
-│              User initiates OAuth & queries data                     │
+│                      FRONTEND (Vercel - Next.js)                     │
+│         Modern React UI with OAuth, Chat, and Connections            │
 └─────────────┬───────────────────────────────────────┬───────────────┘
               │                                       │
               ▼                                       ▼
 ┌─────────────────────────┐           ┌──────────────────────────────┐
-│   NANGO (OAuth Proxy)   │           │   UNIFIED BACKEND (Render)   │
+│   NANGO (OAuth Proxy)   │           │   CORTEX BACKEND (Render)    │
 │   - Gmail OAuth         │           │   FastAPI - main.py          │
-│   - Outlook OAuth       │◄──────────┤   - Nango webhooks           │
-│   - Token management    │           │   - Email sync engine        │
+│   - Outlook OAuth       │◄──────────┤   - OAuth webhooks           │
+│   - Google Drive OAuth  │           │   - Multi-source sync        │
+│   - Token management    │           │   - Universal ingestion      │
 └─────────────────────────┘           │   - Hybrid RAG search        │
                                       └───────┬──────────────┬───────┘
                                               │              │
@@ -29,77 +31,113 @@ Built with FastAPI, LlamaIndex, Graphiti, Qdrant, Neo4j, and OpenAI.
        ┌────────────────┐          ┌─────────────────┐  ┌────────┐ ┌────────┐
        │   SUPABASE     │          │   QDRANT CLOUD  │  │ NEO4J  │ │OPENAI  │
        │   PostgreSQL   │          │   Vector Store  │  │ Graph  │ │  LLM   │
-       │   - Emails     │          │   - Embeddings  │  │Graphiti│ │Embedder│
-       │   - Metadata   │          │   - Chunks      │  │Entities│ │        │
+       │   - Documents  │          │   - Embeddings  │  │Graphiti│ │Embedder│
+       │   - Emails     │          │   - Chunks      │  │Entities│ │        │
+       │   - Metadata   │          │   - Hybrid idx  │  │Relations│ │        │
        └────────────────┘          └─────────────────┘  └────────┘ └────────┘
 ```
 
 ---
 
+## 🚀 What's New in v0.3.0
+
+### **Google Drive Integration**
+- ✅ Full Google Drive OAuth & sync
+- ✅ Incremental sync (only new/updated files)
+- ✅ Automatic Google Workspace export:
+  - **Docs** → `text/plain`
+  - **Sheets** → `text/csv`
+  - **Slides** → `text/plain`
+- ✅ Support for PDF, Word, Excel, PowerPoint
+- ✅ Content-based deduplication (SHA256 hashing)
+
+### **Universal Ingestion Pipeline**
+- ✅ Any source → unified format → RAG
+- ✅ Lightweight file parsing (no heavy ML at startup)
+- ✅ Lazy-loaded PDF parser (memory optimized)
+- ✅ 100k character limit per document (cost control)
+- ✅ Null byte stripping for Postgres compatibility
+
+### **Modern Frontend (Aetheris Design)**
+- ✅ Beautiful Next.js UI with glassmorphic design
+- ✅ Sidebar navigation (New chat, Settings)
+- ✅ Gradient orb welcome screen
+- ✅ Suggestion chips for quick actions
+- ✅ Dedicated Connections page for OAuth/sync
+- ✅ Real-time chat with RAG search
+
+### **Production Optimizations**
+- ✅ Memory-optimized for Render free tier (512MB)
+- ✅ Comprehensive startup error handling
+- ✅ Improved dependency management
+- ✅ Removed heavy ML models from startup
+
+---
+
 ## 📊 Data Flow
 
-### **FLOW 1: Email Ingestion (Nango → Supabase → RAG)**
+### **FLOW 1: Universal Document Ingestion**
 
 ```
-1. USER completes OAuth (Gmail/Outlook)
-   └─> Nango stores tokens & sends webhook
+1. DATA SOURCE (Gmail/Drive/Upload)
+   └─> Fetch via Nango API or direct upload
 
-2. WEBHOOK received (POST /nango/webhook)
-   └─> Triggers background sync task
+2. NORMALIZATION
+   ├─> Google Workspace files → Export to text/CSV
+   ├─> PDFs → Fast text extraction (no OCR)
+   ├─> Office files → Unstructured parsing
+   └─> Content hash → SHA256 for deduplication
 
-3. SYNC ENGINE fetches emails
-   ├─ Outlook: Microsoft Graph API (delta sync)
-   └─ Gmail: Nango Unified API (cursor pagination)
+3. DEDUPLICATION CHECK
+   └─> Query Supabase by (tenant_id + content_hash + source)
+   └─> Skip if duplicate found
 
-4. NORMALIZATION transforms raw emails
-   └─> Unified schema (tenant_id, source, message_id, full_body, etc.)
-
-5. DUAL PERSISTENCE
-   ├─> SUPABASE: Raw email + metadata (PostgreSQL)
-   └─> HYBRID RAG: Intelligent ingestion
-       ├─> Chunking: LlamaIndex semantic splitter
-       ├─> Vector DB: Embeddings → Qdrant
-       ├─> Knowledge Graph: Entities/relationships → Neo4j (Graphiti)
-       └─> Episode ID: Shared UUID links vector ↔ graph
+4. UNIVERSAL INGESTION
+   ├─> Extract text (100k char limit)
+   ├─> Strip null bytes
+   ├─> Create Document object
+   └─> Parallel ingestion:
+       ├─> SUPABASE: Full document + metadata
+       └─> HYBRID RAG: Intelligent processing
+           ├─> LlamaIndex: Semantic chunking
+           ├─> OpenAI: Entity extraction (GPT-4o-mini)
+           ├─> Qdrant: Vector embeddings
+           └─> Neo4j: Knowledge graph (Graphiti)
 ```
 
-### **FLOW 2: AI Search (Frontend → RAG → Results)**
+### **FLOW 2: AI Search (Hybrid RAG)**
 
 ```
-1. USER sends search query
-   └─> POST /api/v1/search
+1. USER query → POST /api/v1/search
 
-2. QUERY REWRITING (context-aware)
-   └─> Expands query using conversation history
+2. QUERY REWRITING
+   └─> Context-aware expansion (conversation history)
 
-3. HYBRID RAG EXECUTION
-   ├─> VECTOR SEARCH (Qdrant)
-   │   └─> Returns top-k chunks with episode_ids
-   │
-   ├─> GRAPH SEARCH (Neo4j via Graphiti)
-   │   └─> Filters by episode_ids from vector results
-   │   └─> Returns entity relationships & facts
-   │
-   └─> SYNTHESIS (OpenAI GPT-4o-mini)
-       └─> Generates answer from combined context
+3. HYBRID RETRIEVAL (LlamaIndex)
+   ├─> VectorContextRetriever (graph-aware)
+   ├─> LLMSynonymRetriever (entity expansion)
+   └─> Concurrent multi-strategy search
 
-4. RESPONSE returned
-   └─> {answer, vector_results[], graph_results[], num_episodes}
+4. SYNTHESIS
+   └─> GPT-4o-mini generates answer from combined context
+
+5. RESPONSE
+   └─> {answer, vector_results[], graph_results[], sources[]}
 ```
 
 ---
 
-## 🗂️ Unified Codebase Structure
+## 🗂️ Codebase Structure
 
 ```
-connections/
-├── main.py                              # Clean FastAPI entry point (100 lines)
+NANGO-CONNECTION-ONLY/
+├── main.py                              # FastAPI entry point (v0.3.0)
 │
-├── app/                                 # Unified backend package
-│   ├── core/                            # Core infrastructure
-│   │   ├── config.py                    # Pydantic Settings (type-safe env vars)
-│   │   ├── dependencies.py              # Dependency injection (HTTP, Supabase, RAG)
-│   │   └── security.py                  # JWT + API key authentication
+├── app/                                 # Main application
+│   ├── core/                            # Infrastructure
+│   │   ├── config.py                    # Pydantic Settings (all env vars)
+│   │   ├── dependencies.py              # DI (HTTP, Supabase, RAG pipeline)
+│   │   └── security.py                  # JWT + API key auth
 │   │
 │   ├── middleware/                      # Request processing
 │   │   ├── error_handler.py             # Global exception handling
@@ -107,371 +145,327 @@ connections/
 │   │   └── cors.py                      # CORS configuration
 │   │
 │   ├── models/schemas/                  # Pydantic models
-│   │   ├── connector.py                 # OAuth & webhook models
-│   │   ├── sync.py                      # Sync operation models
+│   │   ├── connector.py                 # OAuth, webhooks
+│   │   ├── sync.py                      # Sync operations
 │   │   ├── search.py                    # Search request/response
-│   │   ├── ingestion.py                 # Document ingestion models
-│   │   ├── graph.py                     # Knowledge graph custom types
-│   │   └── health.py                    # Health check models
+│   │   ├── ingestion.py                 # Document models
+│   │   └── knowledge_graph.py           # Graph entity types
 │   │
 │   ├── services/                        # Business logic
-│   │   ├── connectors/                  # Email connectors
+│   │   ├── connectors/                  # Data connectors
 │   │   │   ├── gmail.py                 # Gmail normalization
-│   │   │   └── microsoft_graph.py       # Outlook sync (Graph API)
+│   │   │   ├── google_drive.py          # Drive file handling
+│   │   │   └── microsoft_graph.py       # Outlook sync
 │   │   │
-│   │   ├── nango/                       # OAuth & webhook handling
+│   │   ├── nango/                       # OAuth & sync
 │   │   │   ├── nango_client.py          # Nango API client
-│   │   │   ├── database.py              # Connection & cursor management
-│   │   │   ├── sync_engine.py           # Sync orchestration
-│   │   │   └── persistence.py           # Supabase + RAG ingestion
+│   │   │   ├── drive_client.py          # Drive-specific actions
+│   │   │   ├── drive_sync.py            # Drive sync engine
+│   │   │   ├── sync_engine.py           # Email sync orchestration
+│   │   │   ├── database.py              # Connection management
+│   │   │   └── persistence.py           # Data persistence
 │   │   │
 │   │   ├── ingestion/                   # RAG pipeline
-│   │   │   ├── pipeline.py              # Hybrid RAG ingestion pipeline
-│   │   │   ├── hybrid_query_engine.py   # Episode-filtered search
-│   │   │   └── response_generator.py    # LLM response synthesis
+│   │   │   └── llamaindex/
+│   │   │       ├── config.py            # LlamaIndex configuration
+│   │   │       ├── hybrid_property_graph_pipeline.py
+│   │   │       └── hybrid_retriever.py  # Multi-strategy retrieval
 │   │   │
-│   │   └── search/                      # Search engine
-│   │       ├── search.py                # Hybrid search class
+│   │   ├── parsing/                     # File parsing
+│   │   │   └── file_parser.py           # Universal file parser (lazy-loaded)
+│   │   │
+│   │   ├── deduplication/               # Content deduplication
+│   │   │   └── dedupe_service.py        # SHA256 hash-based deduping
+│   │   │
+│   │   ├── universal/                   # Universal ingestion
+│   │   │   └── ingest.py                # Unified ingestion flow
+│   │   │
+│   │   └── search/
 │   │       └── query_rewriter.py        # Context-aware query expansion
 │   │
-│   └── api/v1/routes/                   # API endpoints
+│   └── api/v1/routes/                   # API endpoints (v1)
 │       ├── health.py                    # Health checks
-│       ├── oauth.py                     # OAuth flow
+│       ├── oauth.py                     # OAuth flow (Gmail/Drive/Outlook)
 │       ├── webhook.py                   # Nango webhooks
 │       ├── sync.py                      # Manual sync endpoints
-│       └── search.py                    # Hybrid RAG search
+│       ├── search.py                    # Hybrid RAG search
+│       ├── emails.py                    # Email retrieval
+│       ├── upload.py                    # File upload
+│       └── chat.py                      # Chat interface
+│
+├── connectorfrontend/                   # Next.js frontend
+│   ├── app/                             # App router
+│   │   ├── page.tsx                     # Main chat page
+│   │   ├── connections/page.tsx         # OAuth & sync UI
+│   │   └── login/page.tsx               # Auth page
+│   ├── components/
+│   │   └── sidebar.tsx                  # Navigation sidebar
+│   ├── contexts/
+│   │   └── auth-context.tsx             # Supabase auth
+│   └── lib/
+│       └── api.ts                       # Backend API client
+│
+├── scripts/                             # Utility scripts
+│   ├── database_tools/                  # DB inspection
+│   ├── ingestion/                       # Data ingestion
+│   └── testing/                         # Test scripts
 │
 ├── requirements.txt                     # Python dependencies
-├── render.yaml                          # Render deployment config
+├── runtime.txt                          # Python 3.13
 └── README.md                            # This file
 ```
 
 ---
 
-## 🔌 API Endpoints
+## 🔌 API Endpoints (v1)
 
 ### **OAuth & Connections**
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `GET /` | GET | None | API info & endpoint list |
+| `GET /` | GET | None | API info |
 | `GET /health` | GET | None | Health check |
-| `GET /status` | GET | JWT | Connection status (which providers connected) |
-| `GET /connect/start?provider={gmail\|outlook}` | GET | JWT | Initiate OAuth flow (returns Nango URL) |
-| `POST /nango/oauth/callback` | POST | None | Nango OAuth callback (saves connection) |
+| `GET /status` | GET | JWT | Connection status (Gmail/Drive/Outlook) |
+| `GET /connect/start?provider={gmail\|google-drive\|outlook}` | GET | JWT | Initiate OAuth |
+| `POST /nango/webhook` | POST | None | Nango auth/sync webhook |
 
-### **Email Sync**
-
-| Endpoint | Method | Auth | Description |
-|----------|--------|------|-------------|
-| `POST /nango/webhook` | POST | None | Nango sync webhook (triggers background sync) |
-| `GET /sync/once` | GET | JWT | Manual Outlook sync (all mailboxes) |
-| `GET /sync/once/gmail?modified_after=ISO_DATE` | GET | JWT | Manual Gmail sync (optional date filter) |
-
-### **AI Search**
+### **Data Sync**
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `POST /api/v1/search` | POST | API Key | Hybrid RAG search (vector + knowledge graph) |
+| `GET /sync/once` | GET | JWT | Manual Outlook sync |
+| `GET /sync/once/gmail` | GET | JWT | Manual Gmail sync |
+| `GET /sync/once/drive?folder_ids=id1,id2` | GET | JWT | Manual Drive sync |
+
+### **Search & Chat**
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `POST /api/v1/search` | POST | JWT + API Key | Hybrid RAG search |
+| `POST /api/v1/chat` | POST | JWT | Chat interface |
+
+### **File Management**
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `POST /api/v1/upload/file` | POST | JWT + API Key | Upload file for ingestion |
+| `GET /api/v1/emails/{episode_id}` | GET | JWT | Get full email by episode ID |
 
 ---
 
-## 🚀 Setup Instructions
+## 🚀 Quick Start
 
-### **1. Prerequisites**
+### **Prerequisites**
 
-- **Python 3.13+**
-- **PostgreSQL** (via Supabase)
-- **Qdrant Cloud** account
-- **Neo4j Aura** database
-- **OpenAI API** key
-- **Nango** account (OAuth proxy)
+- Python 3.13+
+- PostgreSQL (Supabase)
+- Qdrant Cloud account
+- Neo4j Aura database
+- OpenAI API key
+- Nango account
 
-### **2. Install Dependencies**
+### **Installation**
 
 ```bash
+# Clone repo
+git clone https://github.com/ThunderbirdLabs/NANGO-CONNECTION-ONLY.git
+cd NANGO-CONNECTION-ONLY
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Set environment variables (see .env.example)
+
+# Run locally
+uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 ```
 
-### **3. Environment Variables**
-
-Set these in Render dashboard or `.env` file:
+### **Environment Variables**
 
 ```bash
 # Server
 ENVIRONMENT=production
 PORT=8080
-DEBUG=false
 
 # Database (Supabase)
-DATABASE_URL=postgresql://user:pass@host:5432/db
+DATABASE_URL=postgresql://...
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_KEY=your-service-key
+SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_KEY=...
 
 # Nango OAuth
-NANGO_SECRET=your-nango-secret-key
-NANGO_PROVIDER_KEY_OUTLOOK=outlook-connector
+NANGO_SECRET=...
 NANGO_PROVIDER_KEY_GMAIL=gmail-connector
+NANGO_PROVIDER_KEY_GOOGLE_DRIVE=google-drive  # Optional, falls back to gmail
+NANGO_PROVIDER_KEY_OUTLOOK=outlook-connector
 
-# Hybrid RAG System
-QDRANT_URL=https://your-cluster.qdrant.io
-QDRANT_API_KEY=your-qdrant-api-key
+# RAG System
+QDRANT_URL=https://...
+QDRANT_API_KEY=...
 QDRANT_COLLECTION_NAME=cortex_documents
-NEO4J_URI=neo4j+s://your-instance.databases.neo4j.io
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your-neo4j-password
-OPENAI_API_KEY=sk-proj-your-openai-api-key
+NEO4J_URI=neo4j+s://...
+NEO4J_PASSWORD=...
+OPENAI_API_KEY=sk-proj-...
 
 # API Keys
-CORTEX_API_KEY=your-api-key-for-search-endpoint
-
-# Optional
-SAVE_JSONL=false               # Debug: write emails to outbox.jsonl
-SEMAPHORE_LIMIT=10             # Graphiti concurrency limit
+CORTEX_API_KEY=your-search-api-key
 ```
 
-### **4. Run Locally**
+### **Database Setup**
 
-```bash
-uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+Run SQL migrations in Supabase:
+
+```sql
+-- Documents table (unified storage)
+CREATE TABLE documents (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  document_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  content_hash TEXT,  -- For deduplication
+  raw_data JSONB,
+  file_type TEXT,
+  file_size BIGINT,
+  source_created_at TIMESTAMPTZ,
+  source_modified_at TIMESTAMPTZ,
+  ingested_at TIMESTAMPTZ DEFAULT NOW(),
+  metadata JSONB,
+  UNIQUE(tenant_id, source, source_id)
+);
+
+CREATE INDEX idx_documents_tenant ON documents(tenant_id);
+CREATE INDEX idx_documents_content_hash ON documents(tenant_id, content_hash, source);
 ```
-
-### **5. Deploy to Render**
-
-1. Connect GitHub repo to Render
-2. Set **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-3. Set environment variables in Render dashboard
-4. Auto-deploys on `git push origin main`
-
----
-
-## 🔐 Authentication
-
-### **User Authentication (Supabase JWT)**
-
-Frontend obtains JWT from Supabase auth, sends in `Authorization: Bearer <token>` header.
-
-**Used by:**
-- `/status`
-- `/connect/start`
-- `/sync/once`
-- `/sync/once/gmail`
-
-### **API Key Authentication (Search)**
-
-Search endpoint requires `X-API-Key` header with `CORTEX_API_KEY` value.
-
-**Used by:**
-- `/api/v1/search`
 
 ---
 
 ## 🧪 Testing
 
-### **1. Health Check**
-
+### **Health Check**
 ```bash
-curl https://nango-connection-only.onrender.com/health
-# Expected: {"status":"healthy"}
+curl https://your-app.onrender.com/health
 ```
 
-### **2. Connection Status**
-
+### **Connection Status**
 ```bash
-curl -H "Authorization: Bearer <supabase-jwt>" \
-  https://nango-connection-only.onrender.com/status
+curl -H "Authorization: Bearer <jwt>" \
+  https://your-app.onrender.com/status
 ```
 
-### **3. Manual Gmail Sync**
-
+### **Manual Drive Sync**
 ```bash
-curl -H "Authorization: Bearer <supabase-jwt>" \
-  "https://nango-connection-only.onrender.com/sync/once/gmail?modified_after=2024-01-01T00:00:00Z"
+curl -H "Authorization: Bearer <jwt>" \
+  "https://your-app.onrender.com/sync/once/drive"
 ```
 
-### **4. Hybrid RAG Search**
-
+### **RAG Search**
 ```bash
-curl -X POST https://nango-connection-only.onrender.com/api/v1/search \
-  -H "X-API-Key: your-cortex-api-key" \
+curl -X POST https://your-app.onrender.com/api/v1/search \
+  -H "Authorization: Bearer <jwt>" \
+  -H "X-API-Key: <api-key>" \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "What did Sarah say about the MedTech deal?",
+    "query": "What are the key points from the Q4 report?",
     "vector_limit": 5,
-    "graph_limit": 5,
-    "conversation_history": []
+    "graph_limit": 5
   }'
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "query": "What did Sarah say about the MedTech deal?",
-  "answer": "Sarah Chen mentioned that the MedTech Solutions deal...",
-  "vector_results": [...],
-  "graph_results": [...],
-  "num_episodes": 3,
-  "message": "Found 5 vector results + 5 graph facts"
-}
-```
+---
+
+## 🔐 Security
+
+### **Authentication**
+
+1. **JWT (Supabase)** - User authentication
+   - Used for: OAuth, sync, general API access
+   - Header: `Authorization: Bearer <token>`
+
+2. **API Key** - Search endpoint protection
+   - Used for: `/api/v1/search`
+   - Header: `X-API-Key: <key>`
+
+### **Data Privacy**
+
+- All user data isolated by `tenant_id`
+- OAuth tokens managed by Nango (never stored in app)
+- Content hashing for deduplication (SHA256)
+- Supabase RLS policies (recommended)
 
 ---
 
-## 🔧 Key Design Decisions
+## 🔧 Key Features
 
-### **Why Unified Architecture?**
+### **Content Deduplication**
+- SHA256 hash-based detection
+- Prevents duplicate ingestion across sources
+- Saves RAG processing costs
+- Indexed for fast lookup
 
-Previously had separate Nango and Cortex codebases. Now merged into ONE enterprise backend:
-- **Easier to maintain**: Single codebase, unified config
-- **Better performance**: Direct function calls, no HTTP overhead
-- **Cleaner code**: Shared utilities, consistent patterns
+### **Incremental Sync**
+- Google Drive: Uses `source_modified_at` timestamp
+- Gmail: Cursor-based pagination
+- Outlook: Delta links for changes only
 
-### **Why Episode ID Linking?**
+### **Memory Optimization**
+- Lazy-loaded PDF parser (no heavy ML at startup)
+- Removed `unstructured[all-docs]` heavy dependencies
+- Character limit (100k) per document
+- Fits in Render's 512MB free tier
 
-Each email chunk gets a unique `episode_id` UUID stored in **both** Qdrant and Neo4j:
-1. Vector search returns top chunks with episode IDs
-2. Graph search filters by those episode IDs only
-3. **Result**: 10x fewer tokens, 5x faster queries, more accurate answers
-
-### **Why Dependency Injection?**
-
-Instead of global variables:
-- Proper lifecycle management (startup/shutdown)
-- Easy testing (mock dependencies)
-- Type-safe (FastAPI validates dependencies)
-
-### **Why LlamaIndex + Graphiti?**
-
-- **LlamaIndex**: Best-in-class document chunking & query engine
-- **Graphiti**: Temporal knowledge graph (tracks when facts were valid)
-- **Hybrid**: Beats pure vector or pure graph search alone
-
----
-
-## 📁 Project Structure
-
-```
-NANGO-CONNECTION-ONLY/
-├── main.py                    # FastAPI application entry point
-├── requirements.txt           # Python dependencies
-├── runtime.txt                # Python version for deployment
-├── README.md                  # This file
-│
-├── app/                       # Main application code
-│   ├── api/v1/routes/        # API endpoints (OAuth, sync, search, chat)
-│   ├── core/                 # Config, dependencies, security
-│   ├── middleware/           # CORS, logging, error handling
-│   ├── models/               # Pydantic schemas
-│   └── services/             # Business logic
-│       ├── connectors/       # Gmail/Outlook email fetching
-│       ├── ingestion/        # RAG ingestion (LlamaIndex)
-│       ├── nango/            # Nango OAuth integration
-│       └── search/           # Query rewriting
-│
-├── scripts/                   # Utility scripts (organized)
-│   ├── ingestion/            # Data ingestion scripts
-│   │   └── ingest_from_supabase.py
-│   ├── testing/              # Test scripts
-│   │   ├── test_hybrid.py
-│   │   └── test_query.py
-│   └── database_tools/       # Database inspection/management
-│       ├── audit_databases.py
-│       ├── check_databases.py
-│       └── clear_databases.py
-│
-├── docs/                      # Documentation
-│   └── TYPED_ENTITIES_IMPLEMENTATION.md
-│
-└── public/                    # Static files
-    └── chat.html             # Simple chat UI for testing
-
-See scripts/README.md for detailed script documentation.
-```
-
----
-
-## 📈 Monitoring & Debugging
-
-### **View Logs (Render)**
-
-```bash
-curl -H "Authorization: Bearer <render-api-token>" \
-  "https://api.render.com/v1/services/<service-id>/logs"
-```
-
-### **Debug Mode**
-
-Set `SAVE_JSONL=true` to write all synced emails to `./outbox.jsonl` for inspection.
-
-### **Check RAG Pipeline**
-
-Logs show:
-```
-✅ Hybrid RAG Pipeline initialized
-   Vector DB: Qdrant Cloud
-   Knowledge Graph: Neo4j/Graphiti
-```
+### **Enterprise Patterns**
+- Dependency injection (FastAPI)
+- Type-safe configuration (Pydantic)
+- API versioning (`/api/v1/`)
+- Centralized error handling
+- Structured logging
 
 ---
 
 ## 🐛 Troubleshooting
 
-### **"Failed to initialize RAG pipeline"**
+### **"Empty Response" in chat**
+- No data indexed yet. Go to Connections → Sync Gmail/Drive first
 
-Check:
-- ✅ Qdrant URL/API key correct?
-- ✅ Neo4j credentials valid?
-- ✅ OpenAI API key active?
+### **"Out of Memory" on Render**
+- Verify you're on v0.3.0 (lazy-loaded parsers)
+- Check memory usage in Render dashboard
+- Upgrade to paid tier if needed
 
-### **"No connection found for tenant"**
+### **Google Workspace files show garbled text**
+- Fixed in v0.3.0 - uses proper export MIME types
+- Docs/Slides → `text/plain`
+- Sheets → `text/csv`
 
-User hasn't completed OAuth. Check:
-1. `/connect/start` returned auth URL
-2. User clicked URL and completed OAuth
-3. `/nango/oauth/callback` received webhook
-
-### **Search returns 404**
-
-**Update your frontend!** Search endpoint changed:
-- ❌ OLD: `POST /api/search-optimized`
-- ✅ NEW: `POST /api/v1/search`
-
-### **Search returns empty results**
-
-Check:
-1. Emails synced? (check Supabase `emails` table)
-2. RAG ingestion succeeded? (check logs for "Cortex ingestion successful")
-3. Qdrant collection exists? (check Qdrant dashboard)
+### **"Column content_hash does not exist"**
+- Run the database migration (see Database Setup)
 
 ---
 
-## 📚 Additional Resources
+## 📚 Version History
 
-- **FastAPI**: https://fastapi.tiangolo.com
-- **Nango OAuth**: https://docs.nango.dev
-- **LlamaIndex**: https://docs.llamaindex.ai
-- **Graphiti**: https://github.com/getzep/graphiti
-- **Qdrant**: https://qdrant.tech/documentation
-- **Neo4j Aura**: https://neo4j.com/cloud/aura
+### **v0.3.0 (Current) - Google Drive & Universal Ingestion**
+- ✅ Google Drive OAuth & incremental sync
+- ✅ Universal ingestion pipeline (any source → RAG)
+- ✅ Content-based deduplication (SHA256)
+- ✅ Modern Aetheris-style frontend
+- ✅ Memory optimizations (lazy loading, 512MB fit)
+- ✅ Google Workspace proper export (Docs/Sheets/Slides)
+- ✅ Comprehensive error handling
 
----
-
-## 📝 Version History
-
-### **v2.0.0 (Current) - Enterprise Refactor**
-- ✅ Unified backend architecture (merged Nango + Cortex)
+### **v0.2.0 - Enterprise Refactor**
+- ✅ Unified backend architecture
 - ✅ Dependency injection pattern
-- ✅ Type-safe configuration (Pydantic Settings)
+- ✅ Type-safe configuration
 - ✅ API versioning (`/api/v1/`)
-- ✅ Global error handling & request logging
-- ✅ Clean 100-line `main.py` entry point
 
-### **v1.0.0 - Initial Release**
-- Email sync (Gmail/Outlook via Nango)
-- Hybrid RAG search (Qdrant + Neo4j)
-- Separate codebases (Nango + Cortex)
+### **v0.1.0 - Initial Release**
+- Email sync (Gmail/Outlook)
+- Hybrid RAG search
+- Basic frontend
 
 ---
 
@@ -481,4 +475,4 @@ Proprietary - ThunderbirdLabs
 
 ---
 
-**Built with ❤️ using FastAPI, LlamaIndex, Graphiti, Qdrant, Neo4j, and OpenAI**
+**Built with ❤️ by Nicolas Codet using FastAPI, LlamaIndex, Graphiti, Qdrant, Neo4j, and OpenAI**

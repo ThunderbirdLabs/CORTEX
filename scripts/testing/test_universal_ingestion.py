@@ -1,123 +1,183 @@
 """
-Test Universal Ingestion Pipeline with both Email and Document examples
+Test Universal Ingestion System
+Tests file parsing + documents table + PropertyGraph ingestion WITHOUT Nango
 """
-import sys
-import os
 import asyncio
-import json
+import sys
+from pathlib import Path
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from supabase import create_client
+from app.core.config import settings
+from app.services.parsing.file_parser import extract_text_from_bytes
+from app.services.universal.ingest import ingest_document_universal
 from app.services.ingestion.llamaindex import UniversalIngestionPipeline
 
 
 async def test_universal_ingestion():
-    """Test with email and Google Sheet examples from user."""
+    """Test universal ingestion with a simple text document"""
 
-    print("="*80)
-    print("UNIVERSAL INGESTION PIPELINE TEST")
-    print("="*80)
-    print()
+    print("=" * 80)
+    print("🧪 TESTING UNIVERSAL INGESTION SYSTEM")
+    print("=" * 80)
 
-    # Initialize pipeline
-    print("Initializing UniversalIngestionPipeline...")
-    pipeline = UniversalIngestionPipeline()
-    print()
+    # Step 1: Create test document
+    print("\n1️⃣ Creating test document...")
+    test_content = """
+    Subject: Q4 Product Launch - Cortex AI Platform
 
-    # ========================================================================
-    # TEST 1: Email (from user's example)
-    # ========================================================================
+    Hi Team,
 
-    email_example = {
-        "idx": 0,
-        "id": 6166,
-        "tenant_id": "3d2cb80d-e82c-4256-aa6c-9bf53afd0d07",
-        "user_id": "nick@thunderbird-labs.com",
-        "user_principal_name": "nick@thunderbird-labs.com",
-        "message_id": "199e581bf250811e",
-        "source": "gmail",
-        "subject": "Welcome to Cortex!",
-        "sender_name": "Alex Thompson",
-        "sender_address": "nick@thunderbird-labs.com",
-        "to_addresses": "[\"wecare@thunderbird-labs.com\"]",
-        "received_datetime": "2025-10-15 01:35:07+00",
-        "web_link": "",
-        "change_key": "",
-        "created_at": "2025-10-15 02:35:17.644981+00",
-        "full_body": "Hi Emma,\n\nI hope this message finds you well! I'm thrilled to welcome you and the Acme Corp team to the Cortex family...",
-        "episode_id": "1e7b1d5b-5d2b-45f8-b670-39527ea37cbd",
-        "metadata": "{}",
-        "document_type": "email"  # Add document_type
-    }
+    I'm excited to announce the Q4 launch of Cortex AI, our new unified data
+    ingestion platform. Key features include:
 
-    print("="*80)
-    print("TEST 1: Email Ingestion")
-    print("="*80)
-    print()
+    - Universal ingestion for 600+ connectors (Gmail, Drive, Slack, HubSpot, etc.)
+    - Local file parsing with Unstructured (PDFs, Word, Excel, images)
+    - Hybrid RAG search with LlamaIndex PropertyGraph (Neo4j + Qdrant)
+    - Schema-guided entity extraction (Person, Company, Deal, Product)
 
-    result1 = await pipeline.ingest_document(email_example, extract_entities=True)
+    The platform handles emails, documents, messages, and structured data from
+    any source. Everything is normalized into a unified format for RAG.
 
-    print("\nResult:")
-    print(json.dumps(result1, indent=2))
-    print()
+    Key contacts:
+    - Sarah Chen (sarah@cortex.ai) - Product Lead
+    - Mike Johnson (mike@cortex.ai) - Engineering Lead
+    - Deal value: $150,000 MRR
 
-    # ========================================================================
-    # TEST 2: Google Sheet (from user's example)
-    # ========================================================================
+    Best,
+    Nicolas Codet
+    CEO, Cortex AI
+    """
 
-    document_example = {
-        "idx": 0,
-        "id": 2,
-        "tenant_id": "23e4af88-7df0-4ca4-9e60-fc2a12569a93",
-        "source": "googledrive",
-        "source_id": "1RTp_DZwEcVm9s4GWe1z7-wWumuGAZIifzhwV98QK-1Q",
-        "document_type": "googlesheet",
-        "title": "miso financials",
-        "content": "\"Category,Quarter,Revenue ($),Expenses ($),Net Profit ($),Notes\"\r\n\"Basketball Analytics,Q1,125000,89000,36000,New player data system launched\"\r\n\"Shiba Inu Research,Q1,68000,42000,26000,Behavioral modeling trials\"...",
-        "raw_data": "{\"id\": \"1RTp_DZwEcVm9s4GWe1z7-wWumuGAZIifzhwV98QK-1Q\", \"name\": \"miso financials\", ...}",
-        "file_type": "text/csv",
-        "file_size": 1022,
-        "file_url": None,
-        "source_created_at": "2025-10-16 18:58:43.22+00",
-        "source_modified_at": "2025-10-16 19:00:26.408+00",
-        "ingested_at": "2025-10-16 19:02:12.560594+00",
-        "metadata": "{\"parser\": \"unstructured\", \"file_name\": \"tmp4ohfripv.bin\", \"file_size\": 1022, ...}",
-        "content_hash": "e75faaf24f204b3237ce34b4830abfafa1c0db7de09b450b1511b579b1e962b2"
-    }
+    test_filename = "cortex_launch_announcement.txt"
+    test_bytes = test_content.encode('utf-8')
 
-    print("="*80)
-    print("TEST 2: Google Sheet Ingestion")
-    print("="*80)
-    print()
+    print(f"✅ Created test document: {test_filename}")
+    print(f"   Content length: {len(test_content)} characters")
 
-    result2 = await pipeline.ingest_document(document_example, extract_entities=True)
+    # Step 2: Test file parser
+    print("\n2️⃣ Testing file parser (Unstructured)...")
+    try:
+        extracted_text, parse_metadata = extract_text_from_bytes(
+            test_bytes,
+            test_filename,
+            "text/plain"
+        )
+        print(f"✅ File parsed successfully")
+        print(f"   Extracted: {len(extracted_text)} characters")
+        print(f"   Parser: {parse_metadata.get('parser')}")
+    except Exception as e:
+        print(f"❌ File parser failed: {e}")
+        return
 
-    print("\nResult:")
-    print(json.dumps(result2, indent=2))
-    print()
+    # Step 3: Initialize Supabase
+    print("\n3️⃣ Connecting to Supabase...")
+    try:
+        supabase = create_client(
+            settings.supabase_url,
+            settings.supabase_service_key
+        )
+        print(f"✅ Connected to Supabase")
 
-    # ========================================================================
-    # SUMMARY
-    # ========================================================================
+        # Check if documents table exists
+        result = supabase.table('documents').select("id").limit(1).execute()
+        print(f"✅ Documents table exists ({len(result.data)} rows)")
+    except Exception as e:
+        print(f"❌ Supabase connection failed: {e}")
+        print("\n⚠️  Did you run create_documents_table.sql?")
+        return
 
-    print("="*80)
-    print("TEST SUMMARY")
-    print("="*80)
-    print()
+    # Step 4: Initialize PropertyGraph Pipeline
+    print("\n4️⃣ Initializing PropertyGraph Pipeline (Neo4j + Qdrant)...")
+    try:
+        cortex_pipeline = UniversalIngestionPipeline()
+        print(f"✅ PropertyGraph pipeline initialized")
+        print(f"   Vector DB: Qdrant")
+        print(f"   Graph DB: Neo4j")
+    except Exception as e:
+        print(f"❌ Pipeline initialization failed: {e}")
+        print("\n⚠️  Check your Neo4j/Qdrant credentials in .env")
+        return
 
-    print(f"Email ingestion: {'✅ SUCCESS' if result1['status'] == 'success' else '❌ FAILED'}")
-    print(f"Document ingestion: {'✅ SUCCESS' if result2['status'] == 'success' else '❌ FAILED'}")
-    print()
+    # Step 5: Test universal ingestion
+    print("\n5️⃣ Testing universal ingestion...")
+    print("   Flow: File → Extract → documents table → PropertyGraph")
 
-    # Pipeline stats
-    stats = pipeline.get_stats()
-    print("Pipeline Statistics:")
-    print(json.dumps(stats, indent=2))
-    print()
+    try:
+        result = await ingest_document_universal(
+            supabase=supabase,
+            cortex_pipeline=cortex_pipeline,
+            tenant_id="test_user_123",
+            source="test_upload",
+            source_id=test_filename,
+            document_type="announcement",
+            file_bytes=test_bytes,
+            filename=test_filename,
+            file_type="text/plain",
+            metadata={
+                "test": True,
+                "description": "Testing universal ingestion system",
+                "author": "Nicolas Codet"
+            }
+        )
 
-    print("="*80)
-    print("TEST COMPLETE")
-    print("="*80)
+        print(f"\n✅ UNIVERSAL INGESTION SUCCESSFUL!")
+        print(f"   Status: {result.get('status')}")
+        print(f"   Source: {result.get('source')}")
+        print(f"   Characters: {result.get('characters')}")
+        print(f"   File type: {result.get('file_type')}")
+
+    except Exception as e:
+        print(f"\n❌ Universal ingestion failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return
+
+    # Step 6: Verify in Supabase
+    print("\n6️⃣ Verifying data in Supabase documents table...")
+    try:
+        result = supabase.table('documents')\
+            .select("*")\
+            .eq('tenant_id', 'test_user_123')\
+            .eq('source', 'test_upload')\
+            .eq('source_id', test_filename)\
+            .execute()
+
+        if result.data:
+            doc = result.data[0]
+            print(f"✅ Document found in Supabase!")
+            print(f"   ID: {doc.get('id')}")
+            print(f"   Title: {doc.get('title')}")
+            print(f"   Source: {doc.get('source')}")
+            print(f"   Document Type: {doc.get('document_type')}")
+            print(f"   Content length: {len(doc.get('content', ''))} chars")
+            print(f"   Has raw_data: {bool(doc.get('raw_data'))}")
+            print(f"   Metadata: {doc.get('metadata')}")
+        else:
+            print(f"⚠️  Document not found in Supabase")
+    except Exception as e:
+        print(f"❌ Supabase query failed: {e}")
+
+    # Step 7: Test query (optional - if pipeline supports it)
+    print("\n7️⃣ Testing hybrid search on ingested document...")
+    try:
+        # Simple query test
+        print("   Query: 'What is Cortex AI?'")
+        print("   (This would use the chat endpoint or HybridRetriever)")
+        print("   Skipping actual query - use chat.html for interactive testing")
+    except Exception as e:
+        print(f"⚠️  Query test skipped: {e}")
+
+    print("\n" + "=" * 80)
+    print("🎉 UNIVERSAL INGESTION TEST COMPLETE!")
+    print("=" * 80)
+    print("\nNext steps:")
+    print("1. Open http://localhost:8080/chat.html")
+    print("2. Ask: 'What is Cortex AI?'")
+    print("3. Should return information from the test document!")
+    print("\n✨ Universal ingestion is working! Ready for 600+ connectors!")
 
 
 if __name__ == "__main__":

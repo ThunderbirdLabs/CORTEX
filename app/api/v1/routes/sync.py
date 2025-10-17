@@ -13,6 +13,7 @@ from app.core.security import get_current_user_id
 from app.core.dependencies import get_http_client, get_supabase, get_rag_pipeline
 from app.models.schemas import SyncResponse
 from app.services.nango import run_gmail_sync, run_tenant_sync
+from app.services.nango.drive_sync import run_drive_sync
 
 logger = logging.getLogger(__name__)
 
@@ -71,4 +72,54 @@ async def sync_once_gmail(
         }
     except Exception as e:
         logger.error(f"Error in manual Gmail sync: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/once/drive")
+async def sync_once_drive(
+    user_id: str = Depends(get_current_user_id),
+    http_client: httpx.AsyncClient = Depends(get_http_client),
+    supabase: Client = Depends(get_supabase),
+    rag_pipeline: Optional[any] = Depends(get_rag_pipeline),
+    folder_ids: Optional[str] = Query(None, description="Comma-separated folder IDs to sync (empty = entire Drive)")
+):
+    """
+    Manual Google Drive sync endpoint.
+    Syncs entire Drive or specific folders.
+
+    Examples:
+    - Sync entire Drive: GET /sync/once/drive
+    - Sync specific folders: GET /sync/once/drive?folder_ids=1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE,0BxiMVs...
+    """
+    logger.info(f"Manual Drive sync requested for user {user_id}")
+
+    # Parse folder IDs
+    folder_list = None
+    if folder_ids:
+        folder_list = [fid.strip() for fid in folder_ids.split(",") if fid.strip()]
+        logger.info(f"Syncing specific folders: {folder_list}")
+    else:
+        logger.info("Syncing entire Drive")
+
+    try:
+        result = await run_drive_sync(
+            http_client,
+            supabase,
+            rag_pipeline,
+            user_id,
+            # Prefer dedicated Drive provider key if available, else fall back to Gmail provider key
+            settings.nango_provider_key_google_drive or settings.nango_provider_key_gmail,
+            folder_ids=folder_list,
+            download_files=True  # Download and parse files
+        )
+
+        return {
+            "status": result["status"],
+            "tenant_id": result["tenant_id"],
+            "files_synced": result["files_synced"],
+            "files_skipped": result["files_skipped"],
+            "errors": result["errors"]
+        }
+    except Exception as e:
+        logger.error(f"Error in manual Drive sync: {e}")
         raise HTTPException(status_code=500, detail=str(e))
