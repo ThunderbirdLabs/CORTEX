@@ -108,26 +108,29 @@ class HybridQueryEngine:
         logger.info("✅ PropertyGraphIndex created for graph queries")
 
         # Custom prompts for sub-question query engines to preserve direct quotes
+        # CRITICAL: Prompts instruct LLM to note document_id for cross-referencing
         vector_qa_prompt = PromptTemplate(
-            "Context information from documents is below.\n"
+            "Context information from documents is below. Each chunk has a document_id that links to source documents.\n"
             "---------------------\n"
             "{context_str}\n"
             "---------------------\n\n"
             "Given the context information, answer the question. "
             "IMPORTANT: Use direct quotes from the documents whenever possible. "
-            "Wrap quotes in quotation marks and use the exact words from the context.\n\n"
+            "Wrap quotes in quotation marks and use the exact words from the context. "
+            "When citing information, note the document_id so it can be cross-referenced with other sources.\n\n"
             "Question: {query_str}\n"
             "Answer: "
         )
 
         graph_qa_prompt = PromptTemplate(
-            "Context information from the knowledge graph is below.\n"
+            "Context information from the knowledge graph is below. Chunk nodes have document_id properties.\n"
             "---------------------\n"
             "{context_str}\n"
             "---------------------\n\n"
             "Given the context information, answer the question about relationships and entities. "
             "IMPORTANT: Use direct quotes and specific names from the context whenever possible. "
-            "Be precise and cite exact information.\n\n"
+            "Be precise and cite exact information. "
+            "When mentioning chunks or documents, include the document_id for correlation.\n\n"
             "Question: {query_str}\n"
             "Answer: "
         )
@@ -167,6 +170,7 @@ class HybridQueryEngine:
         )
 
         # Custom CEO Assistant prompt for final response synthesis
+        # CRITICAL: Instructs LLM to correlate information using shared document_id
         ceo_assistant_prompt = PromptTemplate(
             "You are an intelligent personal assistant to the CEO. You have access to the entire company's knowledge. "
             "All emails, documents, deals, activities, orders, etc. that go on in this business are in your knowledge bases. "
@@ -178,6 +182,8 @@ class HybridQueryEngine:
             "---------------------\n\n"
             "Given these answers (which contain direct quotes), synthesize a comprehensive response to the CEO's question. "
             "PRESERVE and USE the direct quotes from the answers above - these show you truly see what is happening. "
+            "IMPORTANT: When you find information from both the vector store and knowledge graph with matching document_id values, "
+            "cross-reference and combine this information to provide richer, more grounded answers. "
             "Make cool connections, provide insightful suggestions, and point the CEO in the right direction. "
             "Your job is to knock the CEO's socks off with how much you know about the business.\n\n"
             "Question: {query_str}\n"

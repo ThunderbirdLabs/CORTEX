@@ -155,7 +155,7 @@ Text:
         # strict=False allows flexibility while guiding toward schema
         self.entity_extractor = SchemaLLMPathExtractor(
             llm=self.extraction_llm,
-            max_triplets_per_chunk=30,  # Comprehensive extraction for complete business intelligence
+            max_triplets_per_chunk=25,  # Comprehensive extraction for complete business intelligence
             num_workers=4,
             possible_entities=POSSIBLE_ENTITIES,
             possible_relations=POSSIBLE_RELATIONS,
@@ -319,9 +319,12 @@ Text:
                     "to_addresses": document_row.get("to_addresses", "[]"),
                 })
 
+            # CRITICAL: Set doc_id to ensure chunks preserve original document_id
+            # Without this, LlamaIndex overwrites document_id with chunk node_id
             document = Document(
                 text=content,
-                metadata=doc_metadata
+                metadata=doc_metadata,
+                doc_id=str(doc_id)  # Force chunks to inherit this as ref_doc_id
             )
 
             # Step 2: Chunk, embed, and store in Qdrant

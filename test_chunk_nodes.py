@@ -35,6 +35,16 @@ def check_chunk_nodes():
             RETURN count(c) as count
         """).single()
 
+        # Check document_id on chunk
+        chunk_doc_id = session.run("""
+            MATCH (c:Chunk)
+            RETURN c.document_id as document_id
+            LIMIT 1
+        """).single()
+
+        if chunk_doc_id:
+            print(f"\n✅ CHUNK DOCUMENT_ID: {chunk_doc_id['document_id']}")
+
         print("\n" + "="*80)
         print(f"CHUNK NODES: {chunk_count['count']}")
         print("="*80)

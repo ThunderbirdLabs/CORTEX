@@ -19,12 +19,12 @@ async def test_production_query():
     engine = HybridQueryEngine()
 
     print("\n" + "="*80)
-    print("💬 Testing CEO Assistant Prompt")
-    print("   Question: 'What have Nick and Kyle been up to recently?'")
+    print("💬 Testing CEO Assistant Prompt with Document Correlation")
+    print("   Question: 'Tell me about Alex Kashkarian and what he's been working on'")
     print("="*80 + "\n")
 
     # Execute query exactly as the chat endpoint does (line 118 in chat.py)
-    result = await engine.query("What have Nick and Kyle been up to recently?")
+    result = await engine.query("Tell me about Alex Kashkarian and what he's been working on")
 
     print("\n📋 ANSWER:")
     print("-"*80)
