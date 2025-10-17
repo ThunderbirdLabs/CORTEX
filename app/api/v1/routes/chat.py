@@ -98,14 +98,21 @@ async def chat(
         # Create or get chat
         chat_id = message.chat_id
         if not chat_id:
+            # Generate iPhone Notes-style title (first 3-5 words)
+            words = message.question.strip().split()
+            title_words = words[:5] if len(words) > 5 else words
+            title = ' '.join(title_words)
+            if len(words) > 5:
+                title += '...'
+
             # Create new chat
             chat_result = supabase.table('chats').insert({
                 'company_id': user_id,
                 'user_email': user_id,
-                'title': message.question[:100]  # First 100 chars as title
+                'title': title
             }).execute()
             chat_id = chat_result.data[0]['id']
-            logger.info(f"📝 Created new chat: {chat_id}")
+            logger.info(f"📝 Created new chat: {chat_id} - '{title}'")
 
         # Save user message
         supabase.table('chat_messages').insert({
