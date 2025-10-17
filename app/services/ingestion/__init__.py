@@ -4,14 +4,10 @@ IngestionPipeline → Qdrant + Neo4j with SubQuestionQueryEngine
 """
 from app.services.ingestion.llamaindex import (
     UniversalIngestionPipeline,
-    create_ingestion_pipeline,
-    HybridQueryEngine,
-    create_query_engine
+    HybridQueryEngine
 )
 
 __all__ = [
     "UniversalIngestionPipeline",
-    "create_ingestion_pipeline",
-    "HybridQueryEngine",
-    "create_query_engine"
+    "HybridQueryEngine"
 ]
