@@ -2,11 +2,11 @@
 Universal Document Ingestion
 Normalizes ALL sources (Gmail, Drive, Slack, HubSpot, uploads, etc.) into unified format.
 
-Flow for ANY source:
+Flow for ANY source (matches Alex's pattern):
 1. Extract text (if file provided) → Plain text
 2. Check for duplicates (content-based deduplication)
-3. Save to documents table → Supabase
-4. Ingest to PropertyGraph → Neo4j + Qdrant
+3. Save to documents table → Supabase (SOURCE OF TRUTH)
+4. Ingest from documents table → Neo4j + Qdrant
 """
 import logging
 from typing import Dict, Any, Optional
@@ -148,39 +148,10 @@ async def ingest_document_universal(
         logger.info(f"   ✅ No duplicate found (hash: {content_hash[:16]}...)")
 
         # ========================================================================
-        # STEP 3: Ingest to PropertyGraph (Neo4j + Qdrant)
+        # STEP 3: Save to Unified Documents Table (Supabase) - SOURCE OF TRUTH
         # ========================================================================
 
-        logger.info(f"   🕸️  Ingesting to PropertyGraph...")
-
-        # Construct document_row in Supabase format for UniversalIngestionPipeline
-        document_row_for_ingestion = {
-            'id': source_id,  # Use source_id as document ID
-            'title': title,
-            'content': content,
-            'source': source,
-            'document_type': document_type,
-            'tenant_id': tenant_id,
-            'source_id': source_id,
-            'source_created_at': source_created_at.isoformat() if source_created_at else None,
-            'metadata': metadata or {}
-        }
-
-        cortex_result = await cortex_pipeline.ingest_document(
-            document_row=document_row_for_ingestion,
-            extract_entities=True
-        )
-
-        if cortex_result.get('status') != 'success':
-            raise Exception(f"PropertyGraph ingestion failed: {cortex_result.get('error')}")
-
-        logger.info(f"   ✅ PropertyGraph ingestion complete")
-
-        # ========================================================================
-        # STEP 4: Save to Unified Documents Table (Supabase)
-        # ========================================================================
-
-        logger.info(f"   💾 Saving to documents table...")
+        logger.info(f"   💾 Saving to documents table (source of truth)...")
 
         document_row = {
             'tenant_id': tenant_id,
@@ -205,6 +176,23 @@ async def ingest_document_universal(
         ).execute()
 
         logger.info(f"   ✅ Saved to documents table")
+
+        # ========================================================================
+        # STEP 4: Ingest to PropertyGraph (Neo4j + Qdrant) - FROM DOCUMENTS TABLE
+        # ========================================================================
+
+        logger.info(f"   🕸️  Ingesting to PropertyGraph from documents table...")
+
+        # Use the document_row we just saved (matches Alex's pattern)
+        cortex_result = await cortex_pipeline.ingest_document(
+            document_row=document_row,
+            extract_entities=True
+        )
+
+        if cortex_result.get('status') != 'success':
+            raise Exception(f"PropertyGraph ingestion failed: {cortex_result.get('error')}")
+
+        logger.info(f"   ✅ PropertyGraph ingestion complete")
 
         # ========================================================================
         # SUCCESS
