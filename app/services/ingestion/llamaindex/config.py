@@ -73,7 +73,7 @@ POSSIBLE_RELATIONS = [
     # Who did what
     "SENT_BY", "SENT_TO", "CREATED_BY", "ASSIGNED_TO", "ATTENDED_BY",
     # Organization
-    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO",
+    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO", "FOUNDED",
     # Business relationships
     "CLIENT_OF", "VENDOR_OF",
     # Content connections
@@ -84,57 +84,121 @@ POSSIBLE_RELATIONS = [
     "PAID_BY", "PAID_TO"
 ]
 
-# Validation Schema - Defines which entities can have which relationships
-# SchemaLLMPathExtractor uses this to validate extracted relationships
-KG_VALIDATION_SCHEMA = {
-    "PERSON": [
-        "SENT_BY", "SENT_TO", "CREATED_BY", "ASSIGNED_TO", "ATTENDED_BY",
-        "WORKS_FOR", "WORKS_WITH", "REPORTS_TO",
-        "PAID_BY", "PAID_TO",
-        "MENTIONS", "RELATES_TO", "ABOUT"
-    ],
-    "COMPANY": [
-        "SENT_BY", "SENT_TO",
-        "WORKS_FOR", "CLIENT_OF", "VENDOR_OF",
-        "PAID_BY", "PAID_TO",
-        "MENTIONS", "RELATES_TO", "ABOUT"
-    ],
-    "EMAIL": [
-        "SENT_BY", "SENT_TO",
-        "ABOUT", "MENTIONS", "RELATES_TO", "ATTACHED_TO",
-        "FOLLOWS_UP", "RESOLVES"
-    ],
-    "DOCUMENT": [
-        "SENT_BY", "CREATED_BY",
-        "ABOUT", "MENTIONS", "RELATES_TO", "ATTACHED_TO"
-    ],
-    "DEAL": [
-        "CREATED_BY", "ASSIGNED_TO",
-        "ABOUT", "MENTIONS", "RELATES_TO",
-        "REQUIRES", "FOLLOWS_UP"
-    ],
-    "TASK": [
-        "CREATED_BY", "ASSIGNED_TO",
-        "ABOUT", "RELATES_TO",
-        "REQUIRES", "RESOLVES"
-    ],
-    "MEETING": [
-        "ATTENDED_BY",
-        "ABOUT", "MENTIONS", "RELATES_TO",
-        "FOLLOWS_UP"
-    ],
-    "PAYMENT": [
-        "PAID_BY", "PAID_TO",
-        "RELATES_TO", "ABOUT"
-    ],
-    "TOPIC": [
-        "ABOUT", "MENTIONS", "RELATES_TO"
-    ],
-    "EVENT": [
-        "CREATED_BY", "ATTENDED_BY",
-        "ABOUT", "MENTIONS", "RELATES_TO"
-    ]
-}
+# Validation Schema - Strict triple format (source, relation, target)
+# Enforces relationship direction and valid entity connections
+# Format: (HEAD_ENTITY, RELATIONSHIP, TAIL_ENTITY)
+KG_VALIDATION_SCHEMA = [
+    # Employment & Organization (PERSON relationships)
+    ("PERSON", "WORKS_FOR", "COMPANY"),
+    ("PERSON", "FOUNDED", "COMPANY"),      # Founder/creator relationship
+    ("PERSON", "WORKS_WITH", "PERSON"),
+    ("PERSON", "REPORTS_TO", "PERSON"),
+
+    # Company relationships (business to business)
+    ("COMPANY", "CLIENT_OF", "COMPANY"),
+    ("COMPANY", "VENDOR_OF", "COMPANY"),
+    ("COMPANY", "WORKS_WITH", "COMPANY"),  # Partnerships/collaborations
+
+    # Communication - Who sent what
+    ("PERSON", "SENT_BY", "EMAIL"),      # Reverse: Email was sent by Person
+    ("COMPANY", "SENT_BY", "EMAIL"),     # Reverse: Email was sent by Company
+    ("PERSON", "SENT_TO", "EMAIL"),      # Reverse: Email was sent to Person
+    ("EMAIL", "SENT_TO", "PERSON"),
+    ("PERSON", "SENT_BY", "DOCUMENT"),
+    ("COMPANY", "SENT_BY", "DOCUMENT"),
+
+    # Creation & Authorship
+    ("PERSON", "CREATED_BY", "DOCUMENT"),
+    ("PERSON", "CREATED_BY", "DEAL"),
+    ("PERSON", "CREATED_BY", "TASK"),
+    ("PERSON", "CREATED_BY", "EVENT"),
+
+    # Assignment & Responsibility
+    ("PERSON", "ASSIGNED_TO", "DEAL"),
+    ("PERSON", "ASSIGNED_TO", "TASK"),
+
+    # Attendance
+    ("PERSON", "ATTENDED_BY", "MEETING"),
+    ("PERSON", "ATTENDED_BY", "EVENT"),
+
+    # Financial
+    ("PERSON", "PAID_BY", "PAYMENT"),
+    ("COMPANY", "PAID_BY", "PAYMENT"),
+    ("PERSON", "PAID_TO", "PAYMENT"),
+    ("COMPANY", "PAID_TO", "PAYMENT"),
+
+    # Content relationships - What is about/mentions what
+    # Emails
+    ("EMAIL", "ABOUT", "TOPIC"),
+    ("EMAIL", "ABOUT", "PERSON"),
+    ("EMAIL", "ABOUT", "COMPANY"),
+    ("EMAIL", "ABOUT", "DEAL"),
+    ("EMAIL", "MENTIONS", "PERSON"),
+    ("EMAIL", "MENTIONS", "COMPANY"),
+    ("EMAIL", "MENTIONS", "TOPIC"),
+    ("EMAIL", "RELATES_TO", "TOPIC"),
+    ("EMAIL", "RELATES_TO", "DEAL"),
+    ("EMAIL", "RELATES_TO", "TASK"),
+
+    # Documents
+    ("DOCUMENT", "ABOUT", "TOPIC"),
+    ("DOCUMENT", "ABOUT", "PERSON"),
+    ("DOCUMENT", "ABOUT", "COMPANY"),
+    ("DOCUMENT", "MENTIONS", "PERSON"),
+    ("DOCUMENT", "MENTIONS", "COMPANY"),
+    ("DOCUMENT", "MENTIONS", "TOPIC"),
+    ("DOCUMENT", "RELATES_TO", "TOPIC"),
+    ("DOCUMENT", "RELATES_TO", "DEAL"),
+
+    # Deals
+    ("DEAL", "ABOUT", "TOPIC"),
+    ("DEAL", "ABOUT", "COMPANY"),
+    ("DEAL", "MENTIONS", "PERSON"),
+    ("DEAL", "MENTIONS", "COMPANY"),
+    ("DEAL", "RELATES_TO", "TOPIC"),
+
+    # Tasks
+    ("TASK", "ABOUT", "TOPIC"),
+    ("TASK", "ABOUT", "PERSON"),
+    ("TASK", "RELATES_TO", "TOPIC"),
+    ("TASK", "RELATES_TO", "DEAL"),
+
+    # Meetings
+    ("MEETING", "ABOUT", "TOPIC"),
+    ("MEETING", "ABOUT", "DEAL"),
+    ("MEETING", "MENTIONS", "PERSON"),
+    ("MEETING", "MENTIONS", "COMPANY"),
+    ("MEETING", "RELATES_TO", "TOPIC"),
+
+    # Events
+    ("EVENT", "ABOUT", "TOPIC"),
+    ("EVENT", "ABOUT", "COMPANY"),
+    ("EVENT", "MENTIONS", "PERSON"),
+    ("EVENT", "RELATES_TO", "TOPIC"),
+
+    # Payments
+    ("PAYMENT", "ABOUT", "DEAL"),
+    ("PAYMENT", "RELATES_TO", "TOPIC"),
+
+    # Topics (general connections)
+    ("TOPIC", "RELATES_TO", "TOPIC"),
+
+    # Attachments
+    ("EMAIL", "ATTACHED_TO", "DOCUMENT"),
+    ("DOCUMENT", "ATTACHED_TO", "DOCUMENT"),
+
+    # Workflow & Dependencies
+    ("TASK", "REQUIRES", "TASK"),
+    ("TASK", "REQUIRES", "DOCUMENT"),
+    ("DEAL", "REQUIRES", "TASK"),
+    ("DEAL", "REQUIRES", "DOCUMENT"),
+    ("EMAIL", "FOLLOWS_UP", "EMAIL"),
+    ("EMAIL", "FOLLOWS_UP", "MEETING"),
+    ("DEAL", "FOLLOWS_UP", "MEETING"),
+    ("MEETING", "FOLLOWS_UP", "MEETING"),
+    ("EMAIL", "RESOLVES", "TASK"),
+    ("TASK", "RESOLVES", "TASK"),
+]
 
 # Legacy Literal types (for backward compatibility)
 ENTITIES = Literal[
@@ -144,7 +208,7 @@ ENTITIES = Literal[
 
 RELATIONS = Literal[
     "SENT_BY", "SENT_TO", "CREATED_BY", "ASSIGNED_TO", "ATTENDED_BY",
-    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO",
+    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO", "FOUNDED",
     "CLIENT_OF", "VENDOR_OF",
     "ABOUT", "MENTIONS", "RELATES_TO", "ATTACHED_TO",
     "REQUIRES", "FOLLOWS_UP", "RESOLVES",
