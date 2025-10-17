@@ -124,6 +124,9 @@ async def chat(
         # Execute hybrid query
         result = await engine.query(message.question)
 
+        logger.info(f"🔍 Query result keys: {result.keys()}")
+        logger.info(f"🔍 Source nodes count: {len(result.get('source_nodes', []))}")
+
         # Format source nodes
         sources = []
         for i, node in enumerate(result.get('source_nodes', []), 1):
@@ -132,7 +135,7 @@ async def chat(
             # Extract document_id for clickable sources
             document_id = metadata.get('document_id', metadata.get('doc_id', None))
 
-            sources.append({
+            source_info = {
                 'index': i,
                 'document_id': document_id,  # For fetching full source
                 'document_name': metadata.get('title', metadata.get('document_name', 'Unknown')),
@@ -141,7 +144,9 @@ async def chat(
                 'timestamp': metadata.get('created_at', metadata.get('timestamp', 'Unknown')),
                 'text_preview': node.text[:200] if hasattr(node, 'text') else '',
                 'score': node.score if hasattr(node, 'score') else None  # Relevance score
-            })
+            }
+            sources.append(source_info)
+            logger.info(f"   Source {i}: {source_info['source']} - {source_info['document_name']}")
 
         # Save assistant message
         supabase.table('chat_messages').insert({
