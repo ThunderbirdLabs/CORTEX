@@ -73,7 +73,7 @@ POSSIBLE_RELATIONS = [
     # Who did what
     "SENT_BY", "SENT_TO", "CREATED_BY", "ASSIGNED_TO", "ATTENDED_BY",
     # Organization
-    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO",
+    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO", "FOUNDED",
     # Business relationships
     "CLIENT_OF", "VENDOR_OF",
     # Content connections
@@ -90,6 +90,7 @@ POSSIBLE_RELATIONS = [
 KG_VALIDATION_SCHEMA = [
     # Employment & Organization (PERSON relationships)
     ("PERSON", "WORKS_FOR", "COMPANY"),
+    ("PERSON", "FOUNDED", "COMPANY"),      # Founder/creator relationship
     ("PERSON", "WORKS_WITH", "PERSON"),
     ("PERSON", "REPORTS_TO", "PERSON"),
 
@@ -207,7 +208,7 @@ ENTITIES = Literal[
 
 RELATIONS = Literal[
     "SENT_BY", "SENT_TO", "CREATED_BY", "ASSIGNED_TO", "ATTENDED_BY",
-    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO",
+    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO", "FOUNDED",
     "CLIENT_OF", "VENDOR_OF",
     "ABOUT", "MENTIONS", "RELATES_TO", "ATTACHED_TO",
     "REQUIRES", "FOLLOWS_UP", "RESOLVES",

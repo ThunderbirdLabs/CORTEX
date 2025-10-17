@@ -133,9 +133,10 @@ ENTITY TYPES:
 - EVENT: Conferences, launches, deadlines
 
 RELATIONSHIP GUIDANCE:
-- WORKS_FOR: Use for employment (e.g., "Sarah works for Acme", "first employee at TechCo")
+- WORKS_FOR: Use for employment (e.g., "Sarah works for Acme", "employee at TechCo")
+- FOUNDED: Use for founders/creators (e.g., "Alex founded Cortex", "John started the company")
 - WORKS_WITH: Use for collaboration between peers
-- CREATED_BY: Use for who authored/created something
+- CREATED_BY: Use for who authored/created documents, deals, tasks
 - SENT_BY/SENT_TO: Use for email communications
 - ABOUT: Use for primary subject matter
 - MENTIONS: Use for brief references
