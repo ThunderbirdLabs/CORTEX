@@ -99,81 +99,50 @@ class UniversalIngestionPipeline:
             api_key=OPENAI_API_KEY
         )
 
-        # Custom extraction prompt for accurate entity/relationship extraction
+        # Custom extraction prompt for CEO business intelligence
+        # The strict validation schema handles relationship rules, so this focuses on context
         extraction_prompt = PromptTemplate(
-            """You are extracting a knowledge graph for a CEO business intelligence system. Extract entities and relationships that help the CEO understand business operations, communications, and relationships.
+            """You are extracting a knowledge graph for a CEO business intelligence system.
 
-ENTITY TYPES (extract these):
-- PERSON: Individuals (employees, customers, contacts, vendors, anyone mentioned)
-- COMPANY: Organizations (clients, suppliers, competitors, partners, departments, any business)
-- EMAIL: Specific email messages referenced in the text
-- DOCUMENT: Specific files mentioned (contracts, reports, invoices, PDFs)
-- DEAL: Sales opportunities, orders, quotes, business transactions
-- TASK: Action items, to-dos, follow-ups, assignments, requests
-- MEETING: Specific meetings, calls, appointments with details
-- PAYMENT: Invoices, payments, expenses, purchase orders
-- TOPIC: Subjects, projects, products, technical concepts, issues, themes
-- EVENT: Conferences, launches, deadlines, milestones, significant events
+Your goal is to help the CEO understand:
+- Who works where and with whom (employees, teams, organizational structure)
+- What deals, tasks, and projects are happening
+- Communications and key information flows
+- Business relationships with clients, vendors, and partners
+- Financial transactions and payments
+- Events, meetings, and important milestones
 
-RELATIONSHIP EXTRACTION GUIDELINES:
+Extract entities and relationships that would help answer questions like:
+- "Who works for our company?"
+- "What deals is this person working on?"
+- "Who sent this email and what is it about?"
+- "What tasks are assigned to this person?"
+- "Which companies are our clients/vendors?"
+- "What topics are being discussed in meetings?"
 
-1. EMPLOYMENT & ORGANIZATION:
-   - WORKS_FOR: Employment relationship (e.g., "Sarah works for Acme Corp", "John is employed at TechCo")
-     Direction: PERSON → COMPANY or COMPANY → COMPANY (subsidiary)
-   - WORKS_WITH: Collaboration between peers (e.g., "John collaborates with Sarah", "Acme partners with TechCo")
-     Direction: PERSON ↔ PERSON or COMPANY ↔ COMPANY
-   - REPORTS_TO: Reporting hierarchy (e.g., "John reports to Sarah")
-     Direction: PERSON → PERSON
+ENTITY TYPES:
+- PERSON: Any individual mentioned (employees, customers, contacts)
+- COMPANY: Any organization (clients, suppliers, partners, departments)
+- EMAIL: Specific emails referenced
+- DOCUMENT: Files like contracts, reports, invoices
+- DEAL: Sales opportunities, orders, quotes
+- TASK: Action items, assignments, to-dos
+- MEETING: Specific meetings or calls
+- PAYMENT: Invoices, payments, expenses
+- TOPIC: Subjects, projects, products, concepts
+- EVENT: Conferences, launches, deadlines
 
-2. COMMUNICATION & CREATION:
-   - SENT_BY: Who sent an email/message
-     Allowed: EMAIL → PERSON, EMAIL → COMPANY, DOCUMENT → PERSON, DOCUMENT → COMPANY
-   - SENT_TO: Who received an email
-     Allowed: EMAIL → PERSON, PERSON → EMAIL
-   - CREATED_BY: Who authored/created something
-     Allowed: DOCUMENT/DEAL/TASK/EVENT → PERSON
-   - ASSIGNED_TO: Who is responsible for a task/deal
-     Allowed: DEAL/TASK → PERSON
+RELATIONSHIP GUIDANCE:
+- WORKS_FOR: Use for employment (e.g., "Sarah works for Acme", "first employee at TechCo")
+- WORKS_WITH: Use for collaboration between peers
+- CREATED_BY: Use for who authored/created something
+- SENT_BY/SENT_TO: Use for email communications
+- ABOUT: Use for primary subject matter
+- MENTIONS: Use for brief references
 
-3. PARTICIPATION:
-   - ATTENDED_BY: Who attended a meeting/event
-     Allowed: MEETING/EVENT → PERSON
+The system will validate that relationships are used correctly based on entity types.
 
-4. BUSINESS RELATIONSHIPS:
-   - CLIENT_OF: Customer relationship
-     Direction: COMPANY → COMPANY
-   - VENDOR_OF: Supplier relationship
-     Direction: COMPANY → COMPANY
-
-5. CONTENT RELATIONSHIPS:
-   - ABOUT: Primary subject/topic (e.g., "Meeting about Q4 budget")
-   - MENTIONS: Brief reference or mention (e.g., "Email mentions the new product")
-   - RELATES_TO: General connection (e.g., "Task relates to Project Alpha")
-   - ATTACHED_TO: File attachments
-     Allowed: EMAIL/DOCUMENT → DOCUMENT
-
-6. WORKFLOW:
-   - REQUIRES: Dependencies (e.g., "Task requires approval document")
-     Allowed: TASK/DEAL → TASK/DOCUMENT
-   - FOLLOWS_UP: Follow-up action (e.g., "Email follows up on previous meeting")
-     Allowed: EMAIL/DEAL/MEETING → EMAIL/TASK/MEETING
-   - RESOLVES: Resolution (e.g., "Task resolves the bug report")
-     Allowed: EMAIL/TASK → TASK
-
-7. FINANCIAL:
-   - PAID_BY: Who made the payment
-     Allowed: PAYMENT → PERSON/COMPANY
-   - PAID_TO: Who received the payment
-     Allowed: PAYMENT → PERSON/COMPANY
-
-CRITICAL DISTINCTIONS:
-- Use WORKS_FOR for employment ("works for", "employed by", "employee of", "first employees")
-- Use WORKS_WITH for collaboration ("works with", "collaborates with", "partners with")
-- Use CREATED_BY for authorship of documents/deals/tasks
-- Use SENT_BY for email communications
-- Use ABOUT for primary topics, MENTIONS for brief references
-
-Extract up to {max_triplets_per_chunk} entity-relationship triplets from the text below.
+Extract up to {max_triplets_per_chunk} relevant entity-relationship triplets.
 
 Text:
 {text}
