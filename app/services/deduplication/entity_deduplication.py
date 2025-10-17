@@ -109,8 +109,12 @@ class EntityDeduplicationService:
 
         WITH duplicates + [e] AS nodesToMerge
 
+        // CRITICAL: Must discard 'id' to prevent array IDs
+        // If 'id' is combined, it creates arrays like ['Cortex', 'Cortex Solutions']
+        // This breaks Neo4j queries that expect single string values (e.g., toString())
         CALL apoc.refactor.mergeNodes(nodesToMerge, {
           properties: {
+            id: 'discard',
             name: 'discard',
             embedding: 'discard',
             `.*`: 'combine'
