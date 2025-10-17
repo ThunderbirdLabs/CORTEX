@@ -1,6 +1,6 @@
 """
 Email Routes
-Fetch full emails from Supabase by episode_id
+Fetch full emails from Supabase documents table by episode_id
 """
 import logging
 from typing import List
@@ -22,11 +22,11 @@ async def get_emails_by_episode(
     supabase: Client = Depends(get_supabase)
 ):
     """
-    Get full email(s) from Supabase by episode_id.
+    Get full email(s) from Supabase documents table by episode_id.
     
     This allows you to:
     1. Search with RAG (get episode_ids from Qdrant results)
-    2. Fetch full emails from Supabase using those episode_ids
+    2. Fetch full emails from documents table using those episode_ids
     3. Display complete email context to the user
     
     Args:
@@ -38,12 +38,13 @@ async def get_emails_by_episode(
         List of full email objects with all metadata
     """
     try:
-        # Query Supabase for emails matching this episode_id and tenant_id
-        result = supabase.table("emails").select("*").eq(
-            "episode_id", episode_id
+        # Query documents table for emails matching this episode_id and tenant_id
+        # Use JSONB query for episode_id in metadata
+        result = supabase.table("documents").select("*").eq(
+            "document_type", "email"
         ).eq(
             "tenant_id", user_id
-        ).execute()
+        ).filter("metadata->>episode_id", "eq", episode_id).execute()
         
         if not result.data:
             raise HTTPException(
@@ -53,11 +54,31 @@ async def get_emails_by_episode(
         
         logger.info(f"Found {len(result.data)} email(s) for episode {episode_id}")
         
+        # Transform documents to email format for backwards compatibility
+        emails = []
+        for doc in result.data:
+            email = {
+                "id": doc.get("id"),
+                "tenant_id": doc.get("tenant_id"),
+                "source": doc.get("source"),
+                "message_id": doc.get("source_id"),
+                "subject": doc.get("title"),
+                "full_body": doc.get("content"),
+                "received_datetime": doc.get("source_created_at"),
+                "sender_name": doc.get("metadata", {}).get("sender_name"),
+                "sender_address": doc.get("metadata", {}).get("sender_address"),
+                "to_addresses": doc.get("metadata", {}).get("to_addresses"),
+                "web_link": doc.get("metadata", {}).get("web_link"),
+                "episode_id": doc.get("metadata", {}).get("episode_id"),
+                "raw_data": doc.get("raw_data")
+            }
+            emails.append(email)
+        
         return {
             "success": True,
             "episode_id": episode_id,
-            "count": len(result.data),
-            "emails": result.data
+            "count": len(emails),
+            "emails": emails
         }
         
     except HTTPException:
@@ -77,7 +98,7 @@ async def get_emails_by_episodes(
     supabase: Client = Depends(get_supabase)
 ):
     """
-    Get full emails from Supabase for multiple episode_ids.
+    Get full emails from Supabase documents table for multiple episode_ids.
     
     Useful when you have multiple search results and want to fetch
     all related emails in one request.
@@ -91,9 +112,9 @@ async def get_emails_by_episodes(
         Dictionary mapping episode_ids to their emails
     """
     try:
-        # Query Supabase for all emails matching these episode_ids
-        result = supabase.table("emails").select("*").in_(
-            "episode_id", episode_ids
+        # Query documents table for all emails matching these episode_ids
+        result = supabase.table("documents").select("*").eq(
+            "document_type", "email"
         ).eq(
             "tenant_id", user_id
         ).execute()
@@ -105,20 +126,38 @@ async def get_emails_by_episodes(
                 "emails_by_episode": {}
             }
         
-        # Group emails by episode_id
+        # Filter by episode_ids and group emails by episode_id
         emails_by_episode = {}
-        for email in result.data:
-            ep_id = email.get("episode_id")
-            if ep_id:
+        for doc in result.data:
+            ep_id = doc.get("metadata", {}).get("episode_id")
+            if ep_id and ep_id in episode_ids:
                 if ep_id not in emails_by_episode:
                     emails_by_episode[ep_id] = []
+                
+                # Transform document to email format for backwards compatibility
+                email = {
+                    "id": doc.get("id"),
+                    "tenant_id": doc.get("tenant_id"),
+                    "source": doc.get("source"),
+                    "message_id": doc.get("source_id"),
+                    "subject": doc.get("title"),
+                    "full_body": doc.get("content"),
+                    "received_datetime": doc.get("source_created_at"),
+                    "sender_name": doc.get("metadata", {}).get("sender_name"),
+                    "sender_address": doc.get("metadata", {}).get("sender_address"),
+                    "to_addresses": doc.get("metadata", {}).get("to_addresses"),
+                    "web_link": doc.get("metadata", {}).get("web_link"),
+                    "episode_id": ep_id,
+                    "raw_data": doc.get("raw_data")
+                }
                 emails_by_episode[ep_id].append(email)
         
-        logger.info(f"Found {len(result.data)} email(s) across {len(emails_by_episode)} episodes")
+        total_emails = sum(len(emails) for emails in emails_by_episode.values())
+        logger.info(f"Found {total_emails} email(s) across {len(emails_by_episode)} episodes")
         
         return {
             "success": True,
-            "count": len(result.data),
+            "count": total_emails,
             "episodes_found": len(emails_by_episode),
             "emails_by_episode": emails_by_episode
         }

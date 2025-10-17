@@ -1,5 +1,6 @@
 """
-Clear databases and reingest all documents from Supabase
+Clear databases and reingest all documents from Supabase documents table
+Works with all document types: emails, files, attachments, etc.
 """
 import asyncio
 import sys
@@ -58,38 +59,13 @@ async def main():
 
     driver.close()
 
-    # Step 3: Fetch all emails from Supabase
-    print("\n3️⃣ Fetching emails from Supabase...")
+    # Step 3: Fetch all documents from Supabase
+    print("\n3️⃣ Fetching documents from Supabase...")
     supabase = create_client(settings.supabase_url, settings.supabase_service_key)
 
-    result = supabase.table('emails').select('*').execute()
-    emails = result.data
-    print(f"   Found {len(emails)} emails")
-
-    # Transform emails into document format
-    print("   Transforming emails to document format...")
-    documents = []
-    for email in emails:
-        doc = {
-            'id': email['id'],
-            'tenant_id': email['tenant_id'],
-            'source': email['source'],
-            'source_id': email['message_id'],
-            'document_type': 'email',
-            'title': email['subject'] or '(No Subject)',
-            'content': email['full_body'] or '',
-            'source_created_at': email['received_datetime'],
-            'metadata': {
-                'sender_name': email.get('sender_name'),
-                'sender_address': email.get('sender_address'),
-                'to_addresses': email.get('to_addresses'),
-                'web_link': email.get('web_link'),
-                'episode_id': email.get('episode_id'),
-                **(email.get('metadata') or {})
-            }
-        }
-        documents.append(doc)
-    print(f"   ✅ Transformed {len(documents)} emails")
+    result = supabase.table('documents').select('*').execute()
+    documents = result.data
+    print(f"   Found {len(documents)} documents (emails, files, etc.)")
 
     # Step 4: Initialize pipeline
     print("\n4️⃣ Initializing UniversalIngestionPipeline...")

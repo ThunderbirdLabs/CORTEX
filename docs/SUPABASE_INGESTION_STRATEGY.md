@@ -1,5 +1,7 @@
 # Supabase Ingestion Strategy - Complete Analysis
 
+> **⚠️ UPDATE (v0.5.0):** As of October 2024, we've migrated to a **unified documents table architecture**. The `emails` table has been deprecated and all content (emails, files, attachments) now flows through the `documents` table. This document reflects the historical dual-table approach for reference.
+
 ## 📊 Current Supabase Schema
 
 ### Table 1: `connections`

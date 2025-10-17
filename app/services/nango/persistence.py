@@ -17,55 +17,6 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# SUPABASE PERSISTENCE
-# ============================================================================
-
-async def persist_email_row(supabase: Client, email: Dict[str, Any]):
-    """
-    Insert email row into Supabase.
-    Uses upsert to handle duplicates gracefully based on (tenant_id, source, message_id).
-
-    Args:
-        supabase: Supabase client instance
-        email: Normalized email dictionary
-    """
-    try:
-        # Ensure to_addresses is properly formatted as a list
-        # Supabase JSONB fields need explicit list type, not JSON string
-        if "to_addresses" in email:
-            to_addrs = email["to_addresses"]
-            # If it's already a list, ensure all elements are strings
-            if isinstance(to_addrs, list):
-                email["to_addresses"] = [str(addr) for addr in to_addrs if addr]
-            # If it's a string (shouldn't happen, but handle it), convert to list
-            elif isinstance(to_addrs, str):
-                try:
-                    # Try parsing as JSON
-                    parsed = json.loads(to_addrs)
-                    if isinstance(parsed, list):
-                        email["to_addresses"] = [str(addr) for addr in parsed if addr]
-                    else:
-                        email["to_addresses"] = [to_addrs]
-                except json.JSONDecodeError:
-                    email["to_addresses"] = [to_addrs] if to_addrs else []
-            else:
-                email["to_addresses"] = []
-
-        # Supabase insert with upsert on composite unique constraint
-        result = supabase.table("emails").upsert(
-            email,
-            on_conflict="tenant_id,source,message_id"
-        ).execute()
-
-        # Check if insert was successful
-        if result.data:
-            logger.debug(f"Persisted {email.get('source', 'email')} message {email['message_id']}")
-    except Exception as e:
-        logger.error(f"Error persisting email {email.get('message_id')}: {e}")
-        # Don't raise - continue with other messages
-
-
-# ============================================================================
 # JSONL DEBUGGING
 # ============================================================================
 

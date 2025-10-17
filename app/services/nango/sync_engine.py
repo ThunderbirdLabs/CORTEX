@@ -13,7 +13,7 @@ from app.services.nango.database import get_connection, get_gmail_cursor, set_gm
 from app.services.connectors.gmail import normalize_gmail_message, download_gmail_attachment, is_supported_attachment_type
 from app.services.connectors.microsoft_graph import list_all_users, normalize_message, sync_user_mailbox
 from app.services.nango.nango_client import get_graph_token_via_nango, nango_list_gmail_records
-from app.services.nango.persistence import append_jsonl, ingest_to_cortex, persist_email_row
+from app.services.nango.persistence import append_jsonl, ingest_to_cortex
 from app.services.universal.ingest import ingest_document_universal
 from app.core.config import settings
 
@@ -102,14 +102,11 @@ async def run_tenant_sync(
                             user_principal_name
                         )
 
-                        # Persist to Supabase
-                        await persist_email_row(supabase, normalized)
+                        # Universal ingestion (documents table + Neo4j + Qdrant)
+                        await ingest_to_cortex(cortex_pipeline, normalized, supabase)
 
                         # Optionally write to JSONL
                         await append_jsonl(normalized)
-
-                        # Ingest to Cortex (disabled for Outlook in original code)
-                        # await ingest_to_cortex(cortex_pipeline, normalized)
 
                         messages_synced += 1
                     except Exception as e:
@@ -237,9 +234,6 @@ async def run_gmail_sync(
                             normalized,
                             supabase  # Pass supabase for universal ingestion
                         )
-
-                        # Persist to emails table (for email-specific queries)
-                        await persist_email_row(supabase, normalized)
 
                         # Optionally write to JSONL
                         await append_jsonl(normalized)

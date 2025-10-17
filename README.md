@@ -27,8 +27,8 @@ Built with FastAPI, LlamaIndex, Neo4j, Qdrant, and OpenAI.
                                                      ▼
                                       ┌──────────────────────────────┐
                                       │   SUPABASE (PostgreSQL)      │
-                                      │   - documents table          │
-                                      │   - emails table             │
+                                      │   - documents table (UNIFIED)│
+                                      │   - All content types        │
                                       │   - Content dedupe (SHA256)  │
                                       └──────────────┬───────────────┘
                                                      │
