@@ -5,7 +5,7 @@ OAuth proxy and webhook handling
 from app.services.nango.nango_client import get_graph_token_via_nango, nango_list_gmail_records
 from app.services.nango.database import save_connection, get_connection
 from app.services.nango.sync_engine import run_gmail_sync, run_tenant_sync
-from app.services.nango.persistence import persist_email_row, append_jsonl, ingest_to_cortex
+from app.services.nango.persistence import append_jsonl, ingest_to_cortex
 
 __all__ = [
     "get_graph_token_via_nango",
@@ -14,7 +14,6 @@ __all__ = [
     "get_connection",
     "run_gmail_sync",
     "run_tenant_sync",
-    "persist_email_row",
     "append_jsonl",
     "ingest_to_cortex",
 ]
