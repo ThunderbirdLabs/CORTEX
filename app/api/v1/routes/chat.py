@@ -127,9 +127,11 @@ async def chat(
         logger.info(f"🔍 Query result keys: {result.keys()}")
         logger.info(f"🔍 Source nodes count: {len(result.get('source_nodes', []))}")
 
-        # Format source nodes
+        # Format source nodes - Filter out entity nodes, only keep actual documents
         sources = []
-        for i, node in enumerate(result.get('source_nodes', []), 1):
+        source_index = 1
+        
+        for node in result.get('source_nodes', []):
             metadata = node.metadata if hasattr(node, 'metadata') else {}
 
             # Extract document_id for clickable sources - try multiple field names
@@ -140,22 +142,44 @@ async def chat(
                 None
             )
 
-            # Log metadata keys for debugging
-            if document_id is None:
-                logger.warning(f"   ⚠️  Source {i} has no document_id. Available keys: {list(metadata.keys())}")
+            # FILTER OUT non-document sources:
+            # 1. Entity nodes (PERSON, COMPANY, etc.) - they don't have 'source' field
+            # 2. Chunk nodes without proper document metadata
+            # 3. Any node without a valid source system
+            source_system = metadata.get('source', None)
+            
+            # Skip if no source system (likely an entity node)
+            if not source_system or source_system == 'Unknown':
+                logger.debug(f"   ⏭️  Skipping entity/chunk node. Available keys: {list(metadata.keys())}")
+                continue
+                
+            # Skip if no document metadata at all
+            has_doc_metadata = any([
+                metadata.get('title'),
+                metadata.get('document_name'), 
+                metadata.get('document_type'),
+                metadata.get('created_at'),
+                document_id
+            ])
+            
+            if not has_doc_metadata:
+                logger.debug(f"   ⏭️  Skipping node without document metadata")
+                continue
 
+            # This is a valid document source
             source_info = {
-                'index': i,
-                'document_id': str(document_id) if document_id is not None else None,  # Ensure string or null
-                'document_name': metadata.get('title', metadata.get('document_name', 'Unknown')),
-                'source': metadata.get('source', 'Unknown'),
-                'document_type': metadata.get('document_type', 'Unknown'),
+                'index': source_index,
+                'document_id': str(document_id) if document_id is not None else None,
+                'document_name': metadata.get('title', metadata.get('document_name', 'Untitled')),
+                'source': source_system,
+                'document_type': metadata.get('document_type', 'document'),
                 'timestamp': metadata.get('created_at', metadata.get('timestamp', 'Unknown')),
                 'text_preview': node.text[:200] if hasattr(node, 'text') else '',
-                'score': node.score if hasattr(node, 'score') else None  # Relevance score
+                'score': node.score if hasattr(node, 'score') else None
             }
             sources.append(source_info)
-            logger.info(f"   Source {i}: {source_info['source']} - {source_info['document_name']}")
+            logger.info(f"   📄 Source {source_index}: {source_info['source']} - {source_info['document_name']}")
+            source_index += 1
 
         # Save assistant message
         supabase.table('chat_messages').insert({
