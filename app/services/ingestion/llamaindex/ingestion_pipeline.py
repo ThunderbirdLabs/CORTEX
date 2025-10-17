@@ -155,7 +155,7 @@ Text:
         # strict=False allows flexibility while guiding toward schema
         self.entity_extractor = SchemaLLMPathExtractor(
             llm=self.extraction_llm,
-            max_triplets_per_chunk=25,  # Comprehensive extraction for complete business intelligence
+            max_triplets_per_chunk=10,  # Balanced extraction - enough coverage without slowing ingestion
             num_workers=4,
             possible_entities=POSSIBLE_ENTITIES,
             possible_relations=POSSIBLE_RELATIONS,
