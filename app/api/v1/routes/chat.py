@@ -132,8 +132,17 @@ async def chat(
         for i, node in enumerate(result.get('source_nodes', []), 1):
             metadata = node.metadata if hasattr(node, 'metadata') else {}
 
-            # Extract document_id for clickable sources
-            document_id = metadata.get('document_id', metadata.get('doc_id', None))
+            # Extract document_id for clickable sources - try multiple field names
+            document_id = (
+                metadata.get('document_id') or
+                metadata.get('doc_id') or
+                metadata.get('id') or
+                None
+            )
+
+            # Log metadata keys for debugging
+            if document_id is None:
+                logger.warning(f"   ⚠️  Source {i} has no document_id. Available keys: {list(metadata.keys())}")
 
             source_info = {
                 'index': i,
