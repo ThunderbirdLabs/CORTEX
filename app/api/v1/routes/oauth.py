@@ -19,7 +19,7 @@ router = APIRouter(prefix="", tags=["oauth"])
 
 @router.get("/connect/start")
 async def connect_start(
-    provider: str = Query(..., description="Provider name (microsoft | gmail | google-drive)"),
+    provider: str = Query(..., description="Provider name (microsoft | gmail | google-drive | quickbooks)"),
     user_id: str = Depends(get_current_user_id),
     http_client: httpx.AsyncClient = Depends(get_http_client)
 ):
@@ -55,6 +55,10 @@ async def connect_start(
             integration_id = "google-mail"
         else:
             raise HTTPException(status_code=400, detail="Google Drive provider not configured")
+    elif provider.lower() in ["quickbooks", "qbo", "intuit"]:
+        if not settings.nango_provider_key_quickbooks:
+            raise HTTPException(status_code=400, detail="QuickBooks provider not configured")
+        integration_id = "quickbooks"
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
 
@@ -119,6 +123,7 @@ async def get_status(user_id: str = Depends(get_current_user_id)):
         outlook_connection = await get_connection(user_id, settings.nango_provider_key_outlook) if settings.nango_provider_key_outlook else None
         gmail_connection = await get_connection(user_id, settings.nango_provider_key_gmail) if settings.nango_provider_key_gmail else None
         drive_connection = await get_connection(user_id, settings.nango_provider_key_google_drive) if settings.nango_provider_key_google_drive else gmail_connection
+        quickbooks_connection = await get_connection(user_id, settings.nango_provider_key_quickbooks) if settings.nango_provider_key_quickbooks else None
 
         return {
             "tenant_id": user_id,
@@ -137,6 +142,11 @@ async def get_status(user_id: str = Depends(get_current_user_id)):
                     "configured": (settings.nango_provider_key_google_drive is not None) or (settings.nango_provider_key_gmail is not None),
                     "connected": drive_connection is not None,
                     "connection_id": drive_connection
+                },
+                "quickbooks": {
+                    "configured": settings.nango_provider_key_quickbooks is not None,
+                    "connected": quickbooks_connection is not None,
+                    "connection_id": quickbooks_connection
                 }
             }
         }
