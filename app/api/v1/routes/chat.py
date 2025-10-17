@@ -146,7 +146,7 @@ async def chat(
 
             source_info = {
                 'index': i,
-                'document_id': document_id,  # For fetching full source
+                'document_id': str(document_id) if document_id is not None else None,  # Ensure string or null
                 'document_name': metadata.get('title', metadata.get('document_name', 'Unknown')),
                 'source': metadata.get('source', 'Unknown'),
                 'document_type': metadata.get('document_type', 'Unknown'),
