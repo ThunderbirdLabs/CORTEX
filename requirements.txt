@@ -19,6 +19,9 @@ pyjwt==2.10.1
 # Environment and utilities
 python-dotenv==1.0.1
 
+# Scheduling (for periodic deduplication)
+APScheduler==3.10.4
+
 # Cortex Hybrid RAG dependencies
 openai>=1.0.0
 qdrant-client>=1.6.0

@@ -303,9 +303,13 @@ class UniversalIngestionPipeline:
             # Add any extra metadata
             node_properties.update(doc_metadata)
 
+            # CRITICAL: Use unique ID to prevent merging documents with same title
+            # EntityNode uses 'name' as the node ID, so we must make it unique
+            unique_name = f"{title}|{doc_id}"
+
             document_node = EntityNode(
                 label=node_label,
-                name=title,
+                name=unique_name,
                 properties=node_properties
             )
 
@@ -628,6 +632,7 @@ class UniversalIngestionPipeline:
         node_properties = {
             "document_id": str(doc_id),
             "title": title,
+            "content": content,  # CRITICAL: Store full content for entity extraction
             "source": source,
             "document_type": document_type,
             "tenant_id": doc_row.get("tenant_id", ""),
@@ -635,23 +640,37 @@ class UniversalIngestionPipeline:
             "created_at": doc_row.get("source_created_at") or doc_row.get("received_datetime", ""),
         }
 
+        # CRITICAL: Use unique ID to prevent merging documents with same title
+        # EntityNode uses 'name' as the node ID, so we must make it unique
+        # Format: "title|doc_id" ensures uniqueness while keeping title readable
+        unique_name = f"{title}|{doc_id}"
+
         document_node = EntityNode(
             label=node_label,
-            name=title,
+            name=unique_name,
             properties=node_properties
         )
 
         self.graph_store.upsert_nodes([document_node])
 
         # Email-specific relationships (sender/recipients)
+        # Fixed: Use correct field names from emails table
         email_relationships = []
         if document_type == "email":
-            sender = doc_row.get("sender")
-            if sender:
+            # Check for sender_name or sender_address
+            sender_name = doc_row.get("sender_name")
+            sender_address = doc_row.get("sender_address")
+
+            if sender_name or sender_address:
+                # Prefer name, fallback to address
+                display_name = sender_name or sender_address.split('@')[0].replace('.', ' ').title()
                 sender_person = EntityNode(
                     label="PERSON",
-                    name=sender,
-                    properties={"email": sender}
+                    name=display_name,
+                    properties={
+                        "name": sender_name or display_name,
+                        "email": sender_address
+                    }
                 )
                 self.graph_store.upsert_nodes([sender_person])
 
@@ -663,13 +682,25 @@ class UniversalIngestionPipeline:
                 self.graph_store.upsert_relations([sent_by_rel])
                 email_relationships.append("SENT_BY")
 
-            recipients = doc_row.get("recipients", [])
-            if isinstance(recipients, list):
-                for recipient in recipients[:10]:
+            # Handle to_addresses (can be list or JSON string)
+            to_addresses = doc_row.get("to_addresses", [])
+            if isinstance(to_addresses, str):
+                import json
+                try:
+                    to_addresses = json.loads(to_addresses)
+                except:
+                    to_addresses = []
+
+            if isinstance(to_addresses, list):
+                for recipient_email in to_addresses[:10]:
+                    recipient_name = recipient_email.split('@')[0].replace('.', ' ').title()
                     recipient_person = EntityNode(
                         label="PERSON",
-                        name=recipient,
-                        properties={"email": recipient}
+                        name=recipient_name,
+                        properties={
+                            "name": recipient_name,
+                            "email": recipient_email
+                        }
                     )
                     self.graph_store.upsert_nodes([recipient_person])
 
@@ -691,19 +722,28 @@ class UniversalIngestionPipeline:
 
             extracted = await self.entity_extractor.acall([document_for_extraction])
 
-            entities = extracted[0].nodes if hasattr(extracted[0], 'nodes') else []
-            relations = extracted[0].relations if hasattr(extracted[0], 'relations') else []
+            # FIXED: SchemaLLMPathExtractor stores entities/relations in metadata
+            # Source: llama_index/core/graph_stores/types.py
+            # KG_NODES_KEY = "nodes", KG_RELATIONS_KEY = "relations"
+            entities = extracted[0].metadata.get("nodes", [])
+            relations = extracted[0].metadata.get("relations", [])
 
             if entities:
+                logger.info(f"   → Extracted {len(entities)} entities, embedding them...")
                 # Embed entities for graph retrieval
                 for entity in entities:
                     entity_text = f"{entity.label}: {entity.name if hasattr(entity, 'name') else entity.id}"
                     entity.embedding = await self.embed_model.aget_text_embedding(entity_text)
 
                 self.graph_store.upsert_nodes(entities)
+                logger.info(f"   ✅ Upserted {len(entities)} entities to Neo4j")
 
             if relations:
                 self.graph_store.upsert_relations(relations)
+                logger.info(f"   ✅ Upserted {len(relations)} relationships to Neo4j")
+
+            if not entities and not relations:
+                logger.warning(f"   ⚠️  No entities or relations extracted from document")
 
         return {
             "status": "success",

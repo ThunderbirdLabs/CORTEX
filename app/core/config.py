@@ -74,6 +74,15 @@ class Settings(BaseSettings):
     cortex_api_key: Optional[str] = Field(default=None, description="API key for Cortex search endpoint")
 
     # ============================================================================
+    # ENTITY DEDUPLICATION
+    # ============================================================================
+
+    dedup_enabled: bool = Field(default=True, description="Enable periodic entity deduplication")
+    dedup_interval_hours: int = Field(default=1, description="Deduplication run interval (hours)")
+    dedup_similarity_threshold: float = Field(default=0.92, description="Vector similarity threshold (0.88-0.95)")
+    dedup_levenshtein_max_distance: int = Field(default=3, description="Max Levenshtein distance (2-5)")
+
+    # ============================================================================
     # OPTIONAL SETTINGS
     # ============================================================================
 

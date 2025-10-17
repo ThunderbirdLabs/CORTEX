@@ -21,6 +21,7 @@ import traceback
 import nest_asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Startup error handling
 try:
@@ -44,6 +45,10 @@ try:
         upload_router,
         chat_router
     )
+    from app.api.v1.routes.deduplication import router as deduplication_router
+
+    # Import deduplication service for scheduled job
+    from app.services.deduplication.entity_deduplication import run_entity_deduplication
 except Exception as e:
     print(f"🚨 FATAL STARTUP ERROR: {e}", file=sys.stderr)
     print(f"Traceback:\n{traceback.format_exc()}", file=sys.stderr)
@@ -66,6 +71,40 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# SCHEDULER SETUP
+# ============================================================================
+
+scheduler = AsyncIOScheduler()
+
+
+async def periodic_entity_deduplication():
+    """Run entity deduplication periodically."""
+    if not settings.dedup_enabled:
+        logger.debug("Entity deduplication is disabled")
+        return
+
+    logger.info("⏰ Running scheduled entity deduplication...")
+
+    try:
+        results = run_entity_deduplication(
+            neo4j_uri=settings.neo4j_uri,
+            neo4j_password=settings.neo4j_password,
+            dry_run=False,
+            similarity_threshold=settings.dedup_similarity_threshold,
+            levenshtein_max_distance=settings.dedup_levenshtein_max_distance
+        )
+
+        merged_count = results.get("entities_merged", 0)
+        logger.info(f"✅ Scheduled deduplication complete: {merged_count} entities merged")
+
+        # Alert if high merge count
+        if merged_count > 100:
+            logger.error(f"🚨 ALERT: High merge count - {merged_count} entities merged! Review thresholds.")
+
+    except Exception as e:
+        logger.error(f"❌ Scheduled deduplication failed: {e}", exc_info=True)
+
 
 # ============================================================================
 # LIFECYCLE MANAGEMENT
@@ -84,6 +123,22 @@ async def lifespan(app: FastAPI):
 
     await initialize_clients()
 
+    # Start deduplication scheduler
+    if settings.dedup_enabled:
+        scheduler.add_job(
+            periodic_entity_deduplication,
+            'interval',
+            hours=settings.dedup_interval_hours,
+            id='entity_deduplication',
+            replace_existing=True
+        )
+        scheduler.start()
+        logger.info(f"✅ Entity deduplication scheduler started (every {settings.dedup_interval_hours} hour(s))")
+        logger.info(f"   Similarity threshold: {settings.dedup_similarity_threshold}")
+        logger.info(f"   Levenshtein max distance: {settings.dedup_levenshtein_max_distance}")
+    else:
+        logger.info("⚠️ Entity deduplication is disabled")
+
     logger.info("=" * 80)
     logger.info("✅ Application started successfully")
     logger.info("=" * 80)
@@ -92,6 +147,12 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down application...")
+
+    # Stop scheduler
+    if settings.dedup_enabled and scheduler.running:
+        scheduler.shutdown(wait=False)
+        logger.info("✅ Deduplication scheduler stopped")
+
     await shutdown_clients()
     logger.info("✅ Application shutdown complete")
 
@@ -135,6 +196,7 @@ app.include_router(search_router)
 app.include_router(emails_router)
 app.include_router(upload_router)
 app.include_router(chat_router)
+app.include_router(deduplication_router)
 
 # ============================================================================
 # MAIN
