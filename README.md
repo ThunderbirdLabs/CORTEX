@@ -1,9 +1,9 @@
 # Cortex - Enterprise RAG Platform
-**v0.5.0 - Production Ready**
+**v0.4.5**
 
 Enterprise-grade unified backend for **multi-source data ingestion** (Gmail, Outlook, Google Drive, file uploads) with **AI-powered hybrid RAG search** (vector + knowledge graph).
 
-Built with FastAPI, LlamaIndex, Qdrant, Neo4j, and OpenAI.
+Built with FastAPI, LlamaIndex, Neo4j, Qdrant, and OpenAI.
 
 ---
 
@@ -32,10 +32,16 @@ Built with FastAPI, LlamaIndex, Qdrant, Neo4j, and OpenAI.
                                       │   - Content dedupe (SHA256)  │
                                       └──────────────┬───────────────┘
                                                      │
-                                    ┌────────────────┴────────────────┐
-                                    │  UNIVERSAL INGESTION PIPELINE   │
-                                    │  (UniversalIngestionPipeline)   │
-                                    └────────────────┬────────────────┘
+                      ┌──────────────────────────────┴──────────────────────────────┐
+                      │          UNIVERSAL INGESTION PIPELINE                       │
+                      │          (UniversalIngestionPipeline)                       │
+                      │                                                             │
+                      │  1. SentenceSplitter → Chunk text (512 chars, 50 overlap)  │
+                      │  2. OpenAI Embedding → text-embedding-3-small               │
+                      │  3. SchemaLLMPathExtractor → GPT-4o-mini entity extraction  │
+                      │  4. Entity Embeddings → Graph-aware retrieval               │
+                      │  5. Parallel processing → 4 workers                         │
+                      └──────────────────────────────┬──────────────────────────────┘
                                                      │
                                     ┌────────────────┴────────────────┐
                                     │                                 │
@@ -43,10 +49,12 @@ Built with FastAPI, LlamaIndex, Qdrant, Neo4j, and OpenAI.
                          │   QDRANT CLOUD      │         │      NEO4J AURA      │
                          │   Vector Store      │         │   Property Graph     │
                          │                     │         │                      │
-                         │ - Text chunks       │         │ - EMAIL nodes        │
-                         │ - Embeddings        │         │ - PERSON nodes       │
-                         │ - Full metadata     │         │ - COMPANY nodes      │
-                         └─────────────────────┘         │ - MENTIONED_IN rels  │
+                         │ - Text chunks       │         │ - Document nodes     │
+                         │ - Embeddings        │         │   (title|doc_id)     │
+                         │ - Metadata          │         │ - EMAIL/PERSON nodes │
+                         │ - 4-worker batch    │         │ - COMPANY nodes      │
+                         └─────────────────────┘         │ - Relationships      │
+                                                         │   (SENT_BY, WORKS_AT)│
                                                          │ - Entity embeddings  │
                                                          │                      │
                                                          │ + Hourly entity      │
@@ -55,18 +63,19 @@ Built with FastAPI, LlamaIndex, Qdrant, Neo4j, and OpenAI.
                                                          └──────────────────────┘
                                                      ┬────────────────┘
                                                      │
-                                                     ▼
-                                    ┌─────────────────────────────────┐
-                                    │     HYBRID QUERY ENGINE         │
-                                    │     (HybridQueryEngine)         │
-                                    │                                 │
-                                    │  SubQuestionQueryEngine:        │
-                                    │  ├─ VectorStoreIndex (Qdrant)   │
-                                    │  └─ PropertyGraphIndex (Neo4j)  │
-                                    │                                 │
-                                    │  Routes sub-questions to best   │
-                                    │  index and synthesizes answers  │
-                                    └─────────────────▲───────────────┘
+                                                     |
+                                                     │                 
+                                    ┌────────────────▼─────────────────-──┐
+                                    │     HYBRID QUERY ENGINE             │
+                                    │     (HybridQueryEngine)             │
+                                    │                                     │
+                                    │  SubQuestionQueryEngine combines:   │
+                                    │  ├─ VectorStoreIndex (Qdrant)       │
+                                    │  └─ PropertyGraphIndex (Neo4j)      │
+                                    │                                     │
+                                    │  Routes sub-questions to best index │
+                                    │  Synthesizes comprehensive answers  │
+                                    └─────────────────▲───────────────────┘
                                                       │
                                            User queries via:
                                            /api/v1/chat
@@ -75,33 +84,56 @@ Built with FastAPI, LlamaIndex, Qdrant, Neo4j, and OpenAI.
 
 ---
 
-## 🚀 What's New in v0.5.0
+## 💡 How It Works (Simple Explanation)
 
-### **Production Code Cleanup** ✅
-- ✅ Removed all deprecated code (hybrid_property_graph_pipeline.py, hybrid_retriever.py)
-- ✅ Organized scripts into logical directories (archive/, maintenance/, utilities/)
-- ✅ Cleaned up 15 one-time debug/fix scripts → archived
-- ✅ Removed 5 .DS_Store files and improved .gitignore
-- ✅ Updated documentation to match actual codebase structure
-- ✅ Zero deprecated imports or dead code
+**Think of Cortex as an AI assistant that reads all your emails and documents, then answers questions about them.**
 
-### **Schema-Validated Knowledge Graph** ✅
+### The Journey of Your Data:
+
+1. **📥 Collection** - Connect your Gmail, Outlook, or Google Drive. Cortex fetches your emails and documents.
+
+2. **🧹 Cleanup** - Removes duplicates automatically (using content fingerprinting).
+
+3. **💾 Storage** - Saves everything in a database (Supabase) so you never lose it.
+
+4. **🤖 AI Processing** - This is where the magic happens:
+   - **Chunking**: Breaks long documents into smaller pieces (like paragraphs)
+   - **Embedding**: Converts text into numbers that AI can search through
+   - **Entity Extraction**: Identifies people, companies, deals, and relationships
+   - All of this gets stored in two specialized databases for fast searching
+
+5. **💬 Asking Questions** - When you ask "What did Sarah say about the Q4 report?":
+   - Searches through chunks for relevant content (vector search)
+   - Looks up people and relationships (graph search)
+   - Combines everything into a smart answer
+   - Shows you the sources so you can verify
+
+### Why Two Databases?
+- **Qdrant** (Vector Store): Fast at finding similar content - like Google for your data
+- **Neo4j** (Knowledge Graph): Understands relationships - like knowing Sarah works at Acme Corp and sent 5 emails about Q4
+
+Together, they give you comprehensive answers with sources you can trust.
+
+---
+
+## 🚀 What's New in v0.4.5
+
+### **Schema-Validated Knowledge Graph**
 - ✅ **SchemaLLMPathExtractor** - Strict entity/relationship validation
-- ✅ 10 entity types (PERSON, COMPANY, EMAIL, DOCUMENT, etc.)
-- ✅ 18 relationship types (SENT_BY, WORKS_AT, MENTIONS, etc.)
+- ✅ 10 entity types (PERSON, COMPANY, EMAIL, DOCUMENT, DEAL, TASK, MEETING, PAYMENT, TOPIC, EVENT)
+- ✅ 19 relationship types (SENT_BY, WORKS_AT, MENTIONS, PAID_BY, etc.)
 - ✅ Entity embeddings for graph-aware retrieval
 - ✅ Unique document IDs (`title|doc_id`) - prevents duplicate merging
-- ✅ MENTIONED_IN relationships - enables full graph traversal
-- ✅ Clean entity properties (no document metadata pollution)
+- ✅ Neo4j label reordering for better visualization
 
-### **Hybrid Query Engine** ✅
+### **Hybrid Query Engine**
 - ✅ **SubQuestionQueryEngine** - Intelligent query decomposition
 - ✅ **VectorStoreIndex** (Qdrant) - Semantic search over chunks
 - ✅ **PropertyGraphIndex** (Neo4j) - Graph queries over entities
 - ✅ Automatic routing to best retrieval strategy
 - ✅ Multi-strategy synthesis for comprehensive answers
 
-### **Entity Deduplication System** ✅
+### **Entity Deduplication System**
 - ✅ **Vector similarity** (cosine > 0.92) + Levenshtein distance (< 3 chars)
 - ✅ Hourly scheduled deduplication (APScheduler)
 - ✅ API endpoints for manual triggering (`/api/v1/deduplication/run`)
@@ -109,22 +141,20 @@ Built with FastAPI, LlamaIndex, Qdrant, Neo4j, and OpenAI.
 - ✅ Prevents array IDs (fixed `title|doc_id` bug)
 - ✅ Configurable thresholds via environment variables
 
-### **Universal Ingestion Pipeline** ✅
+### **Universal Ingestion Pipeline**
 - ✅ Dual ingestion: Qdrant (chunks) + Neo4j (entities/documents)
-- ✅ Dual metadata strategy: Full for Qdrant, minimal for Neo4j entities
 - ✅ Content-based deduplication (SHA256 hashing)
-- ✅ Batch processing with 4 workers (3-4x faster)
+- ✅ Batch processing with 4 workers
 - ✅ 100k character limit per document (cost control)
 - ✅ Any source → unified format → RAG
 - ✅ Lightweight file parsing (lazy-loaded)
 
-### **Production Fixes** ✅
+### **Production Fixes**
 - ✅ Fixed array ID bug (toString() errors in Neo4j queries)
 - ✅ Fixed entity extraction field names (sender_name, to_addresses)
 - ✅ Removed 464 lines of dead code
 - ✅ Fixed encoding issues for Python 3.13
 - ✅ Memory-optimized for Render (512MB)
-- ✅ Updated all docstrings to reflect current architecture
 
 ---
 
@@ -151,20 +181,17 @@ Built with FastAPI, LlamaIndex, Qdrant, Neo4j, and OpenAI.
 
 5. DUAL INGESTION (UniversalIngestionPipeline)
    ├─> QDRANT PATH:
-   │   ├─> SentenceSplitter (chunk_size=1024, overlap=200)
+   │   ├─> SentenceSplitter (chunk_size=512, overlap=50)
    │   ├─> OpenAIEmbedding (text-embedding-3-small)
-   │   └─> Store chunks + embeddings + FULL metadata in Qdrant
-   │       (Metadata includes: title, file_size, owner, source, etc.)
+   │   └─> Store chunks + embeddings in Qdrant
    │
    └─> NEO4J PATH:
        ├─> Create document node (EMAIL/DOCUMENT)
        │   └─> Unique ID: "title|doc_id" (prevents duplicate merging)
        ├─> SchemaLLMPathExtractor (GPT-4o-mini)
-       │   ├─> Extract with MINIMAL metadata (document_id, title, type only)
-       │   ├─> Extracts entities: PERSON, COMPANY, etc.
-       │   └─> Extracts relationships: SENT_BY, WORKS_AT, etc.
-       ├─> Create MENTIONED_IN relationships
-       │   └─> (Entity)-[:MENTIONED_IN]->(Document)
+       │   ├─> Extract entities: PERSON, COMPANY, etc.
+       │   ├─> Extract relationships: SENT_BY, WORKS_AT, etc.
+       │   └─> Generate entity embeddings
        └─> Store in Neo4j Property Graph
 
 6. HOURLY ENTITY DEDUPLICATION (Neo4j only)
@@ -206,8 +233,8 @@ Built with FastAPI, LlamaIndex, Qdrant, Neo4j, and OpenAI.
 ## 🗂️ Codebase Structure
 
 ```
-CORTEX/
-├── main.py                              # FastAPI entry point with APScheduler
+cortex/
+├── main.py                              # FastAPI entry point
 │
 ├── app/                                 # Main application
 │   ├── core/                            # Infrastructure
@@ -224,14 +251,14 @@ CORTEX/
 │   │   ├── connector.py                 # OAuth, webhooks
 │   │   ├── sync.py                      # Sync operations
 │   │   ├── search.py                    # Search request/response
-│   │   └── ingestion.py                 # Document models
+│   │   ├── ingestion.py                 # Document models
+│   │   └── knowledge_graph.py           # Graph entity types
 │   │
 │   ├── services/                        # Business logic
 │   │   ├── connectors/                  # Data connectors
 │   │   │   ├── gmail.py                 # Gmail normalization
 │   │   │   ├── google_drive.py          # Drive file handling
-│   │   │   ├── microsoft_graph.py       # Outlook sync
-│   │   │   └── slack.py                 # Slack (TODO: activate)
+│   │   │   └── microsoft_graph.py       # Outlook sync
 │   │   │
 │   │   ├── nango/                       # OAuth & sync
 │   │   │   ├── nango_client.py          # Nango API client
@@ -241,25 +268,23 @@ CORTEX/
 │   │   │   ├── database.py              # Connection management
 │   │   │   └── persistence.py           # Data persistence
 │   │   │
-│   │   ├── ingestion/                   # RAG pipeline (v0.5.0 structure)
+│   │   ├── ingestion/                   # RAG pipeline
 │   │   │   └── llamaindex/
-│   │   │       ├── __init__.py          # Exports UniversalIngestionPipeline, HybridQueryEngine
 │   │   │       ├── config.py            # LlamaIndex configuration
-│   │   │       ├── ingestion_pipeline.py # Universal ingestion (replaces old hybrid_property_graph_pipeline)
-│   │   │       └── query_engine.py      # Hybrid query engine (replaces old hybrid_retriever)
+│   │   │       ├── ingestion_pipeline.py # Universal ingestion
+│   │   │       └── query_engine.py      # Hybrid query engine
 │   │   │
 │   │   ├── parsing/                     # File parsing
 │   │   │   └── file_parser.py           # Universal file parser (lazy-loaded)
 │   │   │
-│   │   ├── deduplication/               # Content & entity deduplication
-│   │   │   ├── dedupe_service.py        # SHA256 hash-based deduping
-│   │   │   └── entity_deduplication.py  # Vector similarity entity merging
+│   │   ├── deduplication/               # Deduplication
+│   │   │   ├── dedupe_service.py        # Content deduplication (SHA256)
+│   │   │   └── entity_deduplication.py  # Entity deduplication (vector similarity)
 │   │   │
 │   │   ├── universal/                   # Universal ingestion
 │   │   │   └── ingest.py                # Unified ingestion flow
 │   │   │
-│   │   └── search/
-│   │       └── query_rewriter.py        # Context-aware query expansion
+│   │   └── search/                      # (Reserved for future query rewriting)
 │   │
 │   └── api/v1/routes/                   # API endpoints (v1)
 │       ├── health.py                    # Health checks
@@ -269,8 +294,7 @@ CORTEX/
 │       ├── search.py                    # Hybrid RAG search
 │       ├── emails.py                    # Email retrieval
 │       ├── upload.py                    # File upload
-│       ├── chat.py                      # Chat interface
-│       └── deduplication.py             # Entity deduplication API
+│       └── chat.py                      # Chat interface
 │
 ├── connectorfrontend/                   # Next.js frontend
 │   ├── app/                             # App router
@@ -284,68 +308,13 @@ CORTEX/
 │   └── lib/
 │       └── api.ts                       # Backend API client
 │
-├── scripts/                             # Utility scripts (organized in v0.5.0)
-│   ├── analysis/                        # Graph analysis
-│   │   └── analyze_neo4j_graph.py       # Comprehensive Neo4j stats
-│   │
-│   ├── database_tools/                  # DB inspection & management
-│   │   ├── audit_databases.py           # Multi-DB audit
-│   │   ├── audit_qdrant_complete.py     # Qdrant deep inspection
-│   │   ├── check_databases.py           # Quick health check
-│   │   ├── check_supabase_tables.py     # Supabase table stats
-│   │   ├── clear_databases.py           # Clear Neo4j + Qdrant
-│   │   ├── create_production_indexes_v2.py # Create Neo4j indexes
-│   │   ├── inspect_node_content.py      # Inspect specific nodes
-│   │   └── preview_supabase_data.py     # Preview Supabase data
-│   │
-│   ├── setup/                           # Initial setup
-│   │   └── create_neo4j_indexes.py      # Create graph indexes
-│   │
-│   ├── maintenance/                     # Ongoing maintenance
-│   │   └── deduplicate_entities.py      # Entity deduplication script
-│   │
-│   ├── utilities/                       # Utility scripts
-│   │   └── clear_and_reingest.py        # Clear DBs and reingest
-│   │
-│   ├── testing/                         # Test scripts
-│   │   ├── test_deduplication.py        # Test entity dedupe
-│   │   ├── test_entity_extraction.py    # Test extraction
-│   │   ├── test_production_flow.py      # End-to-end test
-│   │   ├── test_query.py                # Test query engine
-│   │   ├── test_retrieval_detailed.py   # Detailed retrieval test
-│   │   └── test_universal_ingestion.py  # Test ingestion pipeline
-│   │
-│   └── archive/                         # Archived scripts (one-time fixes, old tests)
-│
-├── migrations/                          # Database migrations
-│   ├── schema.sql                       # Main schema
-│   ├── create_documents_table.sql       # Documents table
-│   ├── create_chat_tables.sql           # Chat tables
-│   ├── add_content_hash_column.sql      # Content deduplication
-│   └── add_episode_id_column.sql        # Episode tracking
-│
-├── docs/                                # Documentation
-│   ├── PRODUCTION_READY_SUMMARY.md      # Production readiness summary
-│   ├── PRODUCTION_ARCHITECTURE.md       # Architecture deep dive
-│   ├── PRODUCTION_DEDUPLICATION_STRATEGY.md # Deduplication strategy
-│   ├── FIXES_IMPLEMENTED.md             # Bug fixes log
-│   ├── SUPABASE_INGESTION_STRATEGY.md   # Supabase integration guide
-│   ├── CONTINUOUS_INGESTION_OPTIMIZATION.md # Optimization guide
-│   ├── SCALING_FIX_ENTITY_PROPERTIES.md # Entity property cleanup
-│   └── GRAPH_ANALYSIS_CRITICAL_ISSUES.md # Graph issues found & fixed
-│
-├── nango-integrations/                  # Nango OAuth integrations
-│   ├── google-drive/                    # Google Drive connector
-│   ├── dist/                            # Compiled integrations
-│   └── nango.yaml                       # Nango configuration
-│
-├── archive/                             # Archived code
-│   └── legacy-ui/                       # Old standalone UI
+├── scripts/                             # Utility scripts
+│   ├── database_tools/                  # DB inspection
+│   ├── ingestion/                       # Data ingestion
+│   └── testing/                         # Test scripts
 │
 ├── requirements.txt                     # Python dependencies
 ├── runtime.txt                          # Python 3.13
-├── .gitignore                           # Comprehensive gitignore (v0.5.0)
-├── .env.example                         # Environment variables template
 └── README.md                            # This file
 ```
 
@@ -377,7 +346,6 @@ CORTEX/
 |----------|--------|------|-------------|
 | `POST /api/v1/search` | POST | JWT + API Key | Hybrid RAG search |
 | `POST /api/v1/chat` | POST | JWT | Chat interface |
-| `GET /api/v1/chat/health` | GET | None | Query engine health |
 
 ### **File Management**
 
@@ -385,13 +353,6 @@ CORTEX/
 |----------|--------|------|-------------|
 | `POST /api/v1/upload/file` | POST | JWT + API Key | Upload file for ingestion |
 | `GET /api/v1/emails/{episode_id}` | GET | JWT | Get full email by episode ID |
-
-### **Entity Deduplication**
-
-| Endpoint | Method | Auth | Description |
-|----------|--------|------|-------------|
-| `POST /api/v1/deduplication/run` | POST | JWT | Trigger entity deduplication |
-| `GET /api/v1/deduplication/status` | GET | JWT | Deduplication status |
 
 ---
 
@@ -417,8 +378,6 @@ cd CORTEX
 pip install -r requirements.txt
 
 # Set environment variables (see .env.example)
-cp .env.example .env
-# Edit .env with your credentials
 
 # Run locally
 uvicorn main:app --host 0.0.0.0 --port 8080 --reload
@@ -430,7 +389,6 @@ uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 # Server
 ENVIRONMENT=production
 PORT=8080
-DEBUG=false
 
 # Database (Supabase)
 DATABASE_URL=postgresql://...
@@ -441,7 +399,7 @@ SUPABASE_SERVICE_KEY=...
 # Nango OAuth
 NANGO_SECRET=...
 NANGO_PROVIDER_KEY_GMAIL=gmail-connector
-NANGO_PROVIDER_KEY_GOOGLE_DRIVE=google-drive
+NANGO_PROVIDER_KEY_GOOGLE_DRIVE=google-drive  # Optional, falls back to gmail
 NANGO_PROVIDER_KEY_OUTLOOK=outlook-connector
 
 # RAG System
@@ -449,16 +407,8 @@ QDRANT_URL=https://...
 QDRANT_API_KEY=...
 QDRANT_COLLECTION_NAME=cortex_documents
 NEO4J_URI=neo4j+s://...
-NEO4J_USER=neo4j
 NEO4J_PASSWORD=...
-NEO4J_DATABASE=neo4j
 OPENAI_API_KEY=sk-proj-...
-
-# Entity Deduplication (v0.5.0)
-DEDUP_ENABLED=true
-DEDUP_INTERVAL_HOURS=1
-DEDUP_SIMILARITY_THRESHOLD=0.92
-DEDUP_LEVENSHTEIN_MAX_DISTANCE=3
 
 # API Keys
 CORTEX_API_KEY=your-search-api-key
@@ -491,13 +441,6 @@ CREATE TABLE documents (
 
 CREATE INDEX idx_documents_tenant ON documents(tenant_id);
 CREATE INDEX idx_documents_content_hash ON documents(tenant_id, content_hash, source);
-```
-
-### **Neo4j Setup**
-
-```bash
-# Run index creation script
-python scripts/setup/create_neo4j_indexes.py
 ```
 
 ---
@@ -534,15 +477,6 @@ curl -X POST https://your-app.onrender.com/api/v1/search \
   }'
 ```
 
-### **Test Entity Deduplication**
-```bash
-# Dry run (preview only)
-python scripts/maintenance/deduplicate_entities.py --dry-run
-
-# Actually merge
-python scripts/maintenance/deduplicate_entities.py
-```
-
 ---
 
 ## 🔐 Security
@@ -554,7 +488,7 @@ python scripts/maintenance/deduplicate_entities.py
    - Header: `Authorization: Bearer <token>`
 
 2. **API Key** - Search endpoint protection
-   - Used for: `/api/v1/search`, `/api/v1/upload`
+   - Used for: `/api/v1/search`
    - Header: `X-API-Key: <key>`
 
 ### **Data Privacy**
@@ -568,23 +502,11 @@ python scripts/maintenance/deduplicate_entities.py
 
 ## 🔧 Key Features
 
-### **Dual Metadata Strategy (v0.5.0)**
-- **Qdrant**: Full metadata for rich filtering (file_size, owner, source, dates, etc.)
-- **Neo4j Entities**: Minimal metadata only (prevents property pollution)
-- **Neo4j Documents**: Full metadata preserved
-
 ### **Content Deduplication**
 - SHA256 hash-based detection
 - Prevents duplicate ingestion across sources
 - Saves RAG processing costs
 - Indexed for fast lookup
-
-### **Entity Deduplication**
-- Vector similarity matching (> 0.92 cosine)
-- Levenshtein distance verification (< 3 edits)
-- Scheduled hourly (configurable)
-- Manual API trigger available
-- Dry-run mode for safety
 
 ### **Incremental Sync**
 - Google Drive: Uses `source_modified_at` timestamp
@@ -603,7 +525,6 @@ python scripts/maintenance/deduplicate_entities.py
 - API versioning (`/api/v1/`)
 - Centralized error handling
 - Structured logging
-- Scheduled background jobs (APScheduler)
 
 ---
 
@@ -613,7 +534,7 @@ python scripts/maintenance/deduplicate_entities.py
 - No data indexed yet. Go to Connections → Sync Gmail/Drive first
 
 ### **"Out of Memory" on Render**
-- Verify you're using lazy-loaded parsers
+- Verify you're on v0.4.5 (lazy-loaded parsers, optimized chunking)
 - Check memory usage in Render dashboard
 - Upgrade to paid tier if needed
 
@@ -625,35 +546,16 @@ python scripts/maintenance/deduplicate_entities.py
 ### **"Column content_hash does not exist"**
 - Run the database migration (see Database Setup)
 
-### **Entity deduplication errors**
-- Ensure Neo4j has APOC plugin installed
-- Check similarity threshold isn't too aggressive
-- Run in dry-run mode first to preview changes
-
 ---
 
 ## 📚 Version History
 
-### **v0.5.0 (Current) - Production Ready & Code Cleanup** 
-- ✅ Complete code cleanup and organization
-- ✅ Removed all deprecated code (hybrid_property_graph_pipeline, hybrid_retriever)
-- ✅ Organized scripts into logical directories
-- ✅ Updated all documentation to match current state
-- ✅ Comprehensive .gitignore
-- ✅ Fixed all docstrings and comments
-- ✅ Zero deprecated imports or dead code
-
-### **v0.4.5 - RAG Architecture Documentation**
-- ✅ Comprehensive README with accurate architecture
-- ✅ Document all fixes and improvements
-- ✅ Entity deduplication system fully documented
-
-### **v0.4.0 - Production Fixes & Entity Deduplication**
-- ✅ Fixed array ID bug in Neo4j
-- ✅ Entity deduplication system (vector similarity + Levenshtein)
-- ✅ Scheduled background jobs (APScheduler)
-- ✅ Clean entity properties (no metadata pollution)
-- ✅ MENTIONED_IN relationships for graph traversal
+### **v0.4.5 (Current) - Production RAG System**
+- ✅ SchemaLLMPathExtractor with 10 entity types, 19 relationships
+- ✅ Hybrid query engine (SubQuestionQueryEngine)
+- ✅ Entity deduplication with vector similarity
+- ✅ Unique document IDs prevent duplicate merging
+- ✅ Production fixes (array IDs, encoding, 464 lines dead code removed)
 
 ### **v0.3.0 - Google Drive & Universal Ingestion**
 - ✅ Google Drive OAuth & incremental sync
@@ -661,19 +563,16 @@ python scripts/maintenance/deduplicate_entities.py
 - ✅ Content-based deduplication (SHA256)
 - ✅ Modern Aetheris-style frontend
 - ✅ Memory optimizations (lazy loading, 512MB fit)
-- ✅ Google Workspace proper export (Docs/Sheets/Slides)
-- ✅ Comprehensive error handling
 
 ### **v0.2.0 - Enterprise Refactor**
 - ✅ Unified backend architecture
 - ✅ Dependency injection pattern
 - ✅ Type-safe configuration
-- ✅ API versioning (`/api/v1/`)
 
 ### **v0.1.0 - Initial Release**
 - Email sync (Gmail/Outlook)
-- Hybrid RAG search
-- Basic frontend
+- Basic RAG search
+- Frontend foundation
 
 ---
 
@@ -683,5 +582,4 @@ Proprietary - ThunderbirdLabs
 
 ---
 
-**Built with ❤️ by Nicolas Codet & Alex Kashkarian**  
-**Stack:** FastAPI, LlamaIndex, Qdrant, Neo4j, OpenAI, Supabase, Next.js
+**Built with ❤️ by ThunderbirdLabs using FastAPI, LlamaIndex, Neo4j, Qdrant, and OpenAI**
