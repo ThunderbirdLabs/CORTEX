@@ -3,7 +3,7 @@
 
 Enterprise-grade unified backend for **multi-source data ingestion** (Gmail, Outlook, Google Drive, file uploads) with **AI-powered hybrid RAG search** (vector + knowledge graph).
 
-Built with FastAPI, LlamaIndex, Qdrant, Neo4j, and OpenAI.
+Built with FastAPI, LlamaIndex, Neo4j, Qdrant, and OpenAI.
 
 ---
 
@@ -32,10 +32,16 @@ Built with FastAPI, LlamaIndex, Qdrant, Neo4j, and OpenAI.
                                       │   - Content dedupe (SHA256)  │
                                       └──────────────┬───────────────┘
                                                      │
-                                    ┌────────────────┴────────────────┐
-                                    │  UNIVERSAL INGESTION PIPELINE   │
-                                    │  (UniversalIngestionPipeline)   │
-                                    └────────────────┬────────────────┘
+                      ┌──────────────────────────────┴──────────────────────────────┐
+                      │          UNIVERSAL INGESTION PIPELINE                       │
+                      │          (UniversalIngestionPipeline)                       │
+                      │                                                             │
+                      │  1. SentenceSplitter → Chunk text (512 chars, 50 overlap)  │
+                      │  2. OpenAI Embedding → text-embedding-3-small               │
+                      │  3. SchemaLLMPathExtractor → GPT-4o-mini entity extraction  │
+                      │  4. Entity Embeddings → Graph-aware retrieval               │
+                      │  5. Parallel processing → 4 workers                         │
+                      └──────────────────────────────┬──────────────────────────────┘
                                                      │
                                     ┌────────────────┴────────────────┐
                                     │                                 │
@@ -43,10 +49,12 @@ Built with FastAPI, LlamaIndex, Qdrant, Neo4j, and OpenAI.
                          │   QDRANT CLOUD      │         │      NEO4J AURA      │
                          │   Vector Store      │         │   Property Graph     │
                          │                     │         │                      │
-                         │ - Text chunks       │         │ - EMAIL nodes        │
-                         │ - Embeddings        │         │ - PERSON nodes       │
-                         │ - Metadata          │         │ - COMPANY nodes      │
+                         │ - Text chunks       │         │ - Document nodes     │
+                         │ - Embeddings        │         │   (title|doc_id)     │
+                         │ - Metadata          │         │ - EMAIL/PERSON nodes │
+                         │ - 4-worker batch    │         │ - COMPANY nodes      │
                          └─────────────────────┘         │ - Relationships      │
+                                                         │   (SENT_BY, WORKS_AT)│
                                                          │ - Entity embeddings  │
                                                          │                      │
                                                          │ + Hourly entity      │
@@ -76,12 +84,44 @@ Built with FastAPI, LlamaIndex, Qdrant, Neo4j, and OpenAI.
 
 ---
 
+## 💡 How It Works (Simple Explanation)
+
+**Think of Cortex as an AI assistant that reads all your emails and documents, then answers questions about them.**
+
+### The Journey of Your Data:
+
+1. **📥 Collection** - Connect your Gmail, Outlook, or Google Drive. Cortex fetches your emails and documents.
+
+2. **🧹 Cleanup** - Removes duplicates automatically (using content fingerprinting).
+
+3. **💾 Storage** - Saves everything in a database (Supabase) so you never lose it.
+
+4. **🤖 AI Processing** - This is where the magic happens:
+   - **Chunking**: Breaks long documents into smaller pieces (like paragraphs)
+   - **Embedding**: Converts text into numbers that AI can search through
+   - **Entity Extraction**: Identifies people, companies, deals, and relationships
+   - All of this gets stored in two specialized databases for fast searching
+
+5. **💬 Asking Questions** - When you ask "What did Sarah say about the Q4 report?":
+   - Searches through chunks for relevant content (vector search)
+   - Looks up people and relationships (graph search)
+   - Combines everything into a smart answer
+   - Shows you the sources so you can verify
+
+### Why Two Databases?
+- **Qdrant** (Vector Store): Fast at finding similar content - like Google for your data
+- **Neo4j** (Knowledge Graph): Understands relationships - like knowing Sarah works at Acme Corp and sent 5 emails about Q4
+
+Together, they give you comprehensive answers with sources you can trust.
+
+---
+
 ## 🚀 What's New in v0.4.5
 
 ### **Schema-Validated Knowledge Graph**
 - ✅ **SchemaLLMPathExtractor** - Strict entity/relationship validation
-- ✅ 10 entity types (PERSON, COMPANY, EMAIL, DOCUMENT, etc.)
-- ✅ 18 relationship types (SENT_BY, WORKS_AT, MENTIONS, etc.)
+- ✅ 10 entity types (PERSON, COMPANY, EMAIL, DOCUMENT, DEAL, TASK, MEETING, PAYMENT, TOPIC, EVENT)
+- ✅ 19 relationship types (SENT_BY, WORKS_AT, MENTIONS, PAID_BY, etc.)
 - ✅ Entity embeddings for graph-aware retrieval
 - ✅ Unique document IDs (`title|doc_id`) - prevents duplicate merging
 - ✅ Neo4j label reordering for better visualization
@@ -141,7 +181,7 @@ Built with FastAPI, LlamaIndex, Qdrant, Neo4j, and OpenAI.
 
 5. DUAL INGESTION (UniversalIngestionPipeline)
    ├─> QDRANT PATH:
-   │   ├─> SentenceSplitter (chunk_size=1024, overlap=200)
+   │   ├─> SentenceSplitter (chunk_size=512, overlap=50)
    │   ├─> OpenAIEmbedding (text-embedding-3-small)
    │   └─> Store chunks + embeddings in Qdrant
    │
@@ -193,8 +233,8 @@ Built with FastAPI, LlamaIndex, Qdrant, Neo4j, and OpenAI.
 ## 🗂️ Codebase Structure
 
 ```
-NANGO-CONNECTION-ONLY/
-├── main.py                              # FastAPI entry point (v0.3.0)
+cortex/
+├── main.py                              # FastAPI entry point
 │
 ├── app/                                 # Main application
 │   ├── core/                            # Infrastructure
@@ -231,20 +271,20 @@ NANGO-CONNECTION-ONLY/
 │   │   ├── ingestion/                   # RAG pipeline
 │   │   │   └── llamaindex/
 │   │   │       ├── config.py            # LlamaIndex configuration
-│   │   │       ├── hybrid_property_graph_pipeline.py
-│   │   │       └── hybrid_retriever.py  # Multi-strategy retrieval
+│   │   │       ├── ingestion_pipeline.py # Universal ingestion
+│   │   │       └── query_engine.py      # Hybrid query engine
 │   │   │
 │   │   ├── parsing/                     # File parsing
 │   │   │   └── file_parser.py           # Universal file parser (lazy-loaded)
 │   │   │
-│   │   ├── deduplication/               # Content deduplication
-│   │   │   └── dedupe_service.py        # SHA256 hash-based deduping
+│   │   ├── deduplication/               # Deduplication
+│   │   │   ├── dedupe_service.py        # Content deduplication (SHA256)
+│   │   │   └── entity_deduplication.py  # Entity deduplication (vector similarity)
 │   │   │
 │   │   ├── universal/                   # Universal ingestion
 │   │   │   └── ingest.py                # Unified ingestion flow
 │   │   │
-│   │   └── search/
-│   │       └── query_rewriter.py        # Context-aware query expansion
+│   │   └── search/                      # (Reserved for future query rewriting)
 │   │
 │   └── api/v1/routes/                   # API endpoints (v1)
 │       ├── health.py                    # Health checks
@@ -331,8 +371,8 @@ NANGO-CONNECTION-ONLY/
 
 ```bash
 # Clone repo
-git clone https://github.com/ThunderbirdLabs/NANGO-CONNECTION-ONLY.git
-cd NANGO-CONNECTION-ONLY
+git clone https://github.com/ThunderbirdLabs/CORTEX.git
+cd CORTEX
 
 # Install dependencies
 pip install -r requirements.txt
@@ -494,12 +534,12 @@ curl -X POST https://your-app.onrender.com/api/v1/search \
 - No data indexed yet. Go to Connections → Sync Gmail/Drive first
 
 ### **"Out of Memory" on Render**
-- Verify you're on v0.3.0 (lazy-loaded parsers)
+- Verify you're on v0.4.5 (lazy-loaded parsers, optimized chunking)
 - Check memory usage in Render dashboard
 - Upgrade to paid tier if needed
 
 ### **Google Workspace files show garbled text**
-- Fixed in v0.3.0 - uses proper export MIME types
+- Fixed in v0.3.0+ - uses proper export MIME types
 - Docs/Slides → `text/plain`
 - Sheets → `text/csv`
 
@@ -510,25 +550,29 @@ curl -X POST https://your-app.onrender.com/api/v1/search \
 
 ## 📚 Version History
 
-### **v0.3.0 (Current) - Google Drive & Universal Ingestion**
+### **v0.4.5 (Current) - Production RAG System**
+- ✅ SchemaLLMPathExtractor with 10 entity types, 19 relationships
+- ✅ Hybrid query engine (SubQuestionQueryEngine)
+- ✅ Entity deduplication with vector similarity
+- ✅ Unique document IDs prevent duplicate merging
+- ✅ Production fixes (array IDs, encoding, 464 lines dead code removed)
+
+### **v0.3.0 - Google Drive & Universal Ingestion**
 - ✅ Google Drive OAuth & incremental sync
 - ✅ Universal ingestion pipeline (any source → RAG)
 - ✅ Content-based deduplication (SHA256)
 - ✅ Modern Aetheris-style frontend
 - ✅ Memory optimizations (lazy loading, 512MB fit)
-- ✅ Google Workspace proper export (Docs/Sheets/Slides)
-- ✅ Comprehensive error handling
 
 ### **v0.2.0 - Enterprise Refactor**
 - ✅ Unified backend architecture
 - ✅ Dependency injection pattern
 - ✅ Type-safe configuration
-- ✅ API versioning (`/api/v1/`)
 
 ### **v0.1.0 - Initial Release**
 - Email sync (Gmail/Outlook)
-- Hybrid RAG search
-- Basic frontend
+- Basic RAG search
+- Frontend foundation
 
 ---
 
@@ -538,4 +582,4 @@ Proprietary - ThunderbirdLabs
 
 ---
 
-**Built with ❤️ by Nicolas Codet using FastAPI, LlamaIndex, Graphiti, Qdrant, Neo4j, and OpenAI**
+**Built with ❤️ by ThunderbirdLabs using FastAPI, LlamaIndex, Neo4j, Qdrant, and OpenAI**
