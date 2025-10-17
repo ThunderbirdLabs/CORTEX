@@ -1,4 +1,29 @@
 integrations:
+    outlook:
+        actions:
+            list-users:
+                description: |
+                    List all users in the Microsoft 365 tenant.
+                    Used to discover mailboxes to sync.
+                output: User[]
+                endpoint:
+                    method: GET
+                    path: /list-users
+                    group: Users
+                scopes: User.Read.All
+            
+            sync-mailbox:
+                description: |
+                    Sync a user's mailbox using delta API for incremental sync.
+                    Returns new/updated messages since last sync.
+                input: UserId
+                output: Message[]
+                endpoint:
+                    method: GET
+                    path: /sync-mailbox
+                    group: Mail
+                scopes: Mail.Read Mail.ReadBasic
+
     google-drive:
         syncs:
             all-files:
@@ -31,6 +56,32 @@ integrations:
 models:
     IdEntity:
         id: string
+    
+    UserId:
+        userId: string
+    
+    User:
+        id: string
+        userPrincipalName: string
+        displayName: string | undefined
+    
+    Message:
+        id: string
+        subject: string | undefined
+        from: EmailAddress
+        toRecipients: EmailAddress[]
+        receivedDateTime: string
+        webLink: string | undefined
+        body: MessageBody
+        changeKey: string
+    
+    EmailAddress:
+        name: string | undefined
+        address: string
+    
+    MessageBody:
+        contentType: string
+        content: string
     
     DriveFile:
         id: string
