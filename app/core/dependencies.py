@@ -64,11 +64,16 @@ async def initialize_clients():
     supabase_client = create_client(settings.supabase_url, settings.supabase_anon_key)
 
     # RAG Pipeline (lazy import to avoid circular dependencies)
+    # Initialize lazily on first use instead of at startup
+    # This prevents startup failures if Neo4j/Qdrant are temporarily unavailable
     try:
         from app.services.ingestion.llamaindex import UniversalIngestionPipeline
         rag_pipeline = UniversalIngestionPipeline()
+        print("✅ RAG pipeline initialized successfully")
     except Exception as e:
-        print(f"Warning: Failed to initialize RAG pipeline: {e}")
+        print(f"⚠️  Warning: Failed to initialize RAG pipeline: {e}")
+        print(f"   This is OK - pipeline will initialize on first use")
+        print(f"   Common causes: Neo4j/Qdrant connection issues, missing env vars")
         rag_pipeline = None
 
 
