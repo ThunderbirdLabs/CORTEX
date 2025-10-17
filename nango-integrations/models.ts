@@ -9,6 +9,24 @@ export interface IdEntity {
   id: string;
 };
 
+export interface Attachments {
+  filename: string;
+  mimeType: string;
+  size: number;
+  attachmentId: string;
+};
+
+export interface OutlookEmail {
+  id: string;
+  sender: string | undefined;
+  recipients: string | undefined;
+  date: string;
+  subject: string;
+  body: string;
+  attachments: Attachments[];
+  threadId: string;
+};
+
 export interface DriveFile {
   id: string;
   name: string;
@@ -456,6 +474,46 @@ export {};
 
 // ------ Flows
 export const NangoFlows = [
+  {
+    "providerConfigKey": "outlook",
+    "syncs": [
+      {
+        "name": "emails",
+        "type": "sync",
+        "description": "Fetches emails from Outlook. Default lookback is 1 week (configurable via backfillPeriodMs metadata).\nIncremental sync - only fetches new/updated emails after last sync.",
+        "sync_type": "incremental",
+        "usedModels": [
+          "OutlookEmail",
+          "Attachments"
+        ],
+        "runs": "every hour",
+        "version": "",
+        "track_deletes": false,
+        "auto_start": true,
+        "input": null,
+        "output": [
+          "OutlookEmail"
+        ],
+        "scopes": [
+          "offline_access Mail.Read User.Read"
+        ],
+        "endpoints": [
+          {
+            "method": "GET",
+            "path": "/emails",
+            "group": "Mail"
+          }
+        ],
+        "webhookSubscriptions": []
+      }
+    ],
+    "actions": [],
+    "onEventScripts": {
+      "post-connection-creation": [],
+      "pre-connection-deletion": [],
+      "validate-connection": []
+    }
+  },
   {
     "providerConfigKey": "google-drive",
     "syncs": [

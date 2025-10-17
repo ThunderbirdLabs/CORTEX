@@ -1,28 +1,18 @@
 integrations:
     outlook:
-        actions:
-            list-users:
+        syncs:
+            emails:
                 description: |
-                    List all users in the Microsoft 365 tenant.
-                    Used to discover mailboxes to sync.
-                output: User[]
+                    Fetches emails from Outlook. Default lookback is 1 week (configurable via backfillPeriodMs metadata).
+                    Incremental sync - only fetches new/updated emails after last sync.
+                runs: every hour
+                output: OutlookEmail
+                sync_type: incremental
                 endpoint:
                     method: GET
-                    path: /list-users
-                    group: Users
-                scopes: User.Read.All
-            
-            sync-mailbox:
-                description: |
-                    Sync a user's mailbox using delta API for incremental sync.
-                    Returns new/updated messages since last sync.
-                input: UserId
-                output: Message[]
-                endpoint:
-                    method: GET
-                    path: /sync-mailbox
+                    path: /emails
                     group: Mail
-                scopes: Mail.Read Mail.ReadBasic
+                scopes: offline_access Mail.Read User.Read
 
     google-drive:
         syncs:
@@ -57,31 +47,21 @@ models:
     IdEntity:
         id: string
     
-    UserId:
-        userId: string
+    Attachments:
+        filename: string
+        mimeType: string
+        size: number
+        attachmentId: string
     
-    User:
+    OutlookEmail:
         id: string
-        userPrincipalName: string
-        displayName: string | undefined
-    
-    Message:
-        id: string
-        subject: string | undefined
-        from: EmailAddress
-        toRecipients: EmailAddress[]
-        receivedDateTime: string
-        webLink: string | undefined
-        body: MessageBody
-        changeKey: string
-    
-    EmailAddress:
-        name: string | undefined
-        address: string
-    
-    MessageBody:
-        contentType: string
-        content: string
+        sender: string | undefined
+        recipients: string | undefined
+        date: string
+        subject: string
+        body: string
+        attachments: Attachments[]
+        threadId: string
     
     DriveFile:
         id: string
