@@ -127,8 +127,9 @@ async def chat(
         logger.info(f"🔍 Query result keys: {result.keys()}")
         logger.info(f"🔍 Source nodes count: {len(result.get('source_nodes', []))}")
 
-        # Format source nodes - Filter out entity nodes, only keep actual documents
+        # Format source nodes - Filter out entity nodes and deduplicate documents
         sources = []
+        seen_documents = set()  # Track unique documents by ID or name
         source_index = 1
         
         for node in result.get('source_nodes', []):
@@ -166,11 +167,22 @@ async def chat(
                 logger.debug(f"   ⏭️  Skipping node without document metadata")
                 continue
 
-            # This is a valid document source
+            # DEDUPLICATE: Create unique key for this document
+            doc_name = metadata.get('title', metadata.get('document_name', 'Untitled'))
+            unique_key = str(document_id) if document_id else f"{source_system}:{doc_name}"
+            
+            # Skip if we've already seen this document
+            if unique_key in seen_documents:
+                logger.debug(f"   🔄 Skipping duplicate document: {doc_name}")
+                continue
+                
+            seen_documents.add(unique_key)
+
+            # This is a valid, unique document source
             source_info = {
                 'index': source_index,
                 'document_id': str(document_id) if document_id is not None else None,
-                'document_name': metadata.get('title', metadata.get('document_name', 'Untitled')),
+                'document_name': doc_name,
                 'source': source_system,
                 'document_type': metadata.get('document_type', 'document'),
                 'timestamp': metadata.get('created_at', metadata.get('timestamp', 'Unknown')),
