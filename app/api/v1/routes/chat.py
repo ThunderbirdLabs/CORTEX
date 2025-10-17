@@ -121,13 +121,19 @@ async def chat(
         sources = []
         for i, node in enumerate(result.get('source_nodes', []), 1):
             metadata = node.metadata if hasattr(node, 'metadata') else {}
+
+            # Extract document_id for clickable sources
+            document_id = metadata.get('document_id', metadata.get('doc_id', None))
+
             sources.append({
                 'index': i,
-                'document_name': metadata.get('document_name', 'Unknown'),
+                'document_id': document_id,  # For fetching full source
+                'document_name': metadata.get('title', metadata.get('document_name', 'Unknown')),
                 'source': metadata.get('source', 'Unknown'),
                 'document_type': metadata.get('document_type', 'Unknown'),
-                'timestamp': metadata.get('timestamp', 'Unknown'),
-                'text_preview': node.text[:200] if hasattr(node, 'text') else ''
+                'timestamp': metadata.get('created_at', metadata.get('timestamp', 'Unknown')),
+                'text_preview': node.text[:200] if hasattr(node, 'text') else '',
+                'score': node.score if hasattr(node, 'score') else None  # Relevance score
             })
 
         # Save assistant message
@@ -295,6 +301,51 @@ async def delete_chat(
         raise
     except Exception as e:
         logger.error(f"Failed to delete chat: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sources/{document_id}")
+async def get_source_document(
+    document_id: str,
+    user_id: str = Depends(get_current_user_id),
+    supabase: Client = Depends(get_supabase)
+):
+    """
+    Get full document details for a source.
+    Used when user clicks on a source bubble to see the original content.
+
+    Returns:
+        Full document with content, metadata, and context
+    """
+    try:
+        # Fetch document from Supabase
+        result = supabase.table('documents')\
+            .select('*')\
+            .eq('id', document_id)\
+            .eq('tenant_id', user_id)\
+            .execute()
+
+        if not result.data or len(result.data) == 0:
+            raise HTTPException(status_code=404, detail="Source document not found")
+
+        document = result.data[0]
+
+        return {
+            'id': document['id'],
+            'title': document['title'],
+            'content': document['content'],
+            'source': document['source'],
+            'document_type': document['document_type'],
+            'source_id': document['source_id'],
+            'created_at': document.get('source_created_at', document.get('ingested_at')),
+            'metadata': document.get('metadata', {}),
+            'raw_data': document.get('raw_data', {})
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get source document: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
