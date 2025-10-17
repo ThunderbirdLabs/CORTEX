@@ -1,16 +1,68 @@
-# Environment
+# ============================================================================
+# CORTEX - Enterprise RAG Platform
+# ============================================================================
+
+# Environment Variables
 .env
+.env.local
+.env.*.local
 
 # Dependencies
 node_modules/
 .nango/
 
-# Build
+# Build & Distribution
 build/
+dist/
+*.egg-info/
 
 # Python
 *.pyc
+*.pyo
+*.pyd
 __pycache__/
+*.so
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
 
 # macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Redis
+dump.rdb
+
+# Jupyter
+.ipynb_checkpoints/

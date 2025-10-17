@@ -42,13 +42,13 @@ async def search(
     supabase: Client = Depends(get_supabase)
 ):
     """
-    Intelligent Hybrid Search using LlamaIndex Hybrid Property Graph.
+    Intelligent Hybrid Search using LlamaIndex Hybrid Query Engine.
 
-    This endpoint uses HybridRetriever which:
-    - VectorContextRetriever: Graph-aware vector similarity search
-    - LLMSynonymRetriever: Query expansion with entity synonyms
+    This endpoint uses HybridQueryEngine with SubQuestionQueryEngine:
+    - SubQuestionQueryEngine: Breaks down complex queries into sub-questions
+    - VectorStoreIndex (Qdrant): Semantic search over text chunks
+    - PropertyGraphIndex (Neo4j): Graph queries over entities and relationships
     - Multi-strategy concurrent retrieval with intelligent result merging
-    - Queries unified PropertyGraphIndex (Neo4j + Qdrant)
     - Synthesizes comprehensive answer from all retrieval strategies
     - Optionally fetches full email objects from Supabase
 
