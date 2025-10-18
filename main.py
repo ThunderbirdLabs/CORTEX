@@ -46,6 +46,7 @@ try:
         chat_router
     )
     from app.api.v1.routes.deduplication import router as deduplication_router
+    from app.api.v1.routes.maintenance import router as maintenance_router
 
     # Import deduplication service for scheduled job
     from app.services.deduplication.entity_deduplication import run_entity_deduplication
@@ -197,6 +198,7 @@ app.include_router(emails_router)
 app.include_router(upload_router)
 app.include_router(chat_router)
 app.include_router(deduplication_router)
+app.include_router(maintenance_router)
 
 # ============================================================================
 # MAIN
