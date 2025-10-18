@@ -252,21 +252,29 @@ Text:
         
         This runs on initialization to prevent sync errors.
         """
+        import time
+        
         try:
             # Check if collection exists
             collection = qdrant_client.get_collection(QDRANT_COLLECTION_NAME)
+            logger.info(f"   📊 Qdrant collection: {QDRANT_COLLECTION_NAME} ({collection.points_count} points)")
+            
+            indexes_created = []
             
             # Create doc_id index if missing
             try:
                 qdrant_client.create_payload_index(
                     collection_name=QDRANT_COLLECTION_NAME,
                     field_name="doc_id",
-                    field_schema=PayloadSchemaType.KEYWORD
+                    field_schema=PayloadSchemaType.KEYWORD,
+                    wait=True  # Wait for index to be ready
                 )
                 logger.info("   ✅ Created Qdrant index: doc_id")
+                indexes_created.append("doc_id")
             except Exception as e:
-                if "already exists" in str(e).lower():
-                    logger.debug("   ℹ️  Qdrant index exists: doc_id")
+                error_msg = str(e).lower()
+                if "already exists" in error_msg or "index" in error_msg and "exist" in error_msg:
+                    logger.info("   ℹ️  Qdrant index already exists: doc_id")
                 else:
                     logger.warning(f"   ⚠️  Could not create doc_id index: {e}")
             
@@ -275,18 +283,28 @@ Text:
                 qdrant_client.create_payload_index(
                     collection_name=QDRANT_COLLECTION_NAME,
                     field_name="ref_doc_id",
-                    field_schema=PayloadSchemaType.KEYWORD
+                    field_schema=PayloadSchemaType.KEYWORD,
+                    wait=True  # Wait for index to be ready
                 )
                 logger.info("   ✅ Created Qdrant index: ref_doc_id")
+                indexes_created.append("ref_doc_id")
             except Exception as e:
-                if "already exists" in str(e).lower():
-                    logger.debug("   ℹ️  Qdrant index exists: ref_doc_id")
+                error_msg = str(e).lower()
+                if "already exists" in error_msg or "index" in error_msg and "exist" in error_msg:
+                    logger.info("   ℹ️  Qdrant index already exists: ref_doc_id")
                 else:
                     logger.warning(f"   ⚠️  Could not create ref_doc_id index: {e}")
+            
+            # If we created new indexes, give Qdrant a moment to finalize them
+            if indexes_created:
+                logger.info(f"   ⏳ Waiting 2 seconds for Qdrant to finalize indexes...")
+                time.sleep(2)
+                logger.info(f"   ✅ Indexes ready: {', '.join(indexes_created)}")
                     
         except Exception as e:
             logger.error(f"   ❌ Failed to ensure Qdrant indexes: {e}")
-            # Don't fail initialization - indexes might already exist
+            logger.error(f"   💡 Manual fix: POST /api/v1/maintenance/fix-qdrant-indexes")
+            # Don't fail initialization - continue and hope for the best
 
     async def ingest_document(
         self,
