@@ -32,6 +32,7 @@ from llama_index.core.indices.property_graph import SchemaLLMPathExtractor
 from llama_index.llms.openai import OpenAI
 from llama_index.core.graph_stores.types import EntityNode, Relation
 from qdrant_client import QdrantClient, AsyncQdrantClient
+from qdrant_client.models import PayloadSchemaType
 
 from .config import (
     NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE,
@@ -62,6 +63,9 @@ class UniversalIngestionPipeline:
         # Qdrant vector store (with async support)
         qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
         qdrant_aclient = AsyncQdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+
+        # Ensure required payload indexes exist for LlamaIndex deduplication
+        self._ensure_qdrant_indexes(qdrant_client)
 
         self.vector_store = QdrantVectorStore(
             client=qdrant_client,
@@ -238,6 +242,51 @@ Text:
         logger.info("   Architecture: IngestionPipeline → Qdrant + Neo4j")
         logger.info("   Storage: Dual (chunks in Qdrant, full documents in Neo4j)")
         logger.info("   Supports: Emails, PDFs, Sheets, Structured data")
+
+    def _ensure_qdrant_indexes(self, qdrant_client: QdrantClient):
+        """
+        Ensure required payload indexes exist in Qdrant collection.
+        
+        LlamaIndex's IngestionPipeline requires 'doc_id' and 'ref_doc_id' 
+        keyword indexes for document deduplication.
+        
+        This runs on initialization to prevent sync errors.
+        """
+        try:
+            # Check if collection exists
+            collection = qdrant_client.get_collection(QDRANT_COLLECTION_NAME)
+            
+            # Create doc_id index if missing
+            try:
+                qdrant_client.create_payload_index(
+                    collection_name=QDRANT_COLLECTION_NAME,
+                    field_name="doc_id",
+                    field_schema=PayloadSchemaType.KEYWORD
+                )
+                logger.info("   ✅ Created Qdrant index: doc_id")
+            except Exception as e:
+                if "already exists" in str(e).lower():
+                    logger.debug("   ℹ️  Qdrant index exists: doc_id")
+                else:
+                    logger.warning(f"   ⚠️  Could not create doc_id index: {e}")
+            
+            # Create ref_doc_id index if missing
+            try:
+                qdrant_client.create_payload_index(
+                    collection_name=QDRANT_COLLECTION_NAME,
+                    field_name="ref_doc_id",
+                    field_schema=PayloadSchemaType.KEYWORD
+                )
+                logger.info("   ✅ Created Qdrant index: ref_doc_id")
+            except Exception as e:
+                if "already exists" in str(e).lower():
+                    logger.debug("   ℹ️  Qdrant index exists: ref_doc_id")
+                else:
+                    logger.warning(f"   ⚠️  Could not create ref_doc_id index: {e}")
+                    
+        except Exception as e:
+            logger.error(f"   ❌ Failed to ensure Qdrant indexes: {e}")
+            # Don't fail initialization - indexes might already exist
 
     async def ingest_document(
         self,
