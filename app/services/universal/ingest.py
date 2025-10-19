@@ -170,12 +170,17 @@ async def ingest_document_universal(
         }
 
         # Upsert to documents table (handles duplicates)
-        supabase.table('documents').upsert(
+        result = supabase.table('documents').upsert(
             document_row,
             on_conflict='tenant_id,source,source_id'
         ).execute()
 
-        logger.info(f"   ✅ Saved to documents table")
+        # Get the inserted/updated document with its ID
+        inserted_doc = result.data[0] if result.data else None
+        if not inserted_doc or 'id' not in inserted_doc:
+            raise Exception("Failed to get document ID from Supabase upsert")
+
+        logger.info(f"   ✅ Saved to documents table (id: {inserted_doc['id']})")
 
         # ========================================================================
         # STEP 4: Ingest to PropertyGraph (Neo4j + Qdrant) - FROM DOCUMENTS TABLE
@@ -183,9 +188,9 @@ async def ingest_document_universal(
 
         logger.info(f"   🕸️  Ingesting to PropertyGraph from documents table...")
 
-        # Use the document_row we just saved (matches Alex's pattern)
+        # Use the full document row with ID (CRITICAL: doc_id must be set!)
         cortex_result = await cortex_pipeline.ingest_document(
-            document_row=document_row,
+            document_row=inserted_doc,
             extract_entities=True
         )
 
