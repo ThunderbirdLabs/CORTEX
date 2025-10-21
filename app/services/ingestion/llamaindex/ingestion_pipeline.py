@@ -102,45 +102,83 @@ class UniversalIngestionPipeline:
         # Custom extraction prompt for CEO business intelligence
         # The strict validation schema handles relationship rules, so this focuses on context
         extraction_prompt = PromptTemplate(
-            """You are extracting a knowledge graph for a CEO business intelligence system.
+            """You are extracting a knowledge graph for a CEO of an injection molding manufacturing company.
 
 Your goal is to help the CEO understand:
 - Who works where and with whom (employees, teams, organizational structure)
-- What deals, tasks, and projects are happening
+- What deals, orders, and quotes are happening and their requirements
+- Which materials are being used, ordered, or discussed
 - Communications and key information flows
-- Business relationships with clients, vendors, and partners
-- Financial transactions and payments
+- Business relationships with clients, vendors, and material suppliers
+- Financial transactions, payments, and material purchases
 - Events, meetings, and important milestones
+- Production tasks and material requirements
 
 Extract entities and relationships that would help answer questions like:
-- "Who works for our company?"
-- "What deals is this person working on?"
-- "Who sent this email and what is it about?"
-- "What tasks are assigned to this person?"
-- "Which companies are our clients/vendors?"
-- "What topics are being discussed in meetings?"
+- "Who works for our company?" "Who manages this account/material?"
+- "What deals is this person working on?" "What materials does this deal require?"
+- "Who sent this email and what is it about?" "What materials are mentioned?"
+- "What tasks are assigned to this person?" "What materials do they need?"
+- "Which companies are our clients/vendors/suppliers?" "Who supplies which materials?"
+- "What topics/materials are being discussed in meetings?"
 
-ENTITY TYPES:
-- PERSON: Any individual mentioned (employees, customers, contacts)
-- COMPANY: Any organization (clients, suppliers, partners, departments)
+ENTITY TYPES (11 total):
+- PERSON: Any individual mentioned (employees, customers, contacts, account managers)
+- COMPANY: Any organization (clients, suppliers, partners, material vendors)
 - EMAIL: Specific emails referenced
-- DOCUMENT: Files like contracts, reports, invoices
-- DEAL: Sales opportunities, orders, quotes
-- TASK: Action items, assignments, to-dos
+- DOCUMENT: Files like contracts, reports, invoices, spec sheets, data sheets
+- DEAL: Sales opportunities, orders, quotes, RFQs
+- TASK: Action items, assignments, production tasks
 - MEETING: Specific meetings or calls
-- PAYMENT: Invoices, payments, expenses
+- PAYMENT: Invoices, payments, expenses, material purchases
 - TOPIC: Subjects, projects, products, concepts
-- EVENT: Conferences, launches, deadlines
-- MATERIAL: Raw materials, supplies, components, parts (e.g., Polycarbonate, steel, resin)
+- EVENT: Conferences, launches, deadlines, trade shows
+- MATERIAL: Raw materials, supplies, components, parts (e.g., Polycarbonate PC 1000, steel, resin, pellets)
 
-RELATIONSHIP GUIDANCE:
-- WORKS_FOR: Use for employment (e.g., "Sarah works for Acme", "employee at TechCo")
-- FOUNDED: Use for founders/creators (e.g., "Alex founded Cortex", "John started the company")
-- WORKS_WITH: Use for collaboration between peers
-- CREATED_BY: Use for who authored/created documents, deals, tasks
-- SENT_BY/SENT_TO: Use for email communications
-- ABOUT: Use for primary subject matter
-- MENTIONS: Use for brief references
+RELATIONSHIP TYPES (26 total):
+
+Organization & People:
+- WORKS_FOR: Person works for Company (e.g., "Sarah works for Acme")
+- FOUNDED: Person founded Company (e.g., "Alex founded Cortex")
+- WORKS_WITH: Person works with Person, Company works with Company
+- REPORTS_TO: Person reports to Person
+- MANAGES: Person manages Company (account manager), Person manages Material (inventory/procurement)
+- CLIENT_OF: Person is contact at client Company, Company is client of Company
+- VENDOR_OF: Person is contact at vendor Company, Company is vendor of Company
+- SUPPLIES: Company supplies Material (active supplier relationship)
+
+Communication & Authorship:
+- SENT_BY: Email/Document/Deal sent by Person/Company
+- SENT_TO: Email/Document/Deal sent to Person/Company
+- CREATED_BY: Document/Deal/Task/Event/Meeting created by Person
+
+Assignment & Attendance:
+- ASSIGNED_TO: Deal/Task assigned to Person
+- ATTENDED_BY: Meeting/Event attended by Person
+
+Content & References:
+- ABOUT: Email/Document/Deal/Task/Meeting/Event/Payment is about Topic/Person/Company/Deal/Material
+- MENTIONS: Email/Document/Deal/Meeting/Event mentions Person/Company/Topic/Material
+- RELATES_TO: Email/Document/Deal/Task/Meeting/Event/Payment/Topic/Material relates to Topic/Deal/Material
+- ATTACHED_TO: Email/Document attached to Document
+
+Workflow & Dependencies:
+- REQUIRES: Task/Deal requires Task/Document/Material (critical for manufacturing orders!)
+- FOLLOWS_UP: Email/Deal/Meeting follows up on Email/Meeting
+- RESOLVES: Email/Task resolves Task
+- USED_IN: Material used in Deal (which materials go into which orders)
+
+Financial:
+- PAID_BY: Payment paid by Person/Company
+- PAID_TO: Payment paid to Person/Company
+
+MANUFACTURING-SPECIFIC GUIDANCE:
+- Extract material names precisely (e.g., "Polycarbonate PC 1000", "ABS resin", "steel alloy")
+- Link materials to deals/orders using REQUIRES or USED_IN
+- Track supplier relationships with SUPPLIES and VENDOR_OF
+- Connect spec sheets and data sheets to materials with ABOUT
+- Link production tasks to required materials with REQUIRES
+- Track who manages material procurement with MANAGES
 
 The system will validate that relationships are used correctly based on entity types.
 

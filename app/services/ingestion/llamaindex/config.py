@@ -74,13 +74,13 @@ POSSIBLE_RELATIONS = [
     # Who did what
     "SENT_BY", "SENT_TO", "CREATED_BY", "ASSIGNED_TO", "ATTENDED_BY",
     # Organization
-    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO", "FOUNDED",
+    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO", "FOUNDED", "MANAGES",
     # Business relationships
-    "CLIENT_OF", "VENDOR_OF",
+    "CLIENT_OF", "VENDOR_OF", "SUPPLIES",
     # Content connections
     "ABOUT", "MENTIONS", "RELATES_TO", "ATTACHED_TO",
     # Status & actions
-    "REQUIRES", "FOLLOWS_UP", "RESOLVES",
+    "REQUIRES", "FOLLOWS_UP", "RESOLVES", "USED_IN",
     # Financial
     "PAID_BY", "PAID_TO"
 ]
@@ -94,6 +94,9 @@ KG_VALIDATION_SCHEMA = [
     ("PERSON", "FOUNDED", "COMPANY"),      # Founder/creator relationship
     ("PERSON", "WORKS_WITH", "PERSON"),
     ("PERSON", "REPORTS_TO", "PERSON"),
+    ("PERSON", "MANAGES", "COMPANY"),      # Account manager, relationship owner
+    ("PERSON", "CLIENT_OF", "COMPANY"),    # Person is contact at client company
+    ("PERSON", "VENDOR_OF", "COMPANY"),    # Person is contact at vendor company
 
     # Company relationships (business to business)
     ("COMPANY", "CLIENT_OF", "COMPANY"),
@@ -101,26 +104,29 @@ KG_VALIDATION_SCHEMA = [
     ("COMPANY", "WORKS_WITH", "COMPANY"),  # Partnerships/collaborations
 
     # Communication - Who sent what
-    ("PERSON", "SENT_BY", "EMAIL"),      # Reverse: Email was sent by Person
-    ("COMPANY", "SENT_BY", "EMAIL"),     # Reverse: Email was sent by Company
-    ("PERSON", "SENT_TO", "EMAIL"),      # Reverse: Email was sent to Person
+    ("EMAIL", "SENT_BY", "PERSON"),
+    ("EMAIL", "SENT_BY", "COMPANY"),
     ("EMAIL", "SENT_TO", "PERSON"),
-    ("PERSON", "SENT_BY", "DOCUMENT"),
-    ("COMPANY", "SENT_BY", "DOCUMENT"),
+    ("EMAIL", "SENT_TO", "COMPANY"),
+    ("DOCUMENT", "SENT_BY", "PERSON"),
+    ("DOCUMENT", "SENT_BY", "COMPANY"),
+    ("DOCUMENT", "SENT_TO", "PERSON"),
+    ("DOCUMENT", "SENT_TO", "COMPANY"),
 
     # Creation & Authorship
-    ("PERSON", "CREATED_BY", "DOCUMENT"),
-    ("PERSON", "CREATED_BY", "DEAL"),
-    ("PERSON", "CREATED_BY", "TASK"),
-    ("PERSON", "CREATED_BY", "EVENT"),
+    ("DOCUMENT", "CREATED_BY", "PERSON"),
+    ("DEAL", "CREATED_BY", "PERSON"),
+    ("TASK", "CREATED_BY", "PERSON"),
+    ("EVENT", "CREATED_BY", "PERSON"),
+    ("MEETING", "CREATED_BY", "PERSON"),
 
     # Assignment & Responsibility
-    ("PERSON", "ASSIGNED_TO", "DEAL"),
-    ("PERSON", "ASSIGNED_TO", "TASK"),
+    ("DEAL", "ASSIGNED_TO", "PERSON"),
+    ("TASK", "ASSIGNED_TO", "PERSON"),
 
     # Attendance
-    ("PERSON", "ATTENDED_BY", "MEETING"),
-    ("PERSON", "ATTENDED_BY", "EVENT"),
+    ("MEETING", "ATTENDED_BY", "PERSON"),
+    ("EVENT", "ATTENDED_BY", "PERSON"),
 
     # Financial
     ("PERSON", "PAID_BY", "PAYMENT"),
@@ -157,6 +163,8 @@ KG_VALIDATION_SCHEMA = [
     ("DEAL", "MENTIONS", "PERSON"),
     ("DEAL", "MENTIONS", "COMPANY"),
     ("DEAL", "RELATES_TO", "TOPIC"),
+    ("DEAL", "SENT_BY", "COMPANY"),         # Company sent the RFQ/order
+    ("DEAL", "SENT_TO", "COMPANY"),         # Company received the quote
 
     # Tasks
     ("TASK", "ABOUT", "TOPIC"),
@@ -170,12 +178,15 @@ KG_VALIDATION_SCHEMA = [
     ("MEETING", "MENTIONS", "PERSON"),
     ("MEETING", "MENTIONS", "COMPANY"),
     ("MEETING", "RELATES_TO", "TOPIC"),
+    ("MEETING", "RELATES_TO", "DEAL"),
 
     # Events
     ("EVENT", "ABOUT", "TOPIC"),
     ("EVENT", "ABOUT", "COMPANY"),
+    ("EVENT", "ABOUT", "DEAL"),
     ("EVENT", "MENTIONS", "PERSON"),
     ("EVENT", "RELATES_TO", "TOPIC"),
+    ("EVENT", "RELATES_TO", "DEAL"),
 
     # Payments
     ("PAYMENT", "ABOUT", "DEAL"),
@@ -185,13 +196,20 @@ KG_VALIDATION_SCHEMA = [
     ("TOPIC", "RELATES_TO", "TOPIC"),
 
     # Materials (manufacturing/operations)
-    ("MATERIAL", "RELATES_TO", "TOPIC"),       # Material relates to a topic/project
+    ("MATERIAL", "RELATES_TO", "TOPIC"),        # Material relates to a topic/project
+    ("MATERIAL", "USED_IN", "DEAL"),            # Material is used in this order/quote
     ("DOCUMENT", "MENTIONS", "MATERIAL"),       # Document mentions a material
+    ("DOCUMENT", "ABOUT", "MATERIAL"),          # Spec sheets, data sheets, inspection reports
     ("EMAIL", "MENTIONS", "MATERIAL"),          # Email mentions a material
     ("TASK", "ABOUT", "MATERIAL"),              # Task is about a specific material
+    ("TASK", "REQUIRES", "MATERIAL"),           # Production task requires material
     ("DEAL", "ABOUT", "MATERIAL"),              # Deal involves a material
+    ("DEAL", "REQUIRES", "MATERIAL"),           # Order specifies material requirements
     ("MEETING", "ABOUT", "MATERIAL"),           # Meeting discusses a material
-    ("COMPANY", "VENDOR_OF", "MATERIAL"),       # Company supplies a material (supplier relationship)
+    ("PAYMENT", "RELATES_TO", "MATERIAL"),      # Material purchase payments
+    ("COMPANY", "VENDOR_OF", "MATERIAL"),       # Company is vendor of material (passive)
+    ("COMPANY", "SUPPLIES", "MATERIAL"),        # Company supplies material (active)
+    ("PERSON", "MANAGES", "MATERIAL"),          # Person manages material inventory/procurement
 
     # Attachments
     ("EMAIL", "ATTACHED_TO", "DOCUMENT"),
@@ -218,10 +236,10 @@ ENTITIES = Literal[
 
 RELATIONS = Literal[
     "SENT_BY", "SENT_TO", "CREATED_BY", "ASSIGNED_TO", "ATTENDED_BY",
-    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO", "FOUNDED",
-    "CLIENT_OF", "VENDOR_OF",
+    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO", "FOUNDED", "MANAGES",
+    "CLIENT_OF", "VENDOR_OF", "SUPPLIES",
     "ABOUT", "MENTIONS", "RELATES_TO", "ATTACHED_TO",
-    "REQUIRES", "FOLLOWS_UP", "RESOLVES",
+    "REQUIRES", "FOLLOWS_UP", "RESOLVES", "USED_IN",
     "PAID_BY", "PAID_TO"
 ]
 
