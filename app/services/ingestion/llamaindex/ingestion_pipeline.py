@@ -700,7 +700,7 @@ Text:
                 document = Document(
                     text=content,
                     metadata=doc_metadata,
-                    doc_id=f"cortex_doc_{doc_id}"  # Stable ID for deduplication
+                    doc_id=str(doc_id)  # Use plain numeric ID (matches Neo4j and Supabase)
                 )
 
                 documents.append(document)

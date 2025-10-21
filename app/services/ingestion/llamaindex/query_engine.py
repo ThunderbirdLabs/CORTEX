@@ -126,27 +126,28 @@ class HybridQueryEngine:
         # Custom prompts for sub-question query engines to preserve direct quotes
         # CRITICAL: Prompts instruct LLM to note document_id for cross-referencing
         vector_qa_prompt = PromptTemplate(
-            "Context information from documents is below. Each chunk has a document_id that links to source documents.\n"
+            "Context information from documents is below. Each chunk has a 'title' field showing the source document name.\n"
             "---------------------\n"
             "{context_str}\n"
             "---------------------\n\n"
             "Given the context information, answer the question. "
             "IMPORTANT: Use direct quotes ONLY for specific numbers, data points, unique insights, or impactful statements - "
             "not for mundane phrases or simple facts. Quote 1-2 full sentences when the exact wording matters. "
-            "Note the document_id when switching between different sources or making key claims.\n\n"
+            "When referencing information, mention the document title (e.g., 'According to the ISO checklist...' or 'The QC report shows...') "
+            "when switching between different sources or making key claims.\n\n"
             "Question: {query_str}\n"
             "Answer: "
         )
 
         graph_qa_prompt = PromptTemplate(
-            "Context information from the knowledge graph is below. Chunk nodes have document_id properties.\n"
+            "Context information from the knowledge graph is below. Entities and relationships extracted from documents.\n"
             "---------------------\n"
             "{context_str}\n"
             "---------------------\n\n"
             "Given the context information, answer the question about relationships and entities. "
             "IMPORTANT: Use specific names and data points from the context. "
             "Only quote particularly insightful or specific phrases - avoid quoting simple relationship facts. "
-            "Reference the document_id when making key claims or citing specific documents.\n\n"
+            "When referencing information from specific documents, mention the document title naturally.\n\n"
             "Question: {query_str}\n"
             "Answer: "
         )
@@ -199,7 +200,8 @@ class HybridQueryEngine:
             "Synthesize a comprehensive, conversational response to the CEO's question. "
             "Use direct quotes ONLY when they add real value - specific numbers, impactful statements, or unique insights (quote 1-2 full sentences). "
             "Don't quote mundane facts or simple status updates. "
-            "Reference sources naturally without excessive citations - only cite document_id when making important claims or switching between different documents. "
+            "Cite sources by mentioning document titles naturally (e.g., 'The ISO checklist shows...', 'According to the QC report...') "
+            "when making important claims or switching between different documents. Don't use technical IDs like 'document_id: 180'. "
             "When you find information from multiple sources, cross-reference and combine it naturally. "
             "Make cool connections, provide insightful suggestions, and point the CEO in the right direction. "
             "Be conversational and direct - skip formal report language. "
@@ -437,7 +439,8 @@ Return ONLY the JSON object, nothing else.
                     "Synthesize a comprehensive, conversational response to the CEO's question. "
                     "Use direct quotes ONLY when they add real value - specific numbers, impactful statements, or unique insights (quote 1-2 full sentences). "
                     "Don't quote mundane facts or simple status updates. "
-                    "Reference sources naturally without excessive citations - only cite document_id when making important claims or switching between different documents. "
+                    "Cite sources by mentioning document titles naturally (e.g., 'The ISO checklist shows...', 'According to the QC report...') "
+                    "when making important claims or switching between different documents. Don't use technical IDs like 'document_id: 180'. "
                     "When you find information from multiple sources, cross-reference and combine it naturally. "
                     "Make cool connections, provide insightful suggestions, and point the CEO in the right direction. "
                     "Be conversational and direct - skip formal report language. "
