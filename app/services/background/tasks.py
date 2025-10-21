@@ -108,6 +108,7 @@ def sync_drive_task(user_id: str, job_id: str, folder_ids: Optional[list] = None
         folder_ids: Optional list of folder IDs to sync
     """
     from app.services.nango.drive_sync import run_drive_sync
+    from app.core.config import settings
     
     logger.info(f"🚀 Starting Drive sync job {job_id} for user {user_id}")
     
@@ -123,7 +124,8 @@ def sync_drive_task(user_id: str, job_id: str, folder_ids: Optional[list] = None
         # Run the sync
         result = asyncio.run(run_drive_sync(
             http_client, supabase, rag_pipeline,
-            user_id, folder_ids=folder_ids
+            user_id, settings.nango_provider_key_google_drive,
+            folder_ids=folder_ids
         ))
         
         # Update job status to completed
