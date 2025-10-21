@@ -13,6 +13,7 @@ from app.services.ingestion.llamaindex import HybridQueryEngine
 from app.core.dependencies import get_supabase
 from app.core.security import get_current_user_id
 from app.middleware.rate_limit import limiter
+from app.core.circuit_breakers import with_openai_retry
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +62,18 @@ async def _initialize_query_engine():
         logger.info("🚀 Initializing Hybrid Query Engine...")
         query_engine = HybridQueryEngine()
         _initialized = True
-        logger.info("✅ Hybrid Query Engine ready")
+        logger.info("✅ Hybrid Query Engine ready with circuit breakers")
 
     return query_engine
+
+
+@with_openai_retry
+async def _execute_query_with_retry(engine, question: str):
+    """
+    Execute query with automatic retry on OpenAI failures.
+    Prevents cascading failures when OpenAI has issues.
+    """
+    return await engine.query(question)
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -124,8 +134,8 @@ async def chat(
             'content': message.question
         }).execute()
 
-        # Execute hybrid query
-        result = await engine.query(message.question)
+        # Execute hybrid query with automatic retry on failures
+        result = await _execute_query_with_retry(engine, message.question)
 
         logger.info(f"🔍 Query result keys: {result.keys()}")
         logger.info(f"🔍 Source nodes count: {len(result.get('source_nodes', []))}")

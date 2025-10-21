@@ -13,6 +13,7 @@ from app.models.schemas import SearchQuery, SearchResponse, VectorResult, GraphR
 from app.services.search.query_rewriter import rewrite_query_with_context
 from app.services.ingestion.llamaindex import HybridQueryEngine
 from app.middleware.rate_limit import limiter
+from app.core.circuit_breakers import with_openai_retry
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +31,18 @@ async def _initialize_query_engine():
     if not _engine_initialized:
         query_engine = HybridQueryEngine()
         _engine_initialized = True
-        logger.info("✅ Hybrid query engine initialized")
+        logger.info("✅ Hybrid query engine initialized with circuit breakers")
 
     return query_engine
+
+
+@with_openai_retry
+async def _execute_search_with_retry(engine, query_text: str, filters: dict = None):
+    """
+    Execute search with automatic retry on OpenAI failures.
+    Prevents cascading failures when OpenAI has issues.
+    """
+    return await engine.query(query_text, filters=filters)
 
 
 @router.post("/search", response_model=SearchResponse)
@@ -78,8 +88,8 @@ async def search(
         # Initialize hybrid query engine (lazy)
         engine = await _initialize_query_engine()
 
-        # Execute query using hybrid retrieval
-        result = await engine.query(question=rewritten_query)
+        # Execute query using hybrid retrieval with automatic retry on failures
+        result = await _execute_search_with_retry(engine, rewritten_query)
 
         # Extract episode_ids and metadata from source nodes
         episode_ids = set()
