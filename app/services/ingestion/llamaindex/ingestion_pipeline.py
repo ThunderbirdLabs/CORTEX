@@ -526,6 +526,7 @@ Text:
                             properties={
                                 "text": llama_node.text,
                                 "document_id": document_row.get("id"),
+                                "title": title,  # Add title from Supabase for LLM citations
                                 "node_id": llama_node.node_id,
                                 "created_at": str(created_at),
                                 "created_at_timestamp": created_at_timestamp,
@@ -900,6 +901,7 @@ Text:
                 properties={
                     "text": llama_node.text,
                     "document_id": doc_row.get("id"),
+                    "title": title,  # Add title from Supabase for LLM citations
                     "node_id": llama_node.node_id,
                     "created_at": str(created_at),
                     "created_at_timestamp": created_at_timestamp,
