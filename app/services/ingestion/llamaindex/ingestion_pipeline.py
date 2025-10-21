@@ -521,17 +521,15 @@ Text:
                         # This is the key fix: we need chunk nodes in Neo4j for MENTIONS relationships
                         from llama_index.core.schema import TextNode
                         chunk_node = EntityNode(
-                            label="Chunk",  # LlamaIndex default label for text chunks
-                            name=llama_node.node_id,
+                            label="Chunk",
+                            name=llama_node.node_id,  # Required by LlamaIndex (becomes 'id' property)
                             properties={
                                 "text": llama_node.text,
                                 "document_id": document_row.get("id"),
-                                "title": title,  # Add title from Supabase for LLM citations
-                                "node_id": llama_node.node_id,
-                                "created_at": str(created_at),
-                                "created_at_timestamp": created_at_timestamp,
+                                "title": title,
+                                "source": source,
                                 "document_type": document_type,
-                                "source": source
+                                "created_at_timestamp": created_at_timestamp
                             }
                         )
                         # Embed the chunk for semantic retrieval
@@ -897,16 +895,14 @@ Text:
             # Create chunk node for provenance (key fix for graph retrieval)
             chunk_node = EntityNode(
                 label="Chunk",
-                name=llama_node.node_id,
+                name=llama_node.node_id,  # Required by LlamaIndex (becomes 'id' property)
                 properties={
                     "text": llama_node.text,
                     "document_id": doc_row.get("id"),
-                    "title": title,  # Add title from Supabase for LLM citations
-                    "node_id": llama_node.node_id,
-                    "created_at": str(created_at),
-                    "created_at_timestamp": created_at_timestamp,
+                    "title": title,
+                    "source": source,
                     "document_type": document_type,
-                    "source": source
+                    "created_at_timestamp": created_at_timestamp
                 }
             )
             chunk_node.embedding = await self.embed_model.aget_text_embedding(llama_node.text)
