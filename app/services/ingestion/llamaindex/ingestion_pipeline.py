@@ -131,6 +131,7 @@ ENTITY TYPES:
 - PAYMENT: Invoices, payments, expenses
 - TOPIC: Subjects, projects, products, concepts
 - EVENT: Conferences, launches, deadlines
+- MATERIAL: Raw materials, supplies, components, parts (e.g., Polycarbonate, steel, resin)
 
 RELATIONSHIP GUIDANCE:
 - WORKS_FOR: Use for employment (e.g., "Sarah works for Acme", "employee at TechCo")

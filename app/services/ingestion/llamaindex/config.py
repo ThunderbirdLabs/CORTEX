@@ -64,7 +64,8 @@ POSSIBLE_ENTITIES = [
     "MEETING",     # Calls, meetings, appointments
     "PAYMENT",     # Invoices, payments, expenses, POs
     "TOPIC",       # Subjects, projects, products, issues
-    "EVENT"        # Catch-all: conferences, launches, deadlines, milestones
+    "EVENT",       # Catch-all: conferences, launches, deadlines, milestones
+    "MATERIAL"     # Raw materials, supplies, components, parts used in manufacturing/operations
 ]
 
 # Relationship Types - Natural language for LLM understanding
@@ -183,6 +184,15 @@ KG_VALIDATION_SCHEMA = [
     # Topics (general connections)
     ("TOPIC", "RELATES_TO", "TOPIC"),
 
+    # Materials (manufacturing/operations)
+    ("MATERIAL", "RELATES_TO", "TOPIC"),       # Material relates to a topic/project
+    ("DOCUMENT", "MENTIONS", "MATERIAL"),       # Document mentions a material
+    ("EMAIL", "MENTIONS", "MATERIAL"),          # Email mentions a material
+    ("TASK", "ABOUT", "MATERIAL"),              # Task is about a specific material
+    ("DEAL", "ABOUT", "MATERIAL"),              # Deal involves a material
+    ("MEETING", "ABOUT", "MATERIAL"),           # Meeting discusses a material
+    ("COMPANY", "VENDOR_OF", "MATERIAL"),       # Company supplies a material (supplier relationship)
+
     # Attachments
     ("EMAIL", "ATTACHED_TO", "DOCUMENT"),
     ("DOCUMENT", "ATTACHED_TO", "DOCUMENT"),
@@ -203,7 +213,7 @@ KG_VALIDATION_SCHEMA = [
 # Legacy Literal types (for backward compatibility)
 ENTITIES = Literal[
     "PERSON", "COMPANY", "EMAIL", "DOCUMENT", "DEAL", "TASK",
-    "MEETING", "PAYMENT", "TOPIC", "EVENT"
+    "MEETING", "PAYMENT", "TOPIC", "EVENT", "MATERIAL"
 ]
 
 RELATIONS = Literal[
