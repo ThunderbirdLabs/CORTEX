@@ -237,6 +237,19 @@ app.include_router(chat_router)
 app.include_router(deduplication_router)
 
 # ============================================================================
+# SENTRY DEBUG ENDPOINT
+# ============================================================================
+
+@app.get("/sentry-debug")
+async def trigger_sentry_error():
+    """
+    Test endpoint to verify Sentry error tracking is working.
+    Triggers a division by zero error that gets captured by Sentry.
+    """
+    division_by_zero = 1 / 0
+    return {"should": "never reach here"}
+
+# ============================================================================
 # MAIN
 # ============================================================================
 
