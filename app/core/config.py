@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     dedup_levenshtein_max_distance: int = Field(default=3, description="Max Levenshtein distance (2-5)")
 
     # ============================================================================
+    # PRODUCTION INFRASTRUCTURE
+    # ============================================================================
+
+    # Error tracking (Sentry)
+    sentry_dsn: Optional[str] = Field(default=None, description="Sentry DSN for error tracking")
+
+    # ============================================================================
     # OPTIONAL SETTINGS
     # ============================================================================
 

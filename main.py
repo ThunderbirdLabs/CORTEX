@@ -72,6 +72,32 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ============================================================================
+# SENTRY ERROR TRACKING
+# ============================================================================
+
+if settings.sentry_dsn:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.logging import LoggingIntegration
+
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.environment,
+            traces_sample_rate=0.1,  # 10% of requests for performance monitoring
+            profiles_sample_rate=0.1,
+            integrations=[
+                FastApiIntegration(),
+                LoggingIntegration(level=logging.INFO, event_level=logging.ERROR)
+            ]
+        )
+        logger.info("✅ Sentry error tracking initialized")
+    except Exception as e:
+        logger.warning(f"⚠️  Failed to initialize Sentry: {e}")
+else:
+    logger.info("ℹ️  Sentry not configured (SENTRY_DSN not set)")
+
+# ============================================================================
 # SCHEDULER SETUP
 # ============================================================================
 
@@ -169,6 +195,18 @@ app = FastAPI(
     redoc_url="/redoc" if settings.debug else None,
     lifespan=lifespan
 )
+
+# ============================================================================
+# RATE LIMITING
+# ============================================================================
+
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from app.middleware.rate_limit import limiter
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+logger.info("✅ Rate limiting enabled")
 
 # ============================================================================
 # MIDDLEWARE

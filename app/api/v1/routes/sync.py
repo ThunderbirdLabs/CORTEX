@@ -1,97 +1,117 @@
 """
 Sync Routes
-Manual sync endpoints for testing
+Background job-based sync endpoints for Gmail, Drive, and Outlook
 """
 import logging
-import httpx
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from supabase import Client
 
-from app.core.config import settings
 from app.core.security import get_current_user_id
-from app.core.dependencies import get_http_client, get_supabase, get_rag_pipeline
-from app.models.schemas import SyncResponse
-from app.services.nango import run_gmail_sync, run_tenant_sync
-from app.services.nango.drive_sync import run_drive_sync
+from app.core.dependencies import get_supabase
+from app.services.background.tasks import sync_gmail_task, sync_drive_task, sync_outlook_task
+from app.middleware.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
 
-@router.get("/once", response_model=SyncResponse)
+@router.get("/once")
+@limiter.limit("5/hour")  # Only 5 manual Outlook syncs per hour
 async def sync_once(
+    request: Request,
     user_id: str = Depends(get_current_user_id),
-    http_client: httpx.AsyncClient = Depends(get_http_client),
-    supabase: Client = Depends(get_supabase),
-    rag_pipeline: Optional[any] = Depends(get_rag_pipeline)
+    supabase: Client = Depends(get_supabase)
 ):
     """
-    Manual Outlook sync endpoint for testing.
-    Immediately syncs all mailboxes for the user.
+    Start Outlook sync as background job.
+    Returns immediately with job_id for status tracking.
     """
-    logger.info(f"Manual Outlook sync requested for user {user_id}")
+    logger.info(f"Enqueueing Outlook sync for user {user_id}")
     try:
-        result = await run_tenant_sync(http_client, supabase, rag_pipeline, user_id, settings.nango_provider_key_outlook)
-        return SyncResponse(
-            status=result["status"],
-            tenant_id=result["tenant_id"],
-            users_synced=result.get("users_synced"),
-            messages_synced=result["messages_synced"],
-            errors=result["errors"]
-        )
+        # Create job record
+        job = supabase.table("sync_jobs").insert({
+            "user_id": user_id,
+            "job_type": "outlook",
+            "status": "queued"
+        }).execute()
+        
+        job_id = job.data[0]["id"]
+        
+        # Enqueue background task
+        sync_outlook_task.send(user_id, job_id)
+        
+        logger.info(f"✅ Outlook sync job {job_id} queued")
+        
+        return {
+            "status": "queued",
+            "job_id": job_id,
+            "message": "Outlook sync started in background. Use GET /sync/jobs/{job_id} to check status."
+        }
     except Exception as e:
-        logger.error(f"Error in manual Outlook sync: {e}")
+        logger.error(f"Error enqueueing Outlook sync: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/once/gmail")
+@limiter.limit("5/hour")  # Only 5 manual Gmail syncs per hour
 async def sync_once_gmail(
+    request: Request,
     user_id: str = Depends(get_current_user_id),
-    http_client: httpx.AsyncClient = Depends(get_http_client),
     supabase: Client = Depends(get_supabase),
-    rag_pipeline: Optional[any] = Depends(get_rag_pipeline),
     modified_after: Optional[str] = Query(None, description="ISO datetime to filter records")
 ):
     """
-    Manual Gmail sync endpoint for testing.
-    Immediately syncs Gmail messages for the user.
+    Start Gmail sync as background job.
+    Returns immediately with job_id for status tracking.
     """
-    logger.info(f"Manual Gmail sync requested for user {user_id}")
+    logger.info(f"Enqueueing Gmail sync for user {user_id}")
     if modified_after:
         logger.info(f"Using modified_after filter: {modified_after}")
 
     try:
-        result = await run_gmail_sync(http_client, supabase, rag_pipeline, user_id, settings.nango_provider_key_gmail, modified_after=modified_after)
+        # Create job record
+        job = supabase.table("sync_jobs").insert({
+            "user_id": user_id,
+            "job_type": "gmail",
+            "status": "queued"
+        }).execute()
+        
+        job_id = job.data[0]["id"]
+        
+        # Enqueue background task
+        sync_gmail_task.send(user_id, job_id, modified_after)
+        
+        logger.info(f"✅ Gmail sync job {job_id} queued")
+        
         return {
-            "status": result["status"],
-            "tenant_id": result["tenant_id"],
-            "messages_synced": result["messages_synced"],
-            "errors": result["errors"]
+            "status": "queued",
+            "job_id": job_id,
+            "message": "Gmail sync started in background. Use GET /sync/jobs/{job_id} to check status."
         }
     except Exception as e:
-        logger.error(f"Error in manual Gmail sync: {e}")
+        logger.error(f"Error enqueueing Gmail sync: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/once/drive")
+@limiter.limit("5/hour")  # Only 5 manual Drive syncs per hour
 async def sync_once_drive(
+    request: Request,
     user_id: str = Depends(get_current_user_id),
-    http_client: httpx.AsyncClient = Depends(get_http_client),
     supabase: Client = Depends(get_supabase),
-    rag_pipeline: Optional[any] = Depends(get_rag_pipeline),
     folder_ids: Optional[str] = Query(None, description="Comma-separated folder IDs to sync (empty = entire Drive)")
 ):
     """
-    Manual Google Drive sync endpoint.
-    Syncs entire Drive or specific folders.
+    Start Google Drive sync as background job.
+    Returns immediately with job_id for status tracking.
 
     Examples:
     - Sync entire Drive: GET /sync/once/drive
     - Sync specific folders: GET /sync/once/drive?folder_ids=1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE,0BxiMVs...
     """
-    logger.info(f"Manual Drive sync requested for user {user_id}")
+    logger.info(f"Enqueueing Drive sync for user {user_id}")
 
     # Parse folder IDs
     folder_list = None
@@ -102,24 +122,53 @@ async def sync_once_drive(
         logger.info("Syncing entire Drive")
 
     try:
-        result = await run_drive_sync(
-            http_client,
-            supabase,
-            rag_pipeline,
-            user_id,
-            # Prefer dedicated Drive provider key if available, else fall back to Gmail provider key
-            settings.nango_provider_key_google_drive or settings.nango_provider_key_gmail,
-            folder_ids=folder_list,
-            download_files=True  # Download and parse files
-        )
-
+        # Create job record
+        job = supabase.table("sync_jobs").insert({
+            "user_id": user_id,
+            "job_type": "drive",
+            "status": "queued"
+        }).execute()
+        
+        job_id = job.data[0]["id"]
+        
+        # Enqueue background task
+        sync_drive_task.send(user_id, job_id, folder_list)
+        
+        logger.info(f"✅ Drive sync job {job_id} queued")
+        
         return {
-            "status": result["status"],
-            "tenant_id": result["tenant_id"],
-            "files_synced": result["files_synced"],
-            "files_skipped": result["files_skipped"],
-            "errors": result["errors"]
+            "status": "queued",
+            "job_id": job_id,
+            "message": "Drive sync started in background. Use GET /sync/jobs/{job_id} to check status."
         }
     except Exception as e:
-        logger.error(f"Error in manual Drive sync: {e}")
+        logger.error(f"Error enqueueing Drive sync: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/jobs/{job_id}")
+async def get_job_status(
+    job_id: str,
+    user_id: str = Depends(get_current_user_id),
+    supabase: Client = Depends(get_supabase)
+):
+    """
+    Get status of a background sync job.
+    
+    Returns:
+    - status: queued, running, completed, failed
+    - started_at: When job started processing
+    - completed_at: When job finished
+    - result: Job results (messages_synced, files_synced, etc)
+    - error_message: Error details if failed
+    """
+    try:
+        result = supabase.table("sync_jobs").select("*").eq("id", job_id).eq("user_id", user_id).single().execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        return result.data
+    except Exception as e:
+        logger.error(f"Error fetching job status: {e}")
         raise HTTPException(status_code=500, detail=str(e))

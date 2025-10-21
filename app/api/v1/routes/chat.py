@@ -3,7 +3,7 @@ Chat Routes - Simple Query Interface for Hybrid Property Graph System
 Uses HybridQueryEngine with SubQuestionQueryEngine (VectorStoreIndex + PropertyGraphIndex)
 """
 import logging
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -12,6 +12,7 @@ from supabase import Client
 from app.services.ingestion.llamaindex import HybridQueryEngine
 from app.core.dependencies import get_supabase
 from app.core.security import get_current_user_id
+from app.middleware.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,9 @@ async def _initialize_query_engine():
 
 
 @router.post("/chat", response_model=ChatResponse)
+@limiter.limit("20/minute")  # 20 chat requests per minute per IP
 async def chat(
+    request: Request,
     message: ChatMessage,
     user_id: str = Depends(get_current_user_id),
     supabase: Client = Depends(get_supabase)

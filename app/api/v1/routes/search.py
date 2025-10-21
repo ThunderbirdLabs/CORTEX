@@ -3,7 +3,7 @@ Search Routes
 Hybrid RAG search (vector + knowledge graph) using LlamaIndex Hybrid Property Graph
 """
 import logging
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from supabase import Client
 
 from app.core.config import settings
@@ -12,6 +12,7 @@ from app.core.dependencies import get_supabase
 from app.models.schemas import SearchQuery, SearchResponse, VectorResult, GraphResult
 from app.services.search.query_rewriter import rewrite_query_with_context
 from app.services.ingestion.llamaindex import HybridQueryEngine
+from app.middleware.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,9 @@ async def _initialize_query_engine():
 
 
 @router.post("/search", response_model=SearchResponse)
+@limiter.limit("30/minute")  # 30 searches per minute per IP
 async def search(
+    request: Request,
     query: SearchQuery,
     api_key: str = Depends(verify_api_key),
     user_id: str = Depends(get_current_user_id),
