@@ -194,7 +194,7 @@ Text:
         # strict=False allows flexibility while guiding toward schema
         self.entity_extractor = SchemaLLMPathExtractor(
             llm=self.extraction_llm,
-            max_triplets_per_chunk=6,  # Reduced for faster ingestion
+            max_triplets_per_chunk=10,  # Extract up to 10 entity relationships per chunk
             num_workers=4,
             possible_entities=POSSIBLE_ENTITIES,
             possible_relations=POSSIBLE_RELATIONS,
