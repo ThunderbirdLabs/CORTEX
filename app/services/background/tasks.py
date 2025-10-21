@@ -39,7 +39,7 @@ def get_sync_dependencies():
     return http_client, supabase, rag_pipeline
 
 
-@dramatiq.actor(max_retries=3, time_limit=3600000)  # 1 hour timeout
+@dramatiq.actor(max_retries=3)
 def sync_gmail_task(user_id: str, job_id: str, modified_after: Optional[str] = None):
     """
     Background job for Gmail sync.
@@ -97,7 +97,7 @@ def sync_gmail_task(user_id: str, job_id: str, modified_after: Optional[str] = N
         asyncio.run(http_client.aclose())
 
 
-@dramatiq.actor(max_retries=3, time_limit=3600000)  # 1 hour timeout
+@dramatiq.actor(max_retries=3)
 def sync_drive_task(user_id: str, job_id: str, folder_ids: Optional[list] = None):
     """
     Background job for Google Drive sync.
@@ -155,7 +155,7 @@ def sync_drive_task(user_id: str, job_id: str, folder_ids: Optional[list] = None
         asyncio.run(http_client.aclose())
 
 
-@dramatiq.actor(max_retries=3, time_limit=3600000)  # 1 hour timeout
+@dramatiq.actor(max_retries=3)
 def sync_outlook_task(user_id: str, job_id: str):
     """
     Background job for Outlook sync.
