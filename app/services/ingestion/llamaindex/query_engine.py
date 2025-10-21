@@ -49,13 +49,20 @@ class HybridQueryEngine:
     def __init__(self):
         logger.info("🚀 Initializing Hybrid Query Engine (Expert Pattern)")
 
+        # Get current date for temporal awareness
+        from datetime import datetime
+        current_date = datetime.now().strftime('%B %d, %Y')
+        current_date_iso = datetime.now().strftime('%Y-%m-%d')
+
         # LLM for query processing and synthesis
         self.llm = OpenAI(
             model=QUERY_MODEL,
             temperature=QUERY_TEMPERATURE,
             api_key=OPENAI_API_KEY,
             system_prompt=(
-                "You are an intelligent personal assistant to the CEO. You have access to the entire company's knowledge - "
+                f"You are an intelligent personal assistant to the CEO. Today's date is {current_date} ({current_date_iso}).\n\n"
+
+                "You have access to the entire company's knowledge - "
                 "all emails, documents, deals, activities, orders, and everything that goes on in this business is in your knowledge bases.\n\n"
 
                 "Because of this, you know more about what is happening in the company than anyone. "
@@ -218,23 +225,124 @@ class HybridQueryEngine:
         logger.info("   Architecture: SubQuestionQueryEngine")
         logger.info("   Indexes: VectorStoreIndex (Qdrant) + PropertyGraphIndex (Neo4j)")
 
+    async def _extract_time_filter(self, question: str) -> Optional[Dict[str, Any]]:
+        """
+        Extract time constraints from natural language query using LLM.
+
+        Args:
+            question: User's natural language question
+
+        Returns:
+            Dict with has_time_filter, start_timestamp, end_timestamp
+            Or None if no time reference found
+        """
+        from datetime import datetime
+        import json
+
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        current_date_readable = datetime.now().strftime('%B %d, %Y')
+
+        prompt = f"""Today's date is {current_date_readable} ({current_date}).
+
+Analyze this question and extract any time constraints: "{question}"
+
+If there's a time reference (like "in October", "last month", "after January 15th", "this week"),
+return the start and end Unix timestamps for that time period.
+
+Return ONLY valid JSON in this exact format:
+{{"has_time_filter": true, "start_timestamp": <unix_timestamp_int>, "end_timestamp": <unix_timestamp_int>}}
+
+If NO time reference exists, return:
+{{"has_time_filter": false}}
+
+Examples:
+- "in October" (current year) → Oct 1 00:00 to Nov 1 00:00
+- "last month" → Previous month's first day to current month's first day
+- "after January 15th" → Jan 15 00:00 to far future timestamp
+- "this week" → Monday 00:00 to next Monday 00:00
+- "yesterday" → Yesterday 00:00 to today 00:00
+
+Return ONLY the JSON object, nothing else.
+"""
+
+        try:
+            result = await self.llm.apredict(prompt)
+            # Clean up response (sometimes LLM adds markdown)
+            result = result.strip()
+            if result.startswith('```'):
+                result = result.split('\n', 1)[1].rsplit('\n', 1)[0]
+
+            parsed = json.loads(result)
+
+            if parsed.get('has_time_filter'):
+                logger.info(f"   🕐 Time filter detected: {parsed.get('start_timestamp')} to {parsed.get('end_timestamp')}")
+
+            return parsed
+        except Exception as e:
+            logger.warning(f"   ⚠️  Could not extract time filter: {e}")
+            return None
+
+    def _build_metadata_filters(self, time_filter: Optional[Dict]) -> Optional[Any]:
+        """
+        Convert time filter dict to Qdrant MetadataFilters.
+
+        Args:
+            time_filter: Dict with start_timestamp and end_timestamp
+
+        Returns:
+            MetadataFilters object or None
+        """
+        if not time_filter or not time_filter.get('has_time_filter'):
+            return None
+
+        from llama_index.core.vector_stores import MetadataFilter, MetadataFilters, FilterOperator
+
+        filters_list = []
+
+        if 'start_timestamp' in time_filter and time_filter['start_timestamp']:
+            filters_list.append(
+                MetadataFilter(
+                    key="created_at_timestamp",
+                    operator=FilterOperator.GTE,
+                    value=time_filter['start_timestamp']
+                )
+            )
+
+        if 'end_timestamp' in time_filter and time_filter['end_timestamp']:
+            filters_list.append(
+                MetadataFilter(
+                    key="created_at_timestamp",
+                    operator=FilterOperator.LT,
+                    value=time_filter['end_timestamp']
+                )
+            )
+
+        if filters_list:
+            metadata_filters = MetadataFilters(filters=filters_list)
+            logger.info(f"   ✅ Built metadata filters: {len(filters_list)} conditions")
+            return metadata_filters
+
+        return None
+
     async def query(
         self,
         question: str,
         filters: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Execute hybrid query.
+        Execute hybrid query with optional time-based filtering.
 
         Process:
-        1. SubQuestionQueryEngine breaks down the question
-        2. Routes sub-questions to vector or graph index
-        3. Retrieves relevant information from both sources
-        4. Synthesizes comprehensive answer
+        1. Extract time filter from question (if present)
+        2. Build MetadataFilters for Qdrant
+        3. Create filtered query engines
+        4. SubQuestionQueryEngine breaks down the question
+        5. Routes sub-questions to filtered vector or graph index
+        6. Synthesizes comprehensive answer
 
         Args:
             question: User's question
-            filters: Optional metadata filters
+            filters: Optional metadata filters (for manual override)
 
         Returns:
             Dict with answer, source nodes, and metadata
@@ -245,8 +353,90 @@ class HybridQueryEngine:
         logger.info(f"{'='*80}")
 
         try:
-            # Execute query through SubQuestionQueryEngine
-            response = await self.query_engine.aquery(question)
+            # Step 1: Extract time filter from question
+            time_filter = await self._extract_time_filter(question)
+
+            # Step 2: Build metadata filters
+            metadata_filters = self._build_metadata_filters(time_filter)
+
+            # Step 3: Create query engines with filters (if any)
+            if metadata_filters:
+                logger.info(f"   🔍 Creating filtered query engines...")
+
+                # Create filtered vector query engine
+                vector_query_engine = self.vector_index.as_query_engine(
+                    similarity_top_k=SIMILARITY_TOP_K,
+                    llm=self.llm,
+                    filters=metadata_filters  # Apply time filter to Qdrant
+                )
+
+                # Graph query engine (no filtering for now - could add Cypher filters later)
+                graph_query_engine = self.graph_query_engine
+
+                # Wrap as tools for SubQuestionQueryEngine
+                from llama_index.core.tools import QueryEngineTool
+
+                vector_tool = QueryEngineTool.from_defaults(
+                    query_engine=vector_query_engine,
+                    name="vector_search",
+                    description=(
+                        "Useful for semantic search over document content. "
+                        "Use this for questions about what was said in documents, "
+                        "document content, topics discussed, specific information mentioned."
+                    )
+                )
+
+                graph_tool = QueryEngineTool.from_defaults(
+                    query_engine=graph_query_engine,
+                    name="graph_search",
+                    description=(
+                        "Useful for querying relationships between people, companies, and documents. "
+                        "Use this for questions about who sent what, who works where, "
+                        "connections between people, organizational structure."
+                    )
+                )
+
+                # Create temporary SubQuestionQueryEngine with filtered tools
+                from llama_index.core.query_engine import SubQuestionQueryEngine
+                from llama_index.core.response_synthesizers import get_response_synthesizer
+                from llama_index.core import PromptTemplate
+
+                # Use the same CEO Assistant prompt from __init__
+                ceo_assistant_prompt = PromptTemplate(
+                    "You are an intelligent personal assistant to the CEO. You have access to the entire company's knowledge. "
+                    "All emails, documents, deals, activities, orders, etc. that go on in this business are in your knowledge bases. "
+                    "Because of this, you know more about what is happening in the company than anyone. "
+                    "You can access and uncover unique relationships and patterns that otherwise would go unseen.\n\n"
+                    "Below are answers from the knowledge base with direct quotes from documents:\n"
+                    "---------------------\n"
+                    "{context_str}\n"
+                    "---------------------\n\n"
+                    "Given these answers (which contain direct quotes), synthesize a comprehensive response to the CEO's question. "
+                    "PRESERVE and USE the direct quotes from the answers above - these show you truly see what is happening. "
+                    "IMPORTANT: When you find information from both the vector store and knowledge graph with matching document_id values, "
+                    "cross-reference and combine this information to provide richer, more grounded answers. "
+                    "Make cool connections, provide insightful suggestions, and point the CEO in the right direction. "
+                    "Your job is to knock the CEO's socks off with how much you know about the business.\n\n"
+                    "Question: {query_str}\n"
+                    "Answer: "
+                )
+
+                response_synthesizer = get_response_synthesizer(
+                    llm=self.llm,
+                    text_qa_template=ceo_assistant_prompt
+                )
+
+                query_engine = SubQuestionQueryEngine.from_defaults(
+                    query_engine_tools=[vector_tool, graph_tool],
+                    llm=self.llm,
+                    response_synthesizer=response_synthesizer
+                )
+
+                # Execute query through filtered SubQuestionQueryEngine
+                response = await query_engine.aquery(question)
+            else:
+                # No time filter - use default query engine
+                response = await self.query_engine.aquery(question)
 
             logger.info(f"✅ QUERY COMPLETE")
             logger.info(f"{'='*80}")

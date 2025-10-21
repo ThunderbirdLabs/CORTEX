@@ -319,6 +319,19 @@ Text:
         source_id = document_row.get("source_id") or document_row.get("message_id", str(doc_id))
         created_at = document_row.get("source_created_at") or document_row.get("received_datetime", "")
 
+        # Convert created_at to Unix timestamp for Qdrant filtering
+        created_at_timestamp = None
+        if created_at:
+            try:
+                from dateutil import parser
+                if isinstance(created_at, str):
+                    dt = parser.parse(created_at)
+                else:
+                    dt = created_at
+                created_at_timestamp = int(dt.timestamp())
+            except Exception as e:
+                logger.warning(f"   ⚠️  Could not parse created_at timestamp: {e}")
+
         logger.info(f"\n{'='*80}")
         logger.info(f"📄 INGESTING DOCUMENT: {title}")
         logger.info(f"{'='*80}")
@@ -338,6 +351,7 @@ Text:
                 "document_type": document_type,
                 "tenant_id": tenant_id,
                 "created_at": str(created_at),
+                "created_at_timestamp": created_at_timestamp,  # Unix timestamp for filtering
             }
 
             # Merge in any additional metadata from the row
@@ -512,7 +526,11 @@ Text:
                             properties={
                                 "text": llama_node.text,
                                 "document_id": document_row.get("id"),
-                                "node_id": llama_node.node_id
+                                "node_id": llama_node.node_id,
+                                "created_at": str(created_at),
+                                "created_at_timestamp": created_at_timestamp,
+                                "document_type": document_type,
+                                "source": source
                             }
                         )
                         # Embed the chunk for semantic retrieval
@@ -755,6 +773,20 @@ Text:
         document_type = doc_row.get("document_type", "document")
         title = doc_row.get("title") or doc_row.get("subject", "Untitled")
         content = doc_row.get("content") or doc_row.get("full_body", "")
+        created_at = doc_row.get("source_created_at") or doc_row.get("received_datetime", "")
+
+        # Convert created_at to Unix timestamp for filtering
+        created_at_timestamp = None
+        if created_at:
+            try:
+                from dateutil import parser
+                if isinstance(created_at, str):
+                    dt = parser.parse(created_at)
+                else:
+                    dt = created_at
+                created_at_timestamp = int(dt.timestamp())
+            except Exception as e:
+                logger.warning(f"   ⚠️  Could not parse created_at timestamp: {e}")
 
         # Create Document node in Neo4j
         node_label = document_type.upper() if document_type else "DOCUMENT"
@@ -767,7 +799,8 @@ Text:
             "document_type": document_type,
             "tenant_id": doc_row.get("tenant_id", ""),
             "source_id": doc_row.get("source_id") or doc_row.get("message_id", str(doc_id)),
-            "created_at": doc_row.get("source_created_at") or doc_row.get("received_datetime", ""),
+            "created_at": str(created_at),
+            "created_at_timestamp": created_at_timestamp,
         }
 
         # CRITICAL: Use unique ID to prevent merging documents with same title
@@ -867,7 +900,11 @@ Text:
                 properties={
                     "text": llama_node.text,
                     "document_id": doc_row.get("id"),
-                    "node_id": llama_node.node_id
+                    "node_id": llama_node.node_id,
+                    "created_at": str(created_at),
+                    "created_at_timestamp": created_at_timestamp,
+                    "document_type": document_type,
+                    "source": source
                 }
             )
             chunk_node.embedding = await self.embed_model.aget_text_embedding(llama_node.text)
