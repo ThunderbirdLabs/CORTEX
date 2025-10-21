@@ -6,7 +6,7 @@ import os
 import logging
 import dramatiq
 from dramatiq.brokers.redis import RedisBroker
-from dramatiq.middleware import TimeLimit, Retries
+from dramatiq.middleware import Retries
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +20,7 @@ else:
     redis_broker = RedisBroker(url=REDIS_URL)
     logger.info(f"✅ Redis broker initialized: {REDIS_URL[:20]}...")
 
-# Configure retries and timeouts
-redis_broker.add_middleware(TimeLimit(time_limit=3600000))  # 1 hour max per job
+# Configure retries (TimeLimit removed due to Python 3.13 incompatibility)
 redis_broker.add_middleware(Retries(max_retries=3))
 
 dramatiq.set_broker(redis_broker)
