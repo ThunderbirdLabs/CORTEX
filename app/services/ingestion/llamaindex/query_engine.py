@@ -357,9 +357,8 @@ Return ONLY the JSON object, nothing else.
         logger.info(f"{'='*80}")
 
         try:
-            # TEMPORARY: Disable time filtering to diagnose retrieval issues
-            # TODO: Re-enable once we fix the source node problem
-            logger.info(f"   ⏭️  Time filtering temporarily disabled for debugging")
+            # Time filtering disabled - enabled if needed in future
+            # Can be re-enabled with keyword pre-check (see commented code below)
             metadata_filters = None
 
             # # Step 1: Quick check if question has time-related keywords

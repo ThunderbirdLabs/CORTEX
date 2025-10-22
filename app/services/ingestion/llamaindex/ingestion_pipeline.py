@@ -517,9 +517,7 @@ Text:
                         # 2. Extract relationships from metadata
                         relations = llama_node.metadata.get("relations", [])
 
-                        # 3. Create chunk node (TextNode) for provenance
-                        # This is the key fix: we need chunk nodes in Neo4j for MENTIONS relationships
-                        from llama_index.core.schema import TextNode
+                        # 3. Create chunk node for provenance and MENTIONS relationships
                         chunk_node = EntityNode(
                             label="Chunk",
                             name=llama_node.node_id,  # Required by LlamaIndex (becomes 'id' property)
