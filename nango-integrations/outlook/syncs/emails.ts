@@ -59,50 +59,68 @@ export default async function fetchData(nango: NangoSync) {
     const { lastSyncDate } = nango;
     const syncDate = lastSyncDate || backfillPeriod;
 
-    const pageSize = 100;
-
-    const config: ProxyConfiguration = {
-        // https://learn.microsoft.com/en-us/graph/api/user-list-messages
-        endpoint: '/v1.0/me/messages',
+    // First, get all users in the organization
+    const usersConfig: ProxyConfiguration = {
+        endpoint: '/v1.0/users',
         params: {
-            $filter: `receivedDateTime ge ${syncDate.toISOString()}`,
-            $select: 'id,from,toRecipients,receivedDateTime,subject,hasAttachments,conversationId,body,webLink,changeKey'
-        },
-        headers: {
-            Prefer: 'outlook.body-content-type="text"'
-        },
-        paginate: {
-            type: 'link',
-            limit_name_in_request: '$top',
-            response_path: 'value',
-            link_path_in_response_body: '@odata.nextLink',
-            limit: pageSize
+            $select: 'id,mail,displayName',
+            $filter: 'mail ne null'  // Only users with email addresses
         },
         retries: 10
     };
 
-    for await (const messageList of nango.paginate<OutlookMessage>(config)) {
-        const emails: OutlookEmail[] = [];
+    const usersResponse = await nango.get<{ value: Array<{ id: string, mail: string, displayName: string }> }>(usersConfig);
+    const users = usersResponse.data.value || [];
 
-        for (const message of messageList) {
-            let attachments: Attachment[] = [];
+    await nango.log(`Found ${users.length} users to sync emails for`);
 
-            if (message.hasAttachments) {
-                attachments = await fetchAttachments(nango, message.id);
+    // For each user, sync their emails
+    for (const user of users) {
+        await nango.log(`Syncing emails for: ${user.displayName} (${user.mail})`);
+        
+        const config: ProxyConfiguration = {
+            // Change from /me/messages to /users/{userId}/messages
+            endpoint: `/v1.0/users/${user.id}/messages`,
+            params: {
+                $filter: `receivedDateTime ge ${syncDate.toISOString()}`,
+                $select: 'id,from,toRecipients,receivedDateTime,subject,hasAttachments,conversationId,body,webLink,changeKey'
+            },
+            headers: {
+                Prefer: 'outlook.body-content-type="text"'
+            },
+            paginate: {
+                type: 'link',
+                limit_name_in_request: '$top',
+                response_path: 'value',
+                link_path_in_response_body: '@odata.nextLink',
+                limit: 100
+            },
+            retries: 10
+        };
+
+        for await (const messageList of nango.paginate<OutlookMessage>(config)) {
+            const emails: OutlookEmail[] = [];
+
+            for (const message of messageList) {
+                let attachments: Attachment[] = [];
+
+                if (message.hasAttachments) {
+                    attachments = await fetchAttachmentsForUser(nango, user.id, message.id);
+                }
+
+                emails.push(mapEmail(message, attachments));
             }
 
-            emails.push(mapEmail(message, attachments));
+            await nango.batchSave(emails, 'OutlookEmail');
+            await nango.log(`Saved ${emails.length} emails for ${user.displayName}`);
         }
-
-        await nango.batchSave(emails, 'OutlookEmail');
-        await nango.log(`Saved ${emails.length} Outlook emails`);
     }
 }
 
-async function fetchAttachments(nango: NangoSync, messageId: string): Promise<Attachment[]> {
+// Update attachment function to work with specific user
+async function fetchAttachmentsForUser(nango: NangoSync, userId: string, messageId: string): Promise<Attachment[]> {
     const config: ProxyConfiguration = {
-        // https://learn.microsoft.com/en-us/graph/api/message-list-attachments
-        endpoint: `/v1.0/me/messages/${messageId}/attachments`,
+        endpoint: `/v1.0/users/${userId}/messages/${messageId}/attachments`,
         params: { $select: 'id,contentType,name,size' },
         retries: 10
     };

@@ -14,34 +14,34 @@ integrations:
                     group: Mail
                 scopes: offline_access Mail.Read User.Read
 
-    google-drive:
-        syncs:
-            all-files:
-                description: |
-                    Syncs ALL files from Google Drive (auto-runs every hour).
-                    Returns metadata only - use fetch-document action to download content.
-                runs: every hour
-                output: DriveFile
-                sync_type: incremental
-                endpoint:
-                    method: GET
-                    path: /all-files
-                    group: Documents
-                scopes: https://www.googleapis.com/auth/drive.readonly
-        actions:
-            fetch-document:
-                input: IdEntity
-                description: |
-                    Fetches the content of a file given its ID and returns it as base64.
-                    For Google Workspace files (Docs, Sheets, Slides), these are exported to PDF/Excel format.
-                    Use this to download PDFs, Word docs, images, and any other file from Drive.
-                output: string
-                version: 1.0.0
-                endpoint:
-                    method: GET
-                    path: /fetch-document
-                    group: Documents
-                scopes: https://www.googleapis.com/auth/drive.readonly
+    # google-drive:
+    #     syncs:
+    #         all-files:
+    #             description: |
+    #                 Syncs ALL files from Google Drive (auto-runs every hour).
+    #                 Returns metadata only - use fetch-document action to download content.
+    #             runs: every hour
+    #             output: DriveFile
+    #             sync_type: incremental
+    #             endpoint:
+    #                 method: GET
+    #                 path: /all-files
+    #                 group: Documents
+    #             scopes: https://www.googleapis.com/auth/drive.readonly
+    #     actions:
+    #         fetch-document:
+    #             input: IdEntity
+    #             description: |
+    #                 Fetches the content of a file given its ID and returns it as base64.
+    #                 For Google Workspace files (Docs, Sheets, Slides), these are exported to PDF/Excel format.
+    #                 Use this to download PDFs, Word docs, images, and any other file from Drive.
+    #             output: string
+    #             version: 1.0.0
+    #             endpoint:
+    #                 method: GET
+    #                 path: /fetch-document
+    #                 group: Documents
+    #             scopes: https://www.googleapis.com/auth/drive.readonly
 
 models:
     IdEntity:
