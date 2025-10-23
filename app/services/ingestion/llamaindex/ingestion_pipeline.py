@@ -102,25 +102,29 @@ class UniversalIngestionPipeline:
         # Custom extraction prompt for CEO business intelligence
         # The strict validation schema handles relationship rules, so this focuses on context
         extraction_prompt = PromptTemplate(
-            """You are extracting a knowledge graph for a CEO of an injection molding manufacturing company.
+            """CONTEXT: You are building a knowledge graph for a CEO of an injection molding manufacturing company.
 
-Your goal is to help the CEO understand:
-- Who works where and with whom (employees, teams, organizational structure)
-- What deals, orders, and quotes are happening and their requirements
-- Which materials are being used, ordered, or discussed
-- Communications and key information flows
-- Business relationships with clients, vendors, and material suppliers
-- Financial transactions, payments, and material purchases
-- Events, meetings, and important milestones
-- Production tasks and material requirements
+IMPORTANT: This graph works ALONGSIDE a vector database that already handles semantic search over ALL document content.
+Your job is NOT to capture everything - the vector store does that.
+Your ONLY job is to map the MOST IMPORTANT RELATIONSHIPS in the company that enable multi-hop reasoning.
 
-Extract entities and relationships that would help answer questions like:
+WHY THIS MATTERS:
+- Vector store answers: "What documents mention polycarbonate?" (semantic similarity)
+- Knowledge graph answers: "Which supplier provides polycarbonate AND has worked with Deal X?" (relationship traversal)
+
+YOU SHOULD EXTRACT:
+✓ Critical business relationships: who works where, who supplies what materials, who manages accounts
+✓ High-value connections: deals requiring specific materials, supplier-customer relationships
+✓ Organizational structure: reporting lines, team connections, account ownership
+✗ DO NOT extract generic mentions or every person/topic referenced (vector store handles that)
+✗ DO NOT extract relationships that don't enable multi-hop queries
+
+FOCUS ON RELATIONSHIPS THAT ANSWER:
 - "Who works for our company?" "Who manages this account/material?"
-- "What deals is this person working on?" "What materials does this deal require?"
-- "Who sent this email and what is it about?" "What materials are mentioned?"
-- "What tasks are assigned to this person?" "What materials do they need?"
-- "Which companies are our clients/vendors/suppliers?" "Who supplies which materials?"
-- "What topics/materials are being discussed in meetings?"
+- "Which supplier provides Material X?" "Who is our contact at Supplier Y?"
+- "What materials does Deal Z require?" "Which deals use Material A?"
+- "Who reports to Manager B?" "Which person handles Client C?"
+- "Which company supplies which materials?" "Who manages material procurement?"
 
 ENTITY TYPES (11 total):
 - PERSON: Any individual mentioned (employees, customers, contacts, account managers)
