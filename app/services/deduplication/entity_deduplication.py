@@ -127,7 +127,7 @@ class EntityDeduplicationService:
                scores
         LIMIT 100
         """ if dry_run else """
-        // MERGE: Combine duplicates into primary node
+        // MERGE: Combine duplicates into primary node (batched for production scale)
         // Create unique cluster identifier to avoid processing same entities twice
         WITH e, duplicates
         WITH e, duplicates, [n IN duplicates + [e] | id(n)] AS nodeIds
@@ -138,30 +138,8 @@ class EntityDeduplicationService:
 
         WITH duplicates + [e] AS nodesToMerge
 
-        // CRITICAL: Must discard certain properties to prevent arrays
-        // - id: Arrays like ['Cortex', 'Cortex Solutions'] break queries
-        // - name: Same issue with names
-        // - embedding: Keep first embedding only (they're similar anyway)
-        // - created_at_timestamp: Keep OLDEST timestamp (first occurrence)
-        CALL apoc.refactor.mergeNodes(nodesToMerge, {
-          properties: {
-            id: 'discard',
-            name: 'discard',
-            embedding: 'discard',
-            created_at_timestamp: 'discard',  // Prevent array timestamps
-            `.*`: 'combine'
-          },
-          mergeRels: true
-        })
-        YIELD node
-
-        // Set created_at_timestamp to oldest value (preserve original creation time)
-        WITH node, nodesToMerge
-        WITH node, [n IN nodesToMerge WHERE n.created_at_timestamp IS NOT NULL | n.created_at_timestamp] AS timestamps
-        WHERE size(timestamps) > 0
-        SET node.created_at_timestamp = apoc.coll.min(timestamps)
-
-        RETURN count(node) AS merged_count
+        // Return merge candidates for batched processing
+        RETURN nodesToMerge
         """)
 
         with self.driver.session(database=self.database) as session:
@@ -195,8 +173,49 @@ class EntityDeduplicationService:
                     "dry_run": True
                 }
             else:
-                records = list(result)
-                merged_count = sum(r["merged_count"] for r in records) if records else 0
+                # Collect merge candidates
+                merge_candidates = [record["nodesToMerge"] for record in result]
+
+                if not merge_candidates:
+                    logger.info("No duplicates found")
+                    return {"entities_merged": 0, "dry_run": False}
+
+                logger.info(f"Found {len(merge_candidates)} duplicate clusters, merging in batches...")
+
+                # Execute merges in batches using apoc.periodic.iterate
+                # CRITICAL: Use parallel:false to avoid deadlocks with mergeNodes
+                merge_query = """
+                UNWIND $candidates AS nodesToMerge
+
+                // Get node IDs and collect actual nodes (prevents stale node references)
+                WITH [nodeId IN nodesToMerge | nodeId] AS nodeIds
+                CALL apoc.nodes.get(nodeIds) YIELD node
+                WITH collect(node) AS nodes
+
+                // Merge nodes with property handling
+                CALL apoc.refactor.mergeNodes(nodes, {
+                  properties: {
+                    id: 'discard',
+                    name: 'discard',
+                    embedding: 'discard',
+                    created_at_timestamp: 'discard',
+                    `.*`: 'combine'
+                  },
+                  mergeRels: true
+                })
+                YIELD node
+
+                // Set created_at_timestamp to oldest value
+                WITH node, nodes
+                WITH node, [n IN nodes WHERE n.created_at_timestamp IS NOT NULL | n.created_at_timestamp] AS timestamps
+                WHERE size(timestamps) > 0
+                SET node.created_at_timestamp = apoc.coll.min(timestamps)
+
+                RETURN count(node) AS merged
+                """
+
+                merge_result = session.run(merge_query, {"candidates": merge_candidates})
+                merged_count = sum(r["merged"] for r in merge_result) if merge_result else 0
 
                 logger.info(f"Deduplication complete: {merged_count} entities merged")
 
