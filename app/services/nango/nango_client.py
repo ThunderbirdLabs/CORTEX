@@ -39,6 +39,10 @@ async def get_graph_token_via_nango(
     """
     url = f"https://api.nango.dev/connection/{provider_key}/{connection_id}"
     headers = {"Authorization": f"Bearer {settings.nango_secret}"}
+    
+    # Debug: log secret prefix/suffix to verify it's correct
+    secret_preview = f"{settings.nango_secret[:4]}...{settings.nango_secret[-4:]}" if settings.nango_secret else "MISSING"
+    logger.info(f"Nango API call: {url} with secret {secret_preview}")
 
     try:
         response = await http_client.get(url, headers=headers)
