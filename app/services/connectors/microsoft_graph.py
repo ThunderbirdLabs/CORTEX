@@ -179,6 +179,13 @@ async def sync_user_mailbox(
 
         logger.info(f"Synced {len(messages)} messages for user {user_principal_name}")
         return messages
+    except httpx.HTTPStatusError as e:
+        # Log the full error response from Microsoft Graph
+        error_details = e.response.text if hasattr(e.response, 'text') else str(e)
+        logger.error(f"❌ Microsoft Graph error for {user_principal_name}: {e.response.status_code}")
+        logger.error(f"   URL: {e.request.url}")
+        logger.error(f"   Response: {error_details[:500]}")  # First 500 chars
+        raise
     except Exception as e:
         logger.error(f"Error syncing mailbox for user {user_principal_name}: {e}")
         raise
