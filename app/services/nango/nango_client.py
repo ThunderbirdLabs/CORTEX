@@ -37,7 +37,8 @@ async def get_graph_token_via_nango(
     Raises:
         HTTPException: If token retrieval fails
     """
-    url = f"https://api.nango.dev/connection/{provider_key}/{connection_id}"
+    # When using Connect SDK with end_user model, use /connections (plural) endpoint
+    url = f"https://api.nango.dev/connections/{provider_key}/{connection_id}"
     headers = {"Authorization": f"Bearer {settings.nango_secret}"}
     
     # Debug: log secret prefix/suffix to verify it's correct

@@ -109,10 +109,9 @@ async def nango_oauth_callback(payload: NangoOAuthCallback):
     """
     logger.info(f"Received OAuth callback for tenant {payload.tenantId}, nango internal ID: {payload.connectionId}")
     try:
-        # Use email format as connection_id for API calls (matches Nango Connect SDK behavior)
-        connection_id_for_api = f"{payload.tenantId}@app.internal"
-        await save_connection(payload.tenantId, payload.providerConfigKey, connection_id_for_api)
-        logger.info(f"Saved connection with ID: {connection_id_for_api}")
+        # Use end_user.id as connection_id for API calls (Nango Connect SDK uses /connections endpoint)
+        await save_connection(payload.tenantId, payload.providerConfigKey, payload.tenantId)
+        logger.info(f"Saved connection with ID: {payload.tenantId}")
         return {"status": "ok"}
     except Exception as e:
         logger.error(f"Error in OAuth callback: {e}")
