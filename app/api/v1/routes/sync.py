@@ -18,7 +18,7 @@ router = APIRouter(prefix="/sync", tags=["sync"])
 
 
 @router.get("/once")
-@limiter.limit("5/hour")  # Only 5 manual Outlook syncs per hour
+@limiter.limit("30/hour")  # 30 manual Outlook syncs per hour (increased for testing)
 async def sync_once(
     request: Request,
     user_id: str = Depends(get_current_user_id),
@@ -55,7 +55,7 @@ async def sync_once(
 
 
 @router.get("/once/gmail")
-@limiter.limit("5/hour")  # Only 5 manual Gmail syncs per hour
+@limiter.limit("30/hour")  # 30 manual Gmail syncs per hour (increased for testing)
 async def sync_once_gmail(
     request: Request,
     user_id: str = Depends(get_current_user_id),
