@@ -357,31 +357,27 @@ Return ONLY the JSON object, nothing else.
         logger.info(f"{'='*80}")
 
         try:
-            # Time filtering disabled - enabled if needed in future
-            # Can be re-enabled with keyword pre-check (see commented code below)
-            metadata_filters = None
+            # Step 1: Quick check if question has time-related keywords
+            # Skip expensive LLM call for 80% of queries that don't mention time
+            time_keywords = [
+                'january', 'february', 'march', 'april', 'may', 'june',
+                'july', 'august', 'september', 'october', 'november', 'december',
+                'last week', 'last month', 'this week', 'this month', 'this year',
+                'yesterday', 'today', 'after', 'before', 'between', 'during',
+                'in 202', 'q1', 'q2', 'q3', 'q4'
+            ]
 
-            # # Step 1: Quick check if question has time-related keywords
-            # # Skip expensive LLM call for 80% of queries that don't mention time
-            # time_keywords = [
-            #     'january', 'february', 'march', 'april', 'may', 'june',
-            #     'july', 'august', 'september', 'october', 'november', 'december',
-            #     'last week', 'last month', 'this week', 'this month', 'this year',
-            #     'yesterday', 'today', 'after', 'before', 'between', 'during',
-            #     'in 202', 'q1', 'q2', 'q3', 'q4'
-            # ]
+            has_time_keyword = any(keyword in question.lower() for keyword in time_keywords)
 
-            # has_time_keyword = any(keyword in question.lower() for keyword in time_keywords)
+            if has_time_keyword:
+                logger.info(f"   🕐 Time keyword detected, extracting time filter...")
+                time_filter = await self._extract_time_filter(question)
+            else:
+                logger.info(f"   ⏭️  No time keywords detected, skipping time filter extraction")
+                time_filter = None
 
-            # if has_time_keyword:
-            #     logger.info(f"   🕐 Time keyword detected, extracting time filter...")
-            #     time_filter = await self._extract_time_filter(question)
-            # else:
-            #     logger.info(f"   ⏭️  No time keywords detected, skipping time filter extraction")
-            #     time_filter = None
-
-            # # Step 2: Build metadata filters
-            # metadata_filters = self._build_metadata_filters(time_filter)
+            # Step 2: Build metadata filters
+            metadata_filters = self._build_metadata_filters(time_filter)
 
             # Step 3: Create query engines with filters (if any)
             if metadata_filters:
