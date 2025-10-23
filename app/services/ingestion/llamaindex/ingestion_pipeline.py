@@ -194,12 +194,15 @@ Text:
         # Entity extractor (for Person/Company/Deal/etc.)
         # Using SchemaLLMPathExtractor for consistent, validated entity extraction
         # strict=False allows flexibility while guiding toward schema
+        # Import Literal types for schema validation
+        from .config import ENTITIES, RELATIONS
+
         self.entity_extractor = SchemaLLMPathExtractor(
             llm=self.extraction_llm,
             max_triplets_per_chunk=5,  # Extract up to 5 high-value entity relationships per chunk
             num_workers=4,
-            possible_entities=POSSIBLE_ENTITIES,
-            possible_relations=POSSIBLE_RELATIONS,
+            possible_entities=ENTITIES,  # Use Literal type for pydantic validation
+            possible_relations=RELATIONS,  # Use Literal type for pydantic validation
             kg_validation_schema=KG_VALIDATION_SCHEMA,
             strict=True,  # Enforce schema strictly for production quality
             extract_prompt=extraction_prompt  # Custom prompt for accurate extraction
