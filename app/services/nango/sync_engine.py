@@ -147,7 +147,9 @@ async def run_tenant_sync(
                                     # Decode base64 content (much faster than Graph API calls!)
                                     logger.info(f"      📦 Decoding pre-downloaded content: {filename} ({'inline CID' if is_inline else 'regular'})")
                                     
-                                    # Base64 decode (Python's b64decode handles strings automatically)
+                                    # Clean any non-ASCII characters from base64 string (Nango sometimes has invalid chars)
+                                    if isinstance(content_bytes, str):
+                                        content_bytes = content_bytes.encode('ascii', 'ignore').decode('ascii')
                                     attachment_bytes = base64.b64decode(content_bytes)
 
                                     # Universal ingestion (Unstructured.io parses it!)
