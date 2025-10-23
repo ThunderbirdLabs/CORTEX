@@ -52,178 +52,114 @@ EMBEDDING_DIMENSIONS = 1536
 # SCHEMA CONFIGURATION (SchemaLLMPathExtractor)
 # ============================================
 
-# Entity Types - Optimized for CEO business intelligence
-# These are the ONLY entity types that will be extracted
+# Entity Types - Injection Molding Manufacturing Focus
+# Vector store handles document content - graph maps critical business relationships
 POSSIBLE_ENTITIES = [
-    "PERSON",      # Anyone: employees, customers, vendors, contacts
-    "COMPANY",     # Any business: clients, suppliers, competitors, departments
-    "EMAIL",       # Email messages (extracted from content, not document nodes)
-    "DOCUMENT",    # Files: contracts, invoices, reports, PDFs (extracted from content)
-    "DEAL",        # Opportunities, sales, orders, quotes
-    "TASK",        # Action items, follow-ups, requests
-    "MEETING",     # Calls, meetings, appointments
-    "PAYMENT",     # Invoices, payments, expenses, POs
-    "TOPIC",       # Subjects, projects, products, issues
-    "EVENT",       # Catch-all: conferences, launches, deadlines, milestones
-    "MATERIAL"     # Raw materials, supplies, components, parts used in manufacturing/operations
+    "PERSON",         # Employees, contacts, account managers, suppliers
+    "COMPANY",        # Clients, suppliers, vendors, partners
+    "ROLE",           # Job titles: VP Sales, Quality Engineer, Procurement Manager, Account Manager
+    "DEAL",           # Orders, quotes, RFQs, sales opportunities
+    "TASK",           # Action items, production tasks, follow-ups
+    "MEETING",        # Calls, meetings, appointments, conferences
+    "PAYMENT",        # Invoices, payments, purchase orders
+    "MATERIAL",       # Raw materials: polycarbonate, resins, steel, pellets, components
+    "CERTIFICATION",  # ISO certs, material certifications, quality certifications
+    "PROJECT"         # Named programs/initiatives: ISO 9001 Audit, Tesla Model Y Program (proper names only)
 ]
 
-# Relationship Types - Natural language for LLM understanding
+# Relationship Types - Manufacturing-Critical Only
 # These are the ONLY relationship types that will be extracted
 POSSIBLE_RELATIONS = [
-    # Who did what
-    "SENT_BY", "SENT_TO", "CREATED_BY", "ASSIGNED_TO", "ATTENDED_BY",
-    # Organization
-    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO", "FOUNDED", "MANAGES",
-    # Business relationships
-    "CLIENT_OF", "VENDOR_OF", "SUPPLIES",
-    # Content connections (MENTIONS critical for chunk-to-entity links)
-    "ABOUT", "MENTIONS", "ATTACHED_TO",
-    # Status & actions (manufacturing-critical)
-    "REQUIRES", "FOLLOWS_UP", "RESOLVES", "USED_IN",
+    # Organizational structure
+    "WORKS_FOR", "REPORTS_TO", "HAS_ROLE",
+    # Business relationships (supply chain critical)
+    "CLIENT_OF", "VENDOR_OF", "SUPPLIES", "MANAGES",
+    # Work assignments
+    "ASSIGNED_TO", "ATTENDED_BY", "WORKS_ON",
+    # Manufacturing dependencies (CRITICAL)
+    "REQUIRES", "USED_IN", "PART_OF",
+    # Certifications
+    "HAS_CERTIFICATION",
     # Financial
-    "PAID_BY", "PAID_TO"
+    "PAID_BY", "PAID_TO",
+    # Contact relationships
+    "CONTACT_FOR"
 ]
 
-# Validation Schema - Strict triple format (source, relation, target)
+# Validation Schema - Manufacturing-Critical Relationships Only
 # Enforces relationship direction and valid entity connections
 # Format: (HEAD_ENTITY, RELATIONSHIP, TAIL_ENTITY)
 KG_VALIDATION_SCHEMA = [
-    # Employment & Organization (PERSON relationships)
+    # ============================================
+    # ORGANIZATIONAL STRUCTURE (Who works where)
+    # ============================================
     ("PERSON", "WORKS_FOR", "COMPANY"),
-    ("PERSON", "FOUNDED", "COMPANY"),      # Founder/creator relationship
-    ("PERSON", "WORKS_WITH", "PERSON"),
     ("PERSON", "REPORTS_TO", "PERSON"),
-    ("PERSON", "MANAGES", "COMPANY"),      # Account manager, relationship owner
-    ("PERSON", "CLIENT_OF", "COMPANY"),    # Person is contact at client company
-    ("PERSON", "VENDOR_OF", "COMPANY"),    # Person is contact at vendor company
+    ("PERSON", "HAS_ROLE", "ROLE"),              # John Smith HAS_ROLE VP of Sales
 
-    # Company relationships (business to business)
-    ("COMPANY", "CLIENT_OF", "COMPANY"),
-    ("COMPANY", "VENDOR_OF", "COMPANY"),
-    ("COMPANY", "WORKS_WITH", "COMPANY"),  # Partnerships/collaborations
+    # ============================================
+    # BUSINESS RELATIONSHIPS (Supply chain critical)
+    # ============================================
+    ("COMPANY", "CLIENT_OF", "COMPANY"),         # Acme CLIENT_OF Unit Industries
+    ("COMPANY", "VENDOR_OF", "COMPANY"),         # Supplier VENDOR_OF Unit Industries
+    ("COMPANY", "SUPPLIES", "MATERIAL"),         # Supplier SUPPLIES Polycarbonate PC-1000
+    ("PERSON", "MANAGES", "COMPANY"),            # John MANAGES Acme (account manager)
+    ("PERSON", "MANAGES", "MATERIAL"),           # Sarah MANAGES Polycarbonate (procurement)
 
-    # Communication - Who sent what
-    ("EMAIL", "SENT_BY", "PERSON"),
-    ("EMAIL", "SENT_BY", "COMPANY"),
-    ("EMAIL", "SENT_TO", "PERSON"),
-    ("EMAIL", "SENT_TO", "COMPANY"),
-    ("DOCUMENT", "SENT_BY", "PERSON"),
-    ("DOCUMENT", "SENT_BY", "COMPANY"),
-    ("DOCUMENT", "SENT_TO", "PERSON"),
-    ("DOCUMENT", "SENT_TO", "COMPANY"),
+    # ============================================
+    # CONTACT RELATIONSHIPS (Who to reach)
+    # ============================================
+    ("PERSON", "CONTACT_FOR", "COMPANY"),        # John CONTACT_FOR Acme Corp (main contact)
+    ("PERSON", "CONTACT_FOR", "DEAL"),           # Sarah CONTACT_FOR Deal #12345 (point person)
 
-    # Creation & Authorship
-    ("DOCUMENT", "CREATED_BY", "PERSON"),
-    ("DEAL", "CREATED_BY", "PERSON"),
-    ("TASK", "CREATED_BY", "PERSON"),
-    ("EVENT", "CREATED_BY", "PERSON"),
-    ("MEETING", "CREATED_BY", "PERSON"),
+    # ============================================
+    # WORK ASSIGNMENTS (Who does what)
+    # ============================================
+    ("DEAL", "ASSIGNED_TO", "PERSON"),           # Deal ASSIGNED_TO sales rep
+    ("TASK", "ASSIGNED_TO", "PERSON"),           # Task ASSIGNED_TO engineer
+    ("MEETING", "ATTENDED_BY", "PERSON"),        # Meeting ATTENDED_BY attendees
+    ("PERSON", "WORKS_ON", "PROJECT"),           # Person WORKS_ON ISO 9001 Project
 
-    # Assignment & Responsibility
-    ("DEAL", "ASSIGNED_TO", "PERSON"),
-    ("TASK", "ASSIGNED_TO", "PERSON"),
+    # ============================================
+    # MANUFACTURING DEPENDENCIES (What requires what)
+    # ============================================
+    ("DEAL", "REQUIRES", "MATERIAL"),            # Order REQUIRES Polycarbonate
+    ("DEAL", "REQUIRES", "CERTIFICATION"),       # Order REQUIRES ISO 9001 cert
+    ("TASK", "REQUIRES", "MATERIAL"),            # Production task REQUIRES steel
+    ("MATERIAL", "USED_IN", "DEAL"),             # Polycarbonate USED_IN Deal #123
+    ("MATERIAL", "USED_IN", "PROJECT"),          # Steel USED_IN Tesla Model Y
+    ("DEAL", "PART_OF", "PROJECT"),              # Deal PART_OF customer program
+    ("TASK", "PART_OF", "PROJECT"),              # Task PART_OF quality initiative
 
-    # Attendance
-    ("MEETING", "ATTENDED_BY", "PERSON"),
-    ("EVENT", "ATTENDED_BY", "PERSON"),
+    # ============================================
+    # CERTIFICATIONS (Compliance tracking)
+    # ============================================
+    ("COMPANY", "HAS_CERTIFICATION", "CERTIFICATION"),    # Supplier HAS_CERTIFICATION ISO 9001
+    ("MATERIAL", "HAS_CERTIFICATION", "CERTIFICATION"),   # Material HAS_CERTIFICATION FDA approved
+    ("PERSON", "HAS_CERTIFICATION", "CERTIFICATION"),     # Engineer HAS_CERTIFICATION Six Sigma
 
-    # Financial
-    ("PERSON", "PAID_BY", "PAYMENT"),
-    ("COMPANY", "PAID_BY", "PAYMENT"),
-    ("PERSON", "PAID_TO", "PAYMENT"),
-    ("COMPANY", "PAID_TO", "PAYMENT"),
-
-    # Content relationships - What is about/mentions what
-    # Emails
-    ("EMAIL", "ABOUT", "TOPIC"),
-    ("EMAIL", "ABOUT", "PERSON"),
-    ("EMAIL", "ABOUT", "COMPANY"),
-    ("EMAIL", "ABOUT", "DEAL"),
-    ("EMAIL", "MENTIONS", "PERSON"),
-    ("EMAIL", "MENTIONS", "COMPANY"),
-    ("EMAIL", "MENTIONS", "TOPIC"),
-
-    # Documents
-    ("DOCUMENT", "ABOUT", "TOPIC"),
-    ("DOCUMENT", "ABOUT", "PERSON"),
-    ("DOCUMENT", "ABOUT", "COMPANY"),
-    ("DOCUMENT", "MENTIONS", "PERSON"),
-    ("DOCUMENT", "MENTIONS", "COMPANY"),
-    ("DOCUMENT", "MENTIONS", "TOPIC"),
-
-    # Deals
-    ("DEAL", "ABOUT", "TOPIC"),
-    ("DEAL", "ABOUT", "COMPANY"),
-    ("DEAL", "MENTIONS", "PERSON"),
-    ("DEAL", "MENTIONS", "COMPANY"),
-    ("DEAL", "SENT_BY", "COMPANY"),         # Company sent the RFQ/order
-    ("DEAL", "SENT_TO", "COMPANY"),         # Company received the quote
-
-    # Tasks
-    ("TASK", "ABOUT", "TOPIC"),
-    ("TASK", "ABOUT", "PERSON"),
-
-    # Meetings
-    ("MEETING", "ABOUT", "TOPIC"),
-    ("MEETING", "ABOUT", "DEAL"),
-    ("MEETING", "MENTIONS", "PERSON"),
-    ("MEETING", "MENTIONS", "COMPANY"),
-
-    # Events
-    ("EVENT", "ABOUT", "TOPIC"),
-    ("EVENT", "ABOUT", "COMPANY"),
-    ("EVENT", "ABOUT", "DEAL"),
-    ("EVENT", "MENTIONS", "PERSON"),
-
-    # Payments
-    ("PAYMENT", "ABOUT", "DEAL"),
-
-    # Materials (manufacturing/operations - high-value relationships only)
-    ("MATERIAL", "USED_IN", "DEAL"),            # Material is used in this order/quote
-    ("DOCUMENT", "MENTIONS", "MATERIAL"),       # Document mentions a material
-    ("DOCUMENT", "ABOUT", "MATERIAL"),          # Spec sheets, data sheets, inspection reports
-    ("EMAIL", "MENTIONS", "MATERIAL"),          # Email mentions a material
-    ("TASK", "ABOUT", "MATERIAL"),              # Task is about a specific material
-    ("TASK", "REQUIRES", "MATERIAL"),           # Production task requires material
-    ("DEAL", "ABOUT", "MATERIAL"),              # Deal involves a material
-    ("DEAL", "REQUIRES", "MATERIAL"),           # Order specifies material requirements
-    ("MEETING", "ABOUT", "MATERIAL"),           # Meeting discusses a material
-    ("PAYMENT", "ABOUT", "MATERIAL"),           # Material purchase payments
-    ("COMPANY", "VENDOR_OF", "MATERIAL"),       # Company is vendor of material (passive)
-    ("COMPANY", "SUPPLIES", "MATERIAL"),        # Company supplies material (active)
-    ("PERSON", "MANAGES", "MATERIAL"),          # Person manages material inventory/procurement
-
-    # Attachments
-    ("EMAIL", "ATTACHED_TO", "DOCUMENT"),
-    ("DOCUMENT", "ATTACHED_TO", "DOCUMENT"),
-
-    # Workflow & Dependencies
-    ("TASK", "REQUIRES", "TASK"),
-    ("TASK", "REQUIRES", "DOCUMENT"),
-    ("DEAL", "REQUIRES", "TASK"),
-    ("DEAL", "REQUIRES", "DOCUMENT"),
-    ("EMAIL", "FOLLOWS_UP", "EMAIL"),
-    ("EMAIL", "FOLLOWS_UP", "MEETING"),
-    ("DEAL", "FOLLOWS_UP", "MEETING"),
-    ("MEETING", "FOLLOWS_UP", "MEETING"),
-    ("EMAIL", "RESOLVES", "TASK"),
-    ("TASK", "RESOLVES", "TASK"),
+    # ============================================
+    # FINANCIAL (Payments)
+    # ============================================
+    ("PAYMENT", "PAID_BY", "COMPANY"),           # Payment PAID_BY Unit Industries
+    ("PAYMENT", "PAID_TO", "COMPANY"),           # Payment PAID_TO Supplier
+    ("PAYMENT", "PART_OF", "DEAL"),              # Payment PART_OF Deal #123
 ]
 
 # Legacy Literal types (for backward compatibility)
 ENTITIES = Literal[
-    "PERSON", "COMPANY", "EMAIL", "DOCUMENT", "DEAL", "TASK",
-    "MEETING", "PAYMENT", "TOPIC", "EVENT", "MATERIAL"
+    "PERSON", "COMPANY", "ROLE", "DEAL", "TASK",
+    "MEETING", "PAYMENT", "MATERIAL", "CERTIFICATION", "PROJECT"
 ]
 
 RELATIONS = Literal[
-    "SENT_BY", "SENT_TO", "CREATED_BY", "ASSIGNED_TO", "ATTENDED_BY",
-    "WORKS_FOR", "WORKS_WITH", "REPORTS_TO", "FOUNDED", "MANAGES",
-    "CLIENT_OF", "VENDOR_OF", "SUPPLIES",
-    "ABOUT", "MENTIONS", "RELATES_TO", "ATTACHED_TO",
-    "REQUIRES", "FOLLOWS_UP", "RESOLVES", "USED_IN",
-    "PAID_BY", "PAID_TO"
+    "WORKS_FOR", "REPORTS_TO", "HAS_ROLE",
+    "CLIENT_OF", "VENDOR_OF", "SUPPLIES", "MANAGES",
+    "ASSIGNED_TO", "ATTENDED_BY", "WORKS_ON",
+    "REQUIRES", "USED_IN", "PART_OF",
+    "HAS_CERTIFICATION",
+    "PAID_BY", "PAID_TO",
+    "CONTACT_FOR"
 ]
 
 VALIDATION_SCHEMA = KG_VALIDATION_SCHEMA  # Alias for backward compatibility

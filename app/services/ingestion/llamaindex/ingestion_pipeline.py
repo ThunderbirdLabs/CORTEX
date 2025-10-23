@@ -126,60 +126,53 @@ FOCUS ON RELATIONSHIPS THAT ANSWER:
 - "Who reports to Manager B?" "Which person handles Client C?"
 - "Which company supplies which materials?" "Who manages material procurement?"
 
-ENTITY TYPES (11 total):
-- PERSON: Any individual mentioned (employees, customers, contacts, account managers)
-- COMPANY: Any organization (clients, suppliers, partners, material vendors)
-- EMAIL: Specific emails referenced
-- DOCUMENT: Files like contracts, reports, invoices, spec sheets, data sheets
-- DEAL: Sales opportunities, orders, quotes, RFQs
-- TASK: Action items, assignments, production tasks
-- MEETING: Specific meetings or calls
-- PAYMENT: Invoices, payments, expenses, material purchases
-- TOPIC: Subjects, projects, products, concepts
-- EVENT: Conferences, launches, deadlines, trade shows
-- MATERIAL: Raw materials, supplies, components, parts (e.g., Polycarbonate PC 1000, steel, resin, pellets)
+ENTITY TYPES (10 total - Manufacturing Critical):
+- PERSON: Individuals (employees, contacts, account managers, suppliers)
+- COMPANY: Organizations (clients, suppliers, vendors, partners)
+- ROLE: Job titles (VP of Sales, Quality Engineer, Procurement Manager, Account Manager)
+- DEAL: Orders, quotes, RFQs, sales opportunities
+- TASK: Action items, production tasks, follow-ups
+- MEETING: Calls, meetings, appointments, conferences
+- PAYMENT: Invoices, payments, purchase orders
+- MATERIAL: Raw materials (Polycarbonate PC-1000, steel alloy, ABS resin, pellets)
+- CERTIFICATION: ISO certs, material certifications, quality certifications
+- PROJECT: Named programs/initiatives (ISO 9001 Audit, Tesla Model Y Program - PROPER NAMES ONLY)
 
-RELATIONSHIP TYPES (25 total - focus on HIGH-VALUE relationships only):
+RELATIONSHIP TYPES (17 total - Manufacturing Critical ONLY):
 
-Organization & People:
-- WORKS_FOR: Person works for Company (e.g., "Sarah works for Acme")
-- FOUNDED: Person founded Company (e.g., "Alex founded Cortex")
-- WORKS_WITH: Person works with Person, Company works with Company
+Organizational Structure (Who works where):
+- WORKS_FOR: Person works for Company
 - REPORTS_TO: Person reports to Person
-- MANAGES: Person manages Company (account manager), Person manages Material (inventory/procurement)
-- CLIENT_OF: Person is contact at client Company, Company is client of Company
-- VENDOR_OF: Person is contact at vendor Company, Company is vendor of Company
-- SUPPLIES: Company supplies Material (active supplier relationship)
+- HAS_ROLE: Person has job title (e.g., "John HAS_ROLE VP of Sales")
 
-Communication & Authorship:
-- SENT_BY: Email/Document/Deal sent by Person/Company
-- SENT_TO: Email/Document/Deal sent to Person/Company
-- CREATED_BY: Document/Deal/Task/Event/Meeting created by Person
+Business Relationships (Supply chain):
+- CLIENT_OF: Company is client of Company
+- VENDOR_OF: Company is vendor of Company
+- SUPPLIES: Company supplies Material
+- MANAGES: Person manages Company (account) OR Person manages Material (procurement)
 
-Assignment & Attendance:
+Contact & Assignment:
+- CONTACT_FOR: Person is contact for Company/Deal
 - ASSIGNED_TO: Deal/Task assigned to Person
-- ATTENDED_BY: Meeting/Event attended by Person
+- ATTENDED_BY: Meeting attended by Person
+- WORKS_ON: Person works on Project
 
-Content & References:
-- ABOUT: Email/Document/Deal/Task/Meeting/Event/Payment is about Topic/Person/Company/Deal/Material (PRIMARY subject)
-- MENTIONS: Email/Document/Deal/Meeting/Event mentions Person/Company/Topic/Material (MENTIONED but not primary)
-- ATTACHED_TO: Email/Document attached to Document
+Manufacturing Dependencies (CRITICAL):
+- REQUIRES: Deal/Task requires Material/Certification
+- USED_IN: Material used in Deal/Project
+- PART_OF: Deal/Task/Payment part of Project
 
-Workflow & Dependencies (CRITICAL for manufacturing):
-- REQUIRES: Task/Deal requires Task/Document/Material (manufacturing orders need specific materials!)
-- FOLLOWS_UP: Email/Deal/Meeting follows up on Email/Meeting
-- RESOLVES: Email/Task resolves Task
-- USED_IN: Material used in Deal (which materials go into which orders)
+Certifications:
+- HAS_CERTIFICATION: Company/Material/Person has Certification
 
 Financial:
-- PAID_BY: Payment paid by Person/Company
-- PAID_TO: Payment paid to Person/Company
+- PAID_BY: Payment paid by Company
+- PAID_TO: Payment paid to Company
 
 EXTRACTION PRIORITY (Quality > Quantity):
-1. CRITICAL: WORKS_FOR, SUPPLIES, REQUIRES, USED_IN, MANAGES (manufacturing operations)
-2. HIGH: CLIENT_OF, VENDOR_OF, ASSIGNED_TO (business relationships)
-3. MEDIUM: SENT_BY, CREATED_BY, ABOUT (authorship and primary topics only)
-4. LOW: MENTIONS (only extract if highly relevant, not every casual mention)
+1. CRITICAL: HAS_ROLE, WORKS_FOR, SUPPLIES, REQUIRES, USED_IN (organizational + supply chain)
+2. HIGH: CLIENT_OF, VENDOR_OF, MANAGES, CONTACT_FOR (business relationships)
+3. MEDIUM: ASSIGNED_TO, WORKS_ON, HAS_CERTIFICATION (work assignments + compliance)
 
 MANUFACTURING-SPECIFIC GUIDANCE:
 - Extract material names precisely (e.g., "Polycarbonate PC 1000", "ABS resin", "steel alloy")
