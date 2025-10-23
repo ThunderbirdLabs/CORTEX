@@ -103,10 +103,14 @@ async def nango_oauth_callback(payload: NangoOAuthCallback):
     """
     Handle Nango OAuth callback.
     Saves connection information for the tenant.
+    
+    Note: When using Nango's end_user model, the connection_id for API calls
+    is the end_user.id (tenantId), not Nango's internal connectionId.
     """
-    logger.info(f"Received OAuth callback for tenant {payload.tenantId}")
+    logger.info(f"Received OAuth callback for tenant {payload.tenantId}, nango internal ID: {payload.connectionId}")
     try:
-        await save_connection(payload.tenantId, payload.providerConfigKey, payload.connectionId)
+        # Use tenantId as connection_id for API calls (not Nango's internal connectionId)
+        await save_connection(payload.tenantId, payload.providerConfigKey, payload.tenantId)
         return {"status": "ok"}
     except Exception as e:
         logger.error(f"Error in OAuth callback: {e}")
