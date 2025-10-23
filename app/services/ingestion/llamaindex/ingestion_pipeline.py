@@ -527,7 +527,8 @@ Text:
                                 "title": title,
                                 "source": source,
                                 "document_type": document_type,
-                                "created_at_timestamp": created_at_timestamp
+                                "created_at": created_at,  # Human-readable: "2025-10-16T19:37:27+00:00"
+                                "created_at_timestamp": created_at_timestamp  # For filtering: 1760643447
                             }
                         )
                         # Embed the chunk for semantic retrieval
