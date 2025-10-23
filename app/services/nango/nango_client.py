@@ -210,7 +210,8 @@ async def nango_fetch_attachment(
     logger.info(f"🔽 Nango /fetch-attachment: threadId={thread_id[:30]}..., attachmentId={attachment_id[:30]}...")
 
     try:
-        response = await http_client.post(url, headers=headers, json=payload)
+        # Nango actions use GET with JSON body (unconventional but that's their API)
+        response = await http_client.request("GET", url, headers=headers, json=payload)
         response.raise_for_status()
         
         data = response.json()
