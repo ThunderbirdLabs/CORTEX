@@ -548,6 +548,11 @@ Text:
                                 entity_text = f"{entity.label}: {entity.name if hasattr(entity, 'name') else entity.id}"
                                 entity.embedding = await self.embed_model.aget_text_embedding(entity_text)
 
+                                # Add timestamp for incremental deduplication
+                                if not hasattr(entity, 'properties') or entity.properties is None:
+                                    entity.properties = {}
+                                entity.properties['created_at_timestamp'] = created_at_timestamp
+
                             # Upsert entities with embeddings
                             self.graph_store.upsert_nodes(entities)
                             total_entities += len(entities)
@@ -919,6 +924,11 @@ Text:
                 for entity in entities:
                     entity_text = f"{entity.label}: {entity.name if hasattr(entity, 'name') else entity.id}"
                     entity.embedding = await self.embed_model.aget_text_embedding(entity_text)
+
+                    # Add timestamp for incremental deduplication
+                    if not hasattr(entity, 'properties') or entity.properties is None:
+                        entity.properties = {}
+                    entity.properties['created_at_timestamp'] = created_at_timestamp
 
                 self.graph_store.upsert_nodes(entities)
                 logger.info(f"   ✅ Upserted {len(entities)} entities to Neo4j")

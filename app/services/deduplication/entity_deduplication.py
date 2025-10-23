@@ -5,9 +5,14 @@ Periodic cleanup of duplicate entities created by LLM extraction.
 Uses vector similarity + text distance to find and merge duplicates.
 
 Based on official Neo4j entity resolution patterns.
+
+PERFORMANCE:
+- Incremental mode (default): Only checks entities from last N hours
+- Full scan mode: Checks ALL entities (slow at 100K+ scale, use sparingly)
 """
 
 import logging
+import time
 from typing import Dict, Any, List, Optional
 from neo4j import GraphDatabase
 
@@ -47,12 +52,14 @@ class EntityDeduplicationService:
         logger.info(f"   Similarity threshold: {similarity_threshold}")
         logger.info(f"   Levenshtein max distance: {levenshtein_max_distance}")
 
-    def deduplicate_entities(self, dry_run: bool = False) -> Dict[str, Any]:
+    def deduplicate_entities(self, dry_run: bool = False, hours_lookback: Optional[int] = None) -> Dict[str, Any]:
         """
         Find and merge duplicate entities.
 
         Args:
             dry_run: If True, only report duplicates without merging
+            hours_lookback: Only check entities created in last N hours (for incremental dedup)
+                          If None, checks all entities (full scan - slow at scale)
 
         Returns:
             Dict with results: {
@@ -63,12 +70,24 @@ class EntityDeduplicationService:
         """
 
         logger.info("Starting entity deduplication...")
+        if hours_lookback:
+            logger.info(f"   Incremental mode: checking entities from last {hours_lookback} hours")
+        else:
+            logger.info("   Full scan mode: checking ALL entities (may be slow at scale)")
+
+        # Build time filter for incremental deduplication
+        time_filter = ""
+        if hours_lookback:
+            # Only check recently added entities
+            cutoff_timestamp = int(time.time()) - (hours_lookback * 3600)
+            time_filter = f"AND e.created_at_timestamp >= {cutoff_timestamp}"
 
         # Cypher query for deduplication
-        query = """
-        // 1. Find all entities with embeddings
+        query = f"""
+        // 1. Find entities with embeddings (optionally filtered by time)
         MATCH (e:__Entity__)
         WHERE e.embedding IS NOT NULL
+        {time_filter}
 
         // 2. Find similar entities using vector index
         CALL db.index.vector.queryNodes($index_name, $top_k, e.embedding)
@@ -212,17 +231,22 @@ def run_entity_deduplication(
     neo4j_password: str,
     dry_run: bool = False,
     similarity_threshold: float = 0.92,
-    levenshtein_max_distance: int = 3
+    levenshtein_max_distance: int = 3,
+    hours_lookback: int = 24
 ) -> Dict[str, Any]:
     """
     Run entity deduplication (for use in scheduled jobs).
 
-    Usage:
-        # Dry run (preview only)
-        results = run_entity_deduplication(NEO4J_URI, NEO4J_PASSWORD, dry_run=True)
+    Args:
+        hours_lookback: Only check entities from last N hours (default: 24)
+                       Set to None for full scan (slow at 100K+ scale)
 
-        # Actual merge
-        results = run_entity_deduplication(NEO4J_URI, NEO4J_PASSWORD, dry_run=False)
+    Usage:
+        # Incremental (default): only last 24 hours
+        results = run_entity_deduplication(NEO4J_URI, NEO4J_PASSWORD)
+
+        # Full scan (slow at scale, use monthly)
+        results = run_entity_deduplication(NEO4J_URI, NEO4J_PASSWORD, hours_lookback=None)
     """
 
     service = EntityDeduplicationService(
@@ -233,7 +257,7 @@ def run_entity_deduplication(
     )
 
     try:
-        results = service.deduplicate_entities(dry_run=dry_run)
+        results = service.deduplicate_entities(dry_run=dry_run, hours_lookback=hours_lookback)
 
         # Check for alerts
         if not dry_run and service.should_alert(results):
