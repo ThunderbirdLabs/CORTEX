@@ -119,8 +119,12 @@ export default async function fetchData(nango: NangoSync) {
                     const bodyHasCid = message.body?.content?.includes('[cid:') || message.body?.content?.includes('cid:');
                     await nango.log(`📧 Email: ${message.subject} | hasAttachments: ${hasAttachmentsFlag} | body has CID: ${bodyHasCid}`, { level: 'info' });
 
-                    // Always try to fetch attachments - embedded attachments (CID) might not set hasAttachments=true
-                    attachments = await fetchAttachmentsForUser(nango, user.id, message.id);
+                    // Only fetch attachments if hasAttachments flag is true OR body has CID references
+                    if (hasAttachmentsFlag || bodyHasCid) {
+                        attachments = await fetchAttachmentsForUser(nango, user.id, message.id);
+                    } else {
+                        await nango.log(`   ⏭️  Skipping attachment fetch (no attachments)`, { level: 'info' });
+                    }
                     
                     // Log if we found attachments for debugging
                     if (attachments.length > 0) {
@@ -174,10 +178,7 @@ function shouldDownloadAttachment(attachment: Attachment): boolean {
 async function fetchAttachmentsForUser(nango: NangoSync, userId: string, messageId: string): Promise<Attachment[]> {
     const config: ProxyConfiguration = {
         endpoint: `/v1.0/users/${userId}/mailFolders/inbox/messages/${messageId}/attachments`,
-        params: { 
-            // Note: contentBytes not supported in $select for attachments endpoint, fetch separately
-            $select: 'id,contentType,name,size,isInline,contentId'
-        },
+        // Don't use $select - just get all attachment metadata
         retries: 10
     };
 

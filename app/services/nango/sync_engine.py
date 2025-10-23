@@ -147,7 +147,12 @@ async def run_tenant_sync(
                                     # Decode base64 content (much faster than Graph API calls!)
                                     logger.info(f"      📦 Decoding pre-downloaded content: {filename} ({'inline CID' if is_inline else 'regular'})")
                                     
-                                    attachment_bytes = base64.b64decode(content_bytes)
+                                    # Ensure content_bytes is properly encoded for base64 decoding
+                                    if isinstance(content_bytes, str):
+                                        # If it's a string, encode to bytes first (handle unicode properly)
+                                        attachment_bytes = base64.b64decode(content_bytes.encode('utf-8'))
+                                    else:
+                                        attachment_bytes = base64.b64decode(content_bytes)
 
                                     # Universal ingestion (Unstructured.io parses it!)
                                     attachment_title = f"[Outlook Attachment] {filename}"

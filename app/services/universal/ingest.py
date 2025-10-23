@@ -114,8 +114,10 @@ async def ingest_document_universal(
 
         logger.info(f"   ✅ Text extracted: {len(content)} characters")
         
-        # Strip null bytes (Postgres can't handle them)
-        content = content.replace('\x00', '')
+        # Strip null bytes (Postgres can't handle them) from ALL text fields
+        content = content.replace('\x00', '') if content else ''
+        if title:
+            title = title.replace('\x00', '')
         
         # Limit content size to prevent runaway processing costs
         MAX_CHARS = 100000  # 100K chars max (~50 pages of text)

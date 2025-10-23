@@ -497,7 +497,7 @@ export const NangoFlows = [
       {
         "name": "emails",
         "type": "sync",
-        "description": "🔧 V17 ATTACHMENT FIX - Fixed 400 error by removing contentBytes from $select!\nNow fetches ALL attachments via $value endpoint. 1-hour lookback for fast testing.\nSend yourself test emails with PDF/images and run manual sync to verify attachments download.\nUses Exchange FullAccess delegation. Mail.ReadWrite scope required.",
+        "description": "🔧 V18 FINAL FIX - Removed $select entirely, fetch all attachment metadata!\nOnly checks attachments if hasAttachments=true. Downloads via $value endpoint.\n1-hour lookback for fast testing. Send test emails with PDFs to verify.\nUses Exchange FullAccess delegation. Mail.ReadWrite scope required.",
         "sync_type": "incremental",
         "usedModels": [
           "OutlookEmail",

@@ -3,9 +3,9 @@ integrations:
         syncs:
             emails:
                 description: |
-                    🔧 V17 ATTACHMENT FIX - Fixed 400 error by removing contentBytes from $select!
-                    Now fetches ALL attachments via $value endpoint. 1-hour lookback for fast testing.
-                    Send yourself test emails with PDF/images and run manual sync to verify attachments download.
+                    🔧 V18 FINAL FIX - Removed $select entirely, fetch all attachment metadata!
+                    Only checks attachments if hasAttachments=true. Downloads via $value endpoint.
+                    1-hour lookback for fast testing. Send test emails with PDFs to verify.
                     Uses Exchange FullAccess delegation. Mail.ReadWrite scope required.
                 runs: every hour
                 output: OutlookEmail
