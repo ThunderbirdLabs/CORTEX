@@ -43,11 +43,19 @@ async def get_graph_token_via_nango(
     try:
         response = await http_client.get(url, headers=headers)
         response.raise_for_status()
+        
+        # Debug: log response content
+        response_text = response.text
+        logger.info(f"Nango response status: {response.status_code}, body length: {len(response_text)}, first 200 chars: {response_text[:200]}")
+        
         data = response.json()
         return data["credentials"]["access_token"]
     except httpx.HTTPStatusError as e:
         logger.error(f"Failed to get Nango token: {e.response.status_code} - {e.response.text}")
         raise HTTPException(status_code=500, detail="Failed to retrieve access token from Nango")
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error from Nango: {e}. Response text: {response_text[:500]}")
+        raise HTTPException(status_code=500, detail=f"Invalid JSON from Nango: {str(e)}")
     except Exception as e:
         logger.error(f"Error getting Nango token: {e}")
         raise HTTPException(status_code=500, detail=str(e))
