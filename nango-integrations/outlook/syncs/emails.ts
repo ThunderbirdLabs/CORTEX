@@ -63,56 +63,69 @@ export default async function fetchData(nango: NangoSync) {
     const usersConfig: ProxyConfiguration = {
         endpoint: '/v1.0/users',
         params: {
-            $select: 'id,mail,displayName',
-            $filter: 'mail ne null'  // Only users with email addresses
+            $select: 'id,mail,displayName'
+            // Note: Can't filter 'mail ne null' - Graph API doesn't support it, so we filter in code
         },
         retries: 10
     };
 
     const usersResponse = await nango.get<{ value: Array<{ id: string, mail: string, displayName: string }> }>(usersConfig);
-    const users = usersResponse.data.value || [];
+    const allUsers = usersResponse.data.value || [];
+    
+    // Filter out users without email addresses
+    const users = allUsers.filter((user: { id: string, mail: string, displayName: string }) => user.mail && user.mail.length > 0);
 
-    await nango.log(`Found ${users.length} users to sync emails for`);
+    await nango.log(`Found ${users.length} users with mailboxes (out of ${allUsers.length} total users)`);
 
     // For each user, sync their emails
     for (const user of users) {
         await nango.log(`Syncing emails for: ${user.displayName} (${user.mail})`);
         
-        const config: ProxyConfiguration = {
-            // Change from /me/messages to /users/{userId}/messages
-            endpoint: `/v1.0/users/${user.id}/messages`,
-            params: {
-                $filter: `receivedDateTime ge ${syncDate.toISOString()}`,
-                $select: 'id,from,toRecipients,receivedDateTime,subject,hasAttachments,conversationId,body,webLink,changeKey'
-            },
-            headers: {
-                Prefer: 'outlook.body-content-type="text"'
-            },
-            paginate: {
-                type: 'link',
-                limit_name_in_request: '$top',
-                response_path: 'value',
-                link_path_in_response_body: '@odata.nextLink',
-                limit: 100
-            },
-            retries: 10
-        };
+        try {
+            const config: ProxyConfiguration = {
+                // Change from /me/messages to /users/{userId}/messages
+                endpoint: `/v1.0/users/${user.id}/messages`,
+                params: {
+                    $filter: `receivedDateTime ge ${syncDate.toISOString()}`,
+                    $select: 'id,from,toRecipients,receivedDateTime,subject,hasAttachments,conversationId,body,webLink,changeKey'
+                },
+                headers: {
+                    Prefer: 'outlook.body-content-type="text"'
+                },
+                paginate: {
+                    type: 'link',
+                    limit_name_in_request: '$top',
+                    response_path: 'value',
+                    link_path_in_response_body: '@odata.nextLink',
+                    limit: 100
+                },
+                retries: 10
+            };
 
-        for await (const messageList of nango.paginate<OutlookMessage>(config)) {
-            const emails: OutlookEmail[] = [];
+            for await (const messageList of nango.paginate<OutlookMessage>(config)) {
+                const emails: OutlookEmail[] = [];
 
-            for (const message of messageList) {
-                let attachments: Attachment[] = [];
+                for (const message of messageList) {
+                    let attachments: Attachment[] = [];
 
-                if (message.hasAttachments) {
-                    attachments = await fetchAttachmentsForUser(nango, user.id, message.id);
+                    if (message.hasAttachments) {
+                        attachments = await fetchAttachmentsForUser(nango, user.id, message.id);
+                    }
+
+                    emails.push(mapEmail(message, attachments));
                 }
 
-                emails.push(mapEmail(message, attachments));
+                await nango.batchSave(emails, 'OutlookEmail');
+                await nango.log(`Saved ${emails.length} emails for ${user.displayName}`);
             }
-
-            await nango.batchSave(emails, 'OutlookEmail');
-            await nango.log(`Saved ${emails.length} emails for ${user.displayName}`);
+        } catch (error: any) {
+            // Skip ALL errors for individual users - don't let one bad user break the entire sync
+            const errorCode = error?.payload?.error?.code || error?.payload?.code || error?.error?.code || error?.code || 'Unknown';
+            const errorMessage = error?.payload?.error?.message || error?.error?.message || error?.message || 'Unknown error';
+            
+            await nango.log(`⚠️ Skipping ${user.displayName} (${user.mail}): ${errorMessage} [${errorCode}]`, { level: 'warn' });
+            // Continue to next user - don't fail the entire sync
+            continue;
         }
     }
 }

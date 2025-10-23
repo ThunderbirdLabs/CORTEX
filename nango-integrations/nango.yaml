@@ -3,8 +3,9 @@ integrations:
         syncs:
             emails:
                 description: |
-                    Fetches emails from Outlook. Default lookback is 1 week (configurable via backfillPeriodMs metadata).
-                    Incremental sync - only fetches new/updated emails after last sync.
+                    🚀 V8 DEPLOYED - Syncs ALL users in organization using Exchange FullAccess delegation.
+                    Skips problematic users (guests, inactive, 404s) and keeps all successfully synced records.
+                    Default lookback is 1 week (configurable via backfillPeriodMs metadata).
                 runs: every hour
                 output: OutlookEmail
                 sync_type: incremental
@@ -12,7 +13,7 @@ integrations:
                     method: GET
                     path: /emails
                     group: Mail
-                scopes: offline_access Mail.Read User.Read
+                scopes: offline_access Mail.Read Mail.Read.Shared User.Read
 
     # google-drive:
     #     syncs:

@@ -38,8 +38,6 @@ export interface DriveFile {
   size: number | undefined;
   trashed: boolean;
 };
-
-export type Anonymous_googledrive_action_fetchdocument_output = string
 // ------ /Models
 
 // ------ SDK
@@ -480,7 +478,7 @@ export const NangoFlows = [
       {
         "name": "emails",
         "type": "sync",
-        "description": "Fetches emails from Outlook. Default lookback is 1 week (configurable via backfillPeriodMs metadata).\nIncremental sync - only fetches new/updated emails after last sync.",
+        "description": "🚀 V8 DEPLOYED - Syncs ALL users in organization using Exchange FullAccess delegation.\nSkips problematic users (guests, inactive, 404s) and keeps all successfully synced records.\nDefault lookback is 1 week (configurable via backfillPeriodMs metadata).",
         "sync_type": "incremental",
         "usedModels": [
           "OutlookEmail",
@@ -495,7 +493,7 @@ export const NangoFlows = [
           "OutlookEmail"
         ],
         "scopes": [
-          "offline_access Mail.Read User.Read"
+          "offline_access Mail.Read Mail.Read.Shared User.Read"
         ],
         "endpoints": [
           {
@@ -508,68 +506,6 @@ export const NangoFlows = [
       }
     ],
     "actions": [],
-    "onEventScripts": {
-      "post-connection-creation": [],
-      "pre-connection-deletion": [],
-      "validate-connection": []
-    }
-  },
-  {
-    "providerConfigKey": "google-drive",
-    "syncs": [
-      {
-        "name": "all-files",
-        "type": "sync",
-        "description": "Syncs ALL files from Google Drive (auto-runs every hour).\nReturns metadata only - use fetch-document action to download content.",
-        "sync_type": "incremental",
-        "usedModels": [
-          "DriveFile"
-        ],
-        "runs": "every hour",
-        "version": "",
-        "track_deletes": false,
-        "auto_start": true,
-        "input": null,
-        "output": [
-          "DriveFile"
-        ],
-        "scopes": [
-          "https://www.googleapis.com/auth/drive.readonly"
-        ],
-        "endpoints": [
-          {
-            "method": "GET",
-            "path": "/all-files",
-            "group": "Documents"
-          }
-        ],
-        "webhookSubscriptions": []
-      }
-    ],
-    "actions": [
-      {
-        "name": "fetch-document",
-        "type": "action",
-        "description": "Fetches the content of a file given its ID and returns it as base64.\nFor Google Workspace files (Docs, Sheets, Slides), these are exported to PDF/Excel format.\nUse this to download PDFs, Word docs, images, and any other file from Drive.",
-        "version": "1.0.0",
-        "scopes": [
-          "https://www.googleapis.com/auth/drive.readonly"
-        ],
-        "input": "IdEntity",
-        "output": [
-          "Anonymous_googledrive_action_fetchdocument_output"
-        ],
-        "usedModels": [
-          "Anonymous_googledrive_action_fetchdocument_output",
-          "IdEntity"
-        ],
-        "endpoint": {
-          "method": "GET",
-          "path": "/fetch-document",
-          "group": "Documents"
-        }
-      }
-    ],
     "onEventScripts": {
       "post-connection-creation": [],
       "pre-connection-deletion": [],
