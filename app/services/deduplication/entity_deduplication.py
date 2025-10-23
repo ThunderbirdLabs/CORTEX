@@ -76,20 +76,30 @@ class EntityDeduplicationService:
             logger.info("   Full scan mode: checking ALL entities (may be slow at scale)")
 
         # Build time filter for incremental deduplication
+        # CRITICAL: Filter recent entities to CHECK, but search AGAINST entire graph
         time_filter = ""
         if hours_lookback:
-            # Only check recently added entities
+            # Only check recently added entities (handles merged entities with array timestamps)
             cutoff_timestamp = int(time.time()) - (hours_lookback * 3600)
-            time_filter = f"AND e.created_at_timestamp >= {cutoff_timestamp}"
+            time_filter = f"""
+            AND (
+                (e.created_at_timestamp IS NOT NULL AND e.created_at_timestamp >= {cutoff_timestamp})
+                OR (e.created_at_timestamp IS NOT NULL AND NOT apoc.meta.cypher.isType(e.created_at_timestamp, "INTEGER"))
+            )
+            """
+            # Explanation:
+            # - First condition: timestamp is recent (normal case)
+            # - Second condition: timestamp is NOT an integer (merged entity with array) - skip these
 
         # Cypher query for deduplication
         query = f"""
-        // 1. Find entities with embeddings (optionally filtered by time)
+        // 1. Find RECENT entities with embeddings to check for duplicates
+        // Note: Vector search will compare against ALL entities in graph (not just recent)
         MATCH (e:__Entity__)
         WHERE e.embedding IS NOT NULL
         {time_filter}
 
-        // 2. Find similar entities using vector index
+        // 2. Find similar entities using vector index (searches ENTIRE graph)
         CALL db.index.vector.queryNodes($index_name, $top_k, e.embedding)
         YIELD node, score
 
@@ -128,19 +138,28 @@ class EntityDeduplicationService:
 
         WITH duplicates + [e] AS nodesToMerge
 
-        // CRITICAL: Must discard 'id' to prevent array IDs
-        // If 'id' is combined, it creates arrays like ['Cortex', 'Cortex Solutions']
-        // This breaks Neo4j queries that expect single string values (e.g., toString())
+        // CRITICAL: Must discard certain properties to prevent arrays
+        // - id: Arrays like ['Cortex', 'Cortex Solutions'] break queries
+        // - name: Same issue with names
+        // - embedding: Keep first embedding only (they're similar anyway)
+        // - created_at_timestamp: Keep OLDEST timestamp (first occurrence)
         CALL apoc.refactor.mergeNodes(nodesToMerge, {
           properties: {
             id: 'discard',
             name: 'discard',
             embedding: 'discard',
+            created_at_timestamp: 'discard',  // Prevent array timestamps
             `.*`: 'combine'
           },
           mergeRels: true
         })
         YIELD node
+
+        // Set created_at_timestamp to oldest value (preserve original creation time)
+        WITH node, nodesToMerge
+        WITH node, [n IN nodesToMerge WHERE n.created_at_timestamp IS NOT NULL | n.created_at_timestamp] AS timestamps
+        WHERE size(timestamps) > 0
+        SET node.created_at_timestamp = apoc.coll.min(timestamps)
 
         RETURN count(node) AS merged_count
         """)
