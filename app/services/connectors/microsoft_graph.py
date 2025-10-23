@@ -140,8 +140,8 @@ async def sync_user_mailbox(
         url = delta_link
         logger.info(f"Using existing delta link for user {user_principal_name}")
     else:
-        # Request full body content via $select parameter
-        url = f"https://graph.microsoft.com/v1.0/users/{user_id}/messages/delta?$select=id,subject,from,toRecipients,receivedDateTime,webLink,body,changeKey"
+        # Request full body content via $select parameter (changeKey not supported in delta queries)
+        url = f"https://graph.microsoft.com/v1.0/users/{user_id}/messages/delta?$select=id,subject,from,toRecipients,receivedDateTime,webLink,body"
         logger.info(f"Starting initial sync for user {user_principal_name}")
 
     async def fetch_page(page_url: str):
