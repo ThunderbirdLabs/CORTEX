@@ -20,6 +20,21 @@ from app.services.deduplication import should_ingest_document
 logger = logging.getLogger(__name__)
 
 
+def strip_null_bytes_from_dict(data: Any) -> Any:
+    """
+    Recursively strip null bytes from all strings in a dictionary/list.
+    PostgreSQL doesn't allow \\u0000 in TEXT/JSONB fields.
+    """
+    if isinstance(data, dict):
+        return {k: strip_null_bytes_from_dict(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [strip_null_bytes_from_dict(item) for item in data]
+    elif isinstance(data, str):
+        return data.replace('\x00', '')
+    else:
+        return data
+
+
 async def ingest_document_universal(
     supabase: Client,
     cortex_pipeline: UniversalIngestionPipeline,
@@ -155,6 +170,12 @@ async def ingest_document_universal(
         # ========================================================================
 
         logger.info(f"   💾 Saving to documents table (source of truth)...")
+
+        # Strip null bytes from raw_data (PostgreSQL JSONB can't handle \u0000)
+        if raw_data:
+            raw_data = strip_null_bytes_from_dict(raw_data)
+        if metadata:
+            metadata = strip_null_bytes_from_dict(metadata)
 
         document_row = {
             'tenant_id': tenant_id,
