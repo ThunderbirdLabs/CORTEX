@@ -3,9 +3,9 @@ integrations:
         syncs:
             emails:
                 description: |
-                    🚀 V9 DEPLOYED - Syncs INBOX ONLY (no spam/junk) for ALL users in organization.
-                    Uses Exchange FullAccess delegation. Skips problematic users and keeps successful records.
-                    Default lookback is 1 week (configurable via backfillPeriodMs metadata).
+                    🚀 V11 DEPLOYED - FULL ATTACHMENT DOWNLOAD! Syncs INBOX ONLY + downloads attachment content.
+                    Pre-downloads all supported attachments (<5MB) as base64 within Nango. No backend Graph calls needed!
+                    Uses Exchange FullAccess delegation. Default lookback is 1 week (configurable via backfillPeriodMs metadata).
                 runs: every hour
                 output: OutlookEmail
                 sync_type: incremental

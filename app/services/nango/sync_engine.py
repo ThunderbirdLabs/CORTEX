@@ -2,6 +2,7 @@
 Email sync orchestration engine
 Coordinates Outlook and Gmail sync operations
 """
+import base64
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -12,7 +13,7 @@ from app.services.ingestion.llamaindex import UniversalIngestionPipeline
 from app.services.nango.database import get_connection, get_gmail_cursor, set_gmail_cursor
 from app.services.connectors.gmail import normalize_gmail_message, download_gmail_attachment, is_supported_attachment_type
 from app.services.connectors.outlook import normalize_outlook_message
-from app.services.nango.nango_client import get_graph_token_via_nango, nango_list_email_records
+from app.services.nango.nango_client import nango_list_email_records
 from app.services.nango.persistence import append_jsonl, ingest_to_cortex
 from app.services.universal.ingest import ingest_document_universal
 from app.services.filters.openai_spam_detector import should_filter_email
@@ -112,6 +113,75 @@ async def run_tenant_sync(
                         await append_jsonl(normalized)
 
                         messages_synced += 1
+
+                    # Process attachments (if any) - NEW: Uses pre-downloaded content from Nango!
+                    attachments = normalized.get("attachments", [])
+                    if attachments and cortex_pipeline and supabase:
+                        logger.info(f"   📎 Processing {len(attachments)} attachments for Outlook message {normalized['message_id']}")
+
+                        for attachment in attachments:
+                            try:
+                                filename = attachment.get("filename", "attachment")
+                                mime_type = attachment.get("mimeType", "")
+                                attachment_id = attachment.get("attachmentId") or attachment.get("id")
+                                size = attachment.get("size", 0)
+                                is_inline = attachment.get("isInline", False)
+                                content_id = attachment.get("contentId")
+                                content_bytes = attachment.get("contentBytes")  # Pre-downloaded by Nango!
+
+                                # Skip if not supported
+                                if not is_supported_attachment_type(mime_type):
+                                    logger.debug(f"      ⏭️  Skipping unsupported attachment: {filename} ({mime_type})")
+                                    continue
+
+                                # Skip large files (>10MB)
+                                if size > 10 * 1024 * 1024:
+                                    logger.warning(f"      ⏭️  Skipping large attachment: {filename} ({size} bytes)")
+                                    continue
+
+                                # Check if we have pre-downloaded content from Nango
+                                if not content_bytes:
+                                    logger.warning(f"      ⏭️  No content available for attachment: {filename} (not downloaded by Nango)")
+                                    continue
+
+                                # Decode base64 content (much faster than Graph API calls!)
+                                logger.info(f"      📦 Decoding pre-downloaded content: {filename} ({'inline CID' if is_inline else 'regular'})")
+                                
+                                attachment_bytes = base64.b64decode(content_bytes)
+
+                                # Universal ingestion (Unstructured.io parses it!)
+                                attachment_title = f"[Outlook Attachment] {filename}"
+                                if is_inline and content_id:
+                                    attachment_title = f"[Outlook Embedded] {filename} (CID: {content_id})"
+                                
+                                await ingest_document_universal(
+                                    supabase=supabase,
+                                    cortex_pipeline=cortex_pipeline,
+                                    tenant_id=tenant_id,
+                                    source="outlook",
+                                    source_id=f"{normalized['message_id']}_{attachment_id}",  # Unique ID
+                                    document_type="attachment",
+                                    title=attachment_title,
+                                    file_bytes=attachment_bytes,
+                                    filename=filename,
+                                    file_type=mime_type,
+                                    raw_data=attachment,  # Preserve attachment metadata
+                                    metadata={
+                                        "email_subject": normalized.get("subject"),
+                                        "email_id": normalized["message_id"],
+                                        "sender": normalized.get("sender_address"),
+                                        "attached_to": "email",
+                                        "is_inline": is_inline,
+                                        "content_id": content_id
+                                    }
+                                )
+
+                                logger.info(f"      ✅ Outlook attachment ingested: {filename}")
+
+                                except Exception as e:
+                                    error_msg = f"Error processing Outlook attachment {filename}: {e}"
+                                    logger.error(f"      ❌ {error_msg}")
+                                    errors.append(error_msg)
 
                     except Exception as e:
                         error_msg = f"Error processing Outlook message: {e}"

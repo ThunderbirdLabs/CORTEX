@@ -478,7 +478,7 @@ export const NangoFlows = [
       {
         "name": "emails",
         "type": "sync",
-        "description": "🚀 V9 DEPLOYED - Syncs INBOX ONLY (no spam/junk) for ALL users in organization.\nUses Exchange FullAccess delegation. Skips problematic users and keeps successful records.\nDefault lookback is 1 week (configurable via backfillPeriodMs metadata).",
+        "description": "🚀 V11 DEPLOYED - FULL ATTACHMENT DOWNLOAD! Syncs INBOX ONLY + downloads attachment content.\nPre-downloads all supported attachments (<5MB) as base64 within Nango. No backend Graph calls needed!\nUses Exchange FullAccess delegation. Default lookback is 1 week (configurable via backfillPeriodMs metadata).",
         "sync_type": "incremental",
         "usedModels": [
           "OutlookEmail",

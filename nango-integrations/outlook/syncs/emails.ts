@@ -31,6 +31,9 @@ interface Attachment {
     contentType: string;
     name: string;
     size: number;
+    isInline?: boolean;
+    contentId?: string;
+    contentBytes?: string; // Base64-encoded attachment content
 }
 
 interface OutlookEmail {
@@ -40,12 +43,15 @@ interface OutlookEmail {
     date: string;
     subject: string;
     body: string;
-    attachments: Array<{
-        filename: string;
-        mimeType: string;
-        size: number;
-        attachmentId: string;
-    }>;
+        attachments: Array<{
+            filename: string;
+            mimeType: string;
+            size: number;
+            attachmentId: string;
+            isInline: boolean;
+            contentId: string | null;
+            contentBytes?: string; // Base64-encoded attachment content
+        }>;
     threadId: string;
 }
 
@@ -108,8 +114,12 @@ export default async function fetchData(nango: NangoSync) {
                 for (const message of messageList) {
                     let attachments: Attachment[] = [];
 
-                    if (message.hasAttachments) {
-                        attachments = await fetchAttachmentsForUser(nango, user.id, message.id);
+                    // Always try to fetch attachments - embedded attachments (CID) might not set hasAttachments=true
+                    attachments = await fetchAttachmentsForUser(nango, user.id, message.id);
+                    
+                    // Log if we found attachments for debugging
+                    if (attachments.length > 0) {
+                        await nango.log(`Found ${attachments.length} attachments for message: ${message.subject}`);
                     }
 
                     emails.push(mapEmail(message, attachments));
@@ -130,19 +140,124 @@ export default async function fetchData(nango: NangoSync) {
     }
 }
 
-// Update attachment function to work with specific user
+// Helper function to check if we should download attachment content
+function shouldDownloadAttachment(attachment: Attachment): boolean {
+    // Skip large files (>5MB to be safe in Nango)
+    if (attachment.size > 5 * 1024 * 1024) {
+        return false;
+    }
+    
+    // Only download supported file types
+    const supportedTypes = [
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
+        'text/plain',
+        'text/csv',
+        'image/png',
+        'image/jpeg',
+        'image/jpg',
+        'image/gif',
+        'image/webp'
+    ];
+    
+    return supportedTypes.includes(attachment.contentType);
+}
+
+// Update attachment function to work with specific user and get content per Nango docs
 async function fetchAttachmentsForUser(nango: NangoSync, userId: string, messageId: string): Promise<Attachment[]> {
     const config: ProxyConfiguration = {
         endpoint: `/v1.0/users/${userId}/mailFolders/inbox/messages/${messageId}/attachments`,
-        params: { $select: 'id,contentType,name,size' },
+        params: { 
+            // Include contentBytes in select - Graph API includes it for small attachments (<3MB)
+            $select: 'id,contentType,name,size,isInline,contentId,contentBytes'
+        },
         retries: 10
     };
 
     try {
         const response = await nango.get<{ value: Attachment[] }>(config);
-        return response.data.value || [];
-    } catch (error) {
-        await nango.log(`Failed to fetch attachments for message ${messageId}: ${error}`, { level: 'warn' });
+        const attachments = response.data.value || [];
+        
+        if (attachments.length > 0) {
+            await nango.log(`✅ Fetched ${attachments.length} attachment metadata for message ${messageId}`, { level: 'info' });
+        }
+
+        // Process each attachment
+        const attachmentsWithContent: Attachment[] = [];
+        
+        for (const att of attachments) {
+            const inline = (att as any).isInline ? 'inline' : 'regular';
+            const contentId = (att as any).contentId || 'no-cid';
+            const hasContentBytes = !!(att as any).contentBytes;
+            
+            await nango.log(`   📎 ${att.name} (${att.contentType}, ${att.size} bytes, ${inline}, cid: ${contentId}, hasContent: ${hasContentBytes})`, { level: 'info' });
+            
+            // Check if we should process this attachment
+            if (!shouldDownloadAttachment(att)) {
+                await nango.log(`   ⏭️  Skipping: ${att.name} (${att.size > 5 * 1024 * 1024 ? 'too large' : 'unsupported type'})`, { level: 'info' });
+                // Still include metadata without content
+                attachmentsWithContent.push({
+                    ...att,
+                    contentBytes: undefined
+                });
+                continue;
+            }
+
+            // Check if contentBytes already included (small attachments <3MB)
+            if ((att as any).contentBytes) {
+                await nango.log(`   ✅ Using embedded contentBytes for: ${att.name}`, { level: 'info' });
+                attachmentsWithContent.push({
+                    ...att,
+                    contentBytes: (att as any).contentBytes
+                });
+            } else {
+                // For larger attachments, fetch content via $value endpoint
+                try {
+                    await nango.log(`   📥 Downloading large attachment content for: ${att.name}`, { level: 'info' });
+                    
+                    const contentConfig: ProxyConfiguration = {
+                        endpoint: `/v1.0/users/${userId}/mailFolders/inbox/messages/${messageId}/attachments/${att.id}/$value`,
+                        retries: 5
+                    };
+
+                    const contentResponse = await nango.get(contentConfig);
+                    
+                    // Convert binary data to base64 per Nango docs
+                    let contentBytes: string;
+                    if (typeof contentResponse.data === 'string') {
+                        contentBytes = contentResponse.data;
+                    } else {
+                        const buffer = Buffer.from(contentResponse.data);
+                        contentBytes = buffer.toString('base64');
+                    }
+
+                    attachmentsWithContent.push({
+                        ...att,
+                        contentBytes: contentBytes
+                    });
+                    
+                    await nango.log(`   ✅ Downloaded ${att.name} (${contentBytes.length} base64 chars)`, { level: 'info' });
+
+                } catch (contentError: any) {
+                    await nango.log(`   ❌ Failed to download content for ${att.name}: ${contentError}`, { level: 'warn' });
+                    // Still include metadata without content
+                    attachmentsWithContent.push({
+                        ...att,
+                        contentBytes: undefined
+                    });
+                }
+            }
+        }
+        
+        return attachmentsWithContent;
+        
+    } catch (error: any) {
+        const errorCode = error?.payload?.error?.code || error?.payload?.code || error?.code || 'Unknown';
+        const errorMessage = error?.payload?.error?.message || error?.error?.message || error?.message || 'Unknown error';
+        
+        await nango.log(`❌ Failed to fetch attachments for message ${messageId}: ${errorMessage} [${errorCode}]`, { level: 'error' });
         return [];
     }
 }
@@ -156,7 +271,10 @@ function mapEmail(message: OutlookMessage, rawAttachments: Attachment[]): Outloo
         attachmentId: att.id,
         mimeType: att.contentType,
         filename: att.name,
-        size: att.size
+        size: att.size,
+        isInline: att.isInline || false,
+        contentId: att.contentId || null,
+        ...(att.contentBytes ? { contentBytes: att.contentBytes } : {}) // Only include if defined
     }));
 
     return {

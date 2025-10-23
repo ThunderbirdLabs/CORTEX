@@ -1,9 +1,47 @@
 """
 Outlook connector for Nango unified email API
-Handles normalization of Nango Outlook records
+Handles normalization of Nango Outlook records and attachment downloading
 """
+import httpx
+import logging
 from datetime import datetime
 from typing import Any, Dict
+
+logger = logging.getLogger(__name__)
+
+
+async def download_outlook_attachment(
+    http_client: httpx.AsyncClient,
+    access_token: str,
+    user_id: str,
+    message_id: str,
+    attachment_id: str
+) -> bytes:
+    """
+    Download an Outlook attachment using Microsoft Graph API.
+
+    Args:
+        http_client: HTTP client
+        access_token: Microsoft Graph access token
+        user_id: User ID who owns the message
+        message_id: Outlook message ID
+        attachment_id: Attachment ID from message metadata
+
+    Returns:
+        Attachment bytes
+    """
+    # Microsoft Graph endpoint for attachment content
+    url = f"https://graph.microsoft.com/v1.0/users/{user_id}/mailFolders/inbox/messages/{message_id}/attachments/{attachment_id}/$value"
+
+    response = await http_client.get(
+        url,
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+
+    response.raise_for_status()
+
+    # Microsoft Graph returns raw attachment bytes directly
+    return response.content
 
 
 def normalize_outlook_message(nango_record: Dict[str, Any], tenant_id: str) -> Dict[str, Any]:
