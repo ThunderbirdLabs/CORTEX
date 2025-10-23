@@ -39,6 +39,20 @@ def get_sync_dependencies():
     return http_client, supabase, rag_pipeline
 
 
+async def _run_gmail_sync_with_cleanup(http_client: httpx.AsyncClient, supabase, rag_pipeline, user_id: str, provider_key: str, modified_after: Optional[str] = None):
+    """
+    Async wrapper that runs Gmail sync and handles HTTP client cleanup properly.
+    """
+    from app.services.nango import run_gmail_sync
+    
+    try:
+        result = await run_gmail_sync(http_client, supabase, rag_pipeline, user_id, provider_key, modified_after)
+        return result
+    finally:
+        # Cleanup HTTP client in the same event loop
+        await http_client.aclose()
+
+
 @dramatiq.actor(max_retries=3)
 def sync_gmail_task(user_id: str, job_id: str, modified_after: Optional[str] = None):
     """
@@ -63,11 +77,11 @@ def sync_gmail_task(user_id: str, job_id: str, modified_after: Optional[str] = N
             "started_at": "now()"
         }).eq("id", job_id).execute()
         
-        # Run the sync
-        result = asyncio.run(run_gmail_sync(
+        # Run the sync with proper cleanup
+        result = asyncio.run(_run_gmail_sync_with_cleanup(
             http_client, supabase, rag_pipeline, 
             user_id, settings.nango_provider_key_gmail,
-            modified_after=modified_after
+            modified_after
         ))
         
         # Update job status to completed
@@ -155,6 +169,20 @@ def sync_drive_task(user_id: str, job_id: str, folder_ids: Optional[list] = None
         asyncio.run(http_client.aclose())
 
 
+async def _run_outlook_sync_with_cleanup(http_client: httpx.AsyncClient, supabase, rag_pipeline, user_id: str, provider_key: str):
+    """
+    Async wrapper that runs sync and handles HTTP client cleanup properly.
+    """
+    from app.services.nango import run_tenant_sync
+    
+    try:
+        result = await run_tenant_sync(http_client, supabase, rag_pipeline, user_id, provider_key)
+        return result
+    finally:
+        # Cleanup HTTP client in the same event loop
+        await http_client.aclose()
+
+
 @dramatiq.actor(max_retries=3)
 def sync_outlook_task(user_id: str, job_id: str):
     """
@@ -164,7 +192,6 @@ def sync_outlook_task(user_id: str, job_id: str):
         user_id: User/tenant ID
         job_id: Sync job ID for status tracking
     """
-    from app.services.nango import run_tenant_sync
     from app.core.config import settings
     
     logger.info(f"🚀 Starting Outlook sync job {job_id} for user {user_id}")
@@ -178,8 +205,8 @@ def sync_outlook_task(user_id: str, job_id: str):
             "started_at": "now()"
         }).eq("id", job_id).execute()
         
-        # Run the sync
-        result = asyncio.run(run_tenant_sync(
+        # Run the sync with proper cleanup
+        result = asyncio.run(_run_outlook_sync_with_cleanup(
             http_client, supabase, rag_pipeline,
             user_id, settings.nango_provider_key_outlook
         ))
@@ -205,8 +232,4 @@ def sync_outlook_task(user_id: str, job_id: str):
         }).eq("id", job_id).execute()
         
         raise  # Re-raise for Dramatiq retry logic
-    
-    finally:
-        # Cleanup HTTP client
-        asyncio.run(http_client.aclose())
 
