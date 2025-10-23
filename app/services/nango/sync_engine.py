@@ -127,7 +127,6 @@ async def run_tenant_sync(
                                     size = attachment.get("size", 0)
                                     is_inline = attachment.get("isInline", False)
                                     content_id = attachment.get("contentId")
-                                    content_bytes = attachment.get("contentBytes")  # Pre-downloaded by Nango!
 
                                     # Skip if not supported
                                     if not is_supported_attachment_type(mime_type):
@@ -139,24 +138,18 @@ async def run_tenant_sync(
                                         logger.warning(f"      ⏭️  Skipping large attachment: {filename} ({size} bytes)")
                                         continue
 
-                                    # Check if we have pre-downloaded content from Nango
-                                    if not content_bytes:
-                                        logger.warning(f"      ⏭️  No content available for attachment: {filename} (not downloaded by Nango)")
-                                        continue
-
-                                    # Decode base64 content (much faster than Graph API calls!)
-                                    logger.info(f"      📦 Decoding pre-downloaded content: {filename} ({'inline CID' if is_inline else 'regular'})")
+                                    # Download attachment via Nango action (proper binary handling!)
+                                    logger.info(f"      📥 Downloading via Nango action: {filename} ({'inline CID' if is_inline else 'regular'})")
                                     
-                                    # Decode base64 - try both methods
-                                    try:
-                                        # Try standard decode first
-                                        attachment_bytes = base64.b64decode(content_bytes)
-                                    except Exception as e:
-                                        # If that fails, clean non-ASCII and retry
-                                        logger.warning(f"      ⚠️  Base64 decode failed, cleaning non-ASCII: {e}")
-                                        if isinstance(content_bytes, str):
-                                            content_bytes = content_bytes.encode('ascii', 'ignore').decode('ascii')
-                                        attachment_bytes = base64.b64decode(content_bytes)
+                                    from app.services.nango.nango_client import nango_fetch_attachment
+                                    
+                                    attachment_bytes = await nango_fetch_attachment(
+                                        http_client=http_client,
+                                        provider_key=provider_key,
+                                        connection_id=connection_id,
+                                        thread_id=normalized["message_id"],
+                                        attachment_id=attachment_id
+                                    )
 
                                     # Universal ingestion (Unstructured.io parses it!)
                                     attachment_title = f"[Outlook Attachment] {filename}"

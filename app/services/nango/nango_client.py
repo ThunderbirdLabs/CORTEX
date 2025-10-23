@@ -162,3 +162,72 @@ async def nango_list_email_records(
 
 # Backward compatibility alias
 nango_list_gmail_records = nango_list_email_records
+
+
+# ============================================================================
+# NANGO ACTIONS (e.g., fetch-attachment)
+# ============================================================================
+
+async def nango_fetch_attachment(
+    http_client: httpx.AsyncClient,
+    provider_key: str,
+    connection_id: str,
+    thread_id: str,
+    attachment_id: str
+) -> bytes:
+    """
+    Fetch attachment content via Nango's /fetch-attachment action.
+    
+    This uses Nango's built-in action to properly download and encode binary content.
+    Much cleaner than manually calling Microsoft Graph API!
+
+    Args:
+        http_client: Async HTTP client instance
+        provider_key: Nango provider configuration key (e.g., 'outlook')
+        connection_id: Nango connection ID
+        thread_id: Email message ID
+        attachment_id: Attachment ID
+
+    Returns:
+        Raw bytes of attachment content
+
+    Raises:
+        HTTPException: If request fails
+    """
+    url = "https://api.nango.dev/v1/fetch-attachment"
+    headers = {
+        "Authorization": f"Bearer {settings.nango_secret}",
+        "Connection-Id": connection_id,
+        "Provider-Config-Key": provider_key,
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "threadId": thread_id,
+        "attachmentId": attachment_id
+    }
+
+    logger.info(f"🔽 Nango /fetch-attachment: threadId={thread_id[:30]}..., attachmentId={attachment_id[:30]}...")
+
+    try:
+        response = await http_client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        # Nango action returns: {"output": "<base64_string>"}
+        if "output" in data:
+            import base64
+            attachment_bytes = base64.b64decode(data["output"])
+            logger.info(f"   ✅ Fetched attachment: {len(attachment_bytes)} bytes")
+            return attachment_bytes
+        else:
+            logger.error(f"Unexpected Nango action response: {data}")
+            raise HTTPException(status_code=500, detail="Invalid response from Nango fetch-attachment action")
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Failed to fetch attachment via Nango: {e.response.status_code} - {e.response.text}")
+        raise HTTPException(status_code=500, detail="Failed to fetch attachment from Nango")
+    except Exception as e:
+        logger.error(f"Error fetching attachment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
