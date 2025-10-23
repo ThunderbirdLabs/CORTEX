@@ -497,7 +497,7 @@ export const NangoFlows = [
       {
         "name": "emails",
         "type": "sync",
-        "description": "🔧 V18 FINAL FIX - Removed $select entirely, fetch all attachment metadata!\nOnly checks attachments if hasAttachments=true. Downloads via $value endpoint.\n1-hour lookback for fast testing. Send test emails with PDFs to verify.\nUses Exchange FullAccess delegation. Mail.ReadWrite scope required.",
+        "description": "✨ V21 METADATA ONLY - Sync returns email + attachment metadata ONLY!\nNo attachment content download (like Google Drive approach).\nBackend uses /fetch-attachment action on-demand for clean binary handling.\nUses Exchange FullAccess delegation. Mail.ReadWrite scope required.",
         "sync_type": "incremental",
         "usedModels": [
           "OutlookEmail",

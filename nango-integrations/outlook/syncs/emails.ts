@@ -149,30 +149,7 @@ export default async function fetchData(nango: NangoSync) {
     }
 }
 
-// Helper function to check if we should download attachment content
-function shouldDownloadAttachment(attachment: Attachment): boolean {
-    // Skip large files (>5MB to be safe in Nango)
-    if (attachment.size > 5 * 1024 * 1024) {
-        return false;
-    }
-    
-    // Only download supported file types
-    const supportedTypes = [
-        'application/pdf',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-        'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
-        'text/plain',
-        'text/csv',
-        'image/png',
-        'image/jpeg',
-        'image/jpg',
-        'image/gif',
-        'image/webp'
-    ];
-    
-    return supportedTypes.includes(attachment.contentType);
-}
+// No longer needed - attachment downloads happen on-demand via Nango action
 
 // Update attachment function to work with specific user and get content per Nango docs
 async function fetchAttachmentsForUser(nango: NangoSync, userId: string, messageId: string): Promise<Attachment[]> {
@@ -194,65 +171,14 @@ async function fetchAttachmentsForUser(nango: NangoSync, userId: string, message
             await nango.log(`✅ Found attachments: ${attachments.map((a: Attachment) => `${a.name} (${a.contentType})`).join(', ')}`, { level: 'info' });
         }
 
-        // Process each attachment
-        const attachmentsWithContent: Attachment[] = [];
+        // Return attachment metadata only (no content download)
+        // Backend will call Nango's /fetch-attachment action on-demand (like Google Drive)
+        await nango.log(`   📎 Found ${attachments.length} attachments (metadata only, no download)`, { level: 'info' });
         
-        for (const att of attachments) {
-            const inline = (att as any).isInline ? 'inline' : 'regular';
-            const contentId = (att as any).contentId || 'no-cid';
-            const hasContentBytes = !!(att as any).contentBytes;
-            
-            await nango.log(`   📎 ${att.name} (${att.contentType}, ${att.size} bytes, ${inline}, cid: ${contentId}, hasContent: ${hasContentBytes})`, { level: 'info' });
-            
-            // Check if we should process this attachment
-            if (!shouldDownloadAttachment(att)) {
-                await nango.log(`   ⏭️  Skipping: ${att.name} (${att.size > 5 * 1024 * 1024 ? 'too large' : 'unsupported type'})`, { level: 'info' });
-                // Still include metadata without content
-                attachmentsWithContent.push({
-                    ...att,
-                    contentBytes: undefined
-                });
-                continue;
-            }
-
-            // Always fetch attachment content via $value endpoint (contentBytes not in $select)
-            try {
-                await nango.log(`   📥 Downloading attachment content for: ${att.name}`, { level: 'info' });
-                
-                const contentConfig: ProxyConfiguration = {
-                    endpoint: `/v1.0/users/${userId}/mailFolders/inbox/messages/${messageId}/attachments/${att.id}/$value`,
-                    retries: 5
-                };
-
-                const contentResponse = await nango.get(contentConfig);
-                
-                // Convert binary data to base64 per Nango docs
-                let contentBytes: string;
-                if (typeof contentResponse.data === 'string') {
-                    contentBytes = contentResponse.data;
-                } else {
-                    const buffer = Buffer.from(contentResponse.data);
-                    contentBytes = buffer.toString('base64');
-                }
-
-                attachmentsWithContent.push({
-                    ...att,
-                    contentBytes: contentBytes
-                });
-                
-                await nango.log(`   ✅ Downloaded ${att.name} (${contentBytes.length} base64 chars)`, { level: 'info' });
-
-            } catch (contentError: any) {
-                await nango.log(`   ❌ Failed to download content for ${att.name}: ${contentError}`, { level: 'warn' });
-                // Still include metadata without content
-                attachmentsWithContent.push({
-                    ...att,
-                    contentBytes: undefined
-                });
-            }
-        }
-        
-        return attachmentsWithContent;
+        return attachments.map((att: Attachment) => ({
+            ...att,
+            contentBytes: undefined // Backend downloads on-demand via Nango action
+        }));
         
     } catch (error: any) {
         const errorCode = error?.payload?.error?.code || error?.payload?.code || error?.code || 'Unknown';
