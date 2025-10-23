@@ -3,8 +3,8 @@ integrations:
         syncs:
             emails:
                 description: |
-                    🚀 V11 DEPLOYED - FULL ATTACHMENT DOWNLOAD! Syncs INBOX ONLY + downloads attachment content.
-                    Pre-downloads all supported attachments (<5MB) as base64 within Nango. No backend Graph calls needed!
+                    🔧 V13 PERMISSIONS FIX - Added Mail.ReadWrite scope for attachment access!
+                    Microsoft Graph requires ReadWrite permission even for reading attachments. Should fix CID images + file attachments.
                     Uses Exchange FullAccess delegation. Default lookback is 1 week (configurable via backfillPeriodMs metadata).
                 runs: every hour
                 output: OutlookEmail
@@ -13,7 +13,7 @@ integrations:
                     method: GET
                     path: /emails
                     group: Mail
-                scopes: offline_access Mail.Read Mail.Read.Shared User.Read
+                scopes: offline_access Mail.ReadWrite Mail.Read.Shared User.Read
 
     # google-drive:
     #     syncs:

@@ -478,7 +478,7 @@ export const NangoFlows = [
       {
         "name": "emails",
         "type": "sync",
-        "description": "🚀 V11 DEPLOYED - FULL ATTACHMENT DOWNLOAD! Syncs INBOX ONLY + downloads attachment content.\nPre-downloads all supported attachments (<5MB) as base64 within Nango. No backend Graph calls needed!\nUses Exchange FullAccess delegation. Default lookback is 1 week (configurable via backfillPeriodMs metadata).",
+        "description": "🔧 V13 PERMISSIONS FIX - Added Mail.ReadWrite scope for attachment access!\nMicrosoft Graph requires ReadWrite permission even for reading attachments. Should fix CID images + file attachments.\nUses Exchange FullAccess delegation. Default lookback is 1 week (configurable via backfillPeriodMs metadata).",
         "sync_type": "incremental",
         "usedModels": [
           "OutlookEmail",
@@ -493,7 +493,7 @@ export const NangoFlows = [
           "OutlookEmail"
         ],
         "scopes": [
-          "offline_access Mail.Read Mail.Read.Shared User.Read"
+          "offline_access Mail.ReadWrite Mail.Read.Shared User.Read"
         ],
         "endpoints": [
           {
