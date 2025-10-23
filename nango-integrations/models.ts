@@ -27,6 +27,25 @@ export interface OutlookEmail {
   threadId: string;
 };
 
+export interface GmailAttachment {
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  contentBytes: string | undefined;
+};
+
+export interface GmailEmail {
+  id: string;
+  sender: string;
+  recipients: string;
+  date: string;
+  subject: string;
+  body: string;
+  attachments: GmailAttachment[];
+  threadId: string;
+};
+
 export interface DriveFile {
   id: string;
   name: string;
@@ -478,7 +497,7 @@ export const NangoFlows = [
       {
         "name": "emails",
         "type": "sync",
-        "description": "🔍 V14 ENHANCED DEBUGGING - Added detailed attachment detection logging!\nLogs hasAttachments flag, CID references in body, Graph API responses, attachment details.\nNow with better error handling and endpoint debugging. Mail.ReadWrite scope for attachment access.\nUses Exchange FullAccess delegation. Default lookback is 1 week (configurable via backfillPeriodMs metadata).",
+        "description": "🔧 V17 ATTACHMENT FIX - Fixed 400 error by removing contentBytes from $select!\nNow fetches ALL attachments via $value endpoint. 1-hour lookback for fast testing.\nSend yourself test emails with PDF/images and run manual sync to verify attachments download.\nUses Exchange FullAccess delegation. Mail.ReadWrite scope required.",
         "sync_type": "incremental",
         "usedModels": [
           "OutlookEmail",

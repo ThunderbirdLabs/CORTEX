@@ -56,7 +56,7 @@ interface OutlookEmail {
 }
 
 // Default to 1 week for testing (can be changed via metadata)
-const DEFAULT_BACKFILL_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
+const DEFAULT_BACKFILL_MS = 1 * 60 * 60 * 1000; // 1 HOUR for testing attachments
 
 export default async function fetchData(nango: NangoSync) {
     const metadata = await nango.getMetadata<{ backfillPeriodMs?: number }>();
@@ -175,8 +175,8 @@ async function fetchAttachmentsForUser(nango: NangoSync, userId: string, message
     const config: ProxyConfiguration = {
         endpoint: `/v1.0/users/${userId}/mailFolders/inbox/messages/${messageId}/attachments`,
         params: { 
-            // Include contentBytes in select - Graph API includes it for small attachments (<3MB)
-            $select: 'id,contentType,name,size,isInline,contentId,contentBytes'
+            // Note: contentBytes not supported in $select for attachments endpoint, fetch separately
+            $select: 'id,contentType,name,size,isInline,contentId'
         },
         retries: 10
     };
@@ -214,49 +214,40 @@ async function fetchAttachmentsForUser(nango: NangoSync, userId: string, message
                 continue;
             }
 
-            // Check if contentBytes already included (small attachments <3MB)
-            if ((att as any).contentBytes) {
-                await nango.log(`   ✅ Using embedded contentBytes for: ${att.name}`, { level: 'info' });
+            // Always fetch attachment content via $value endpoint (contentBytes not in $select)
+            try {
+                await nango.log(`   📥 Downloading attachment content for: ${att.name}`, { level: 'info' });
+                
+                const contentConfig: ProxyConfiguration = {
+                    endpoint: `/v1.0/users/${userId}/mailFolders/inbox/messages/${messageId}/attachments/${att.id}/$value`,
+                    retries: 5
+                };
+
+                const contentResponse = await nango.get(contentConfig);
+                
+                // Convert binary data to base64 per Nango docs
+                let contentBytes: string;
+                if (typeof contentResponse.data === 'string') {
+                    contentBytes = contentResponse.data;
+                } else {
+                    const buffer = Buffer.from(contentResponse.data);
+                    contentBytes = buffer.toString('base64');
+                }
+
                 attachmentsWithContent.push({
                     ...att,
-                    contentBytes: (att as any).contentBytes
+                    contentBytes: contentBytes
                 });
-            } else {
-                // For larger attachments, fetch content via $value endpoint
-                try {
-                    await nango.log(`   📥 Downloading large attachment content for: ${att.name}`, { level: 'info' });
-                    
-                    const contentConfig: ProxyConfiguration = {
-                        endpoint: `/v1.0/users/${userId}/mailFolders/inbox/messages/${messageId}/attachments/${att.id}/$value`,
-                        retries: 5
-                    };
+                
+                await nango.log(`   ✅ Downloaded ${att.name} (${contentBytes.length} base64 chars)`, { level: 'info' });
 
-                    const contentResponse = await nango.get(contentConfig);
-                    
-                    // Convert binary data to base64 per Nango docs
-                    let contentBytes: string;
-                    if (typeof contentResponse.data === 'string') {
-                        contentBytes = contentResponse.data;
-                    } else {
-                        const buffer = Buffer.from(contentResponse.data);
-                        contentBytes = buffer.toString('base64');
-                    }
-
-                    attachmentsWithContent.push({
-                        ...att,
-                        contentBytes: contentBytes
-                    });
-                    
-                    await nango.log(`   ✅ Downloaded ${att.name} (${contentBytes.length} base64 chars)`, { level: 'info' });
-
-                } catch (contentError: any) {
-                    await nango.log(`   ❌ Failed to download content for ${att.name}: ${contentError}`, { level: 'warn' });
-                    // Still include metadata without content
-                    attachmentsWithContent.push({
-                        ...att,
-                        contentBytes: undefined
-                    });
-                }
+            } catch (contentError: any) {
+                await nango.log(`   ❌ Failed to download content for ${att.name}: ${contentError}`, { level: 'warn' });
+                // Still include metadata without content
+                attachmentsWithContent.push({
+                    ...att,
+                    contentBytes: undefined
+                });
             }
         }
         
