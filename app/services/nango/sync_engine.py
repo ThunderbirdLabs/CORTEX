@@ -15,6 +15,7 @@ from app.services.connectors.outlook import normalize_outlook_message
 from app.services.nango.nango_client import get_graph_token_via_nango, nango_list_email_records
 from app.services.nango.persistence import append_jsonl, ingest_to_cortex
 from app.services.universal.ingest import ingest_document_universal
+from app.services.filters.openai_spam_detector import should_filter_email
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -86,15 +87,28 @@ async def run_tenant_sync(
                 logger.info(f"📬 Fetched {len(records)} Outlook records from Nango (cursor: {cursor[:20] if cursor else 'none'}...)")
 
                 # Process each record
+                filtered_count = 0
                 for record in records:
                     try:
-                        # Normalize Outlook message (Nango format → our format)
+                        # Normalize Outlook message (Nango format → our format) - FULL EMAIL
                         normalized = normalize_outlook_message(record, tenant_id)
 
-                        # Universal ingestion (documents table + Neo4j + Qdrant)
+                        # Spam filtering (only if enabled) - uses TRUNCATED version for classification
+                        if settings.enable_spam_filtering:
+                            should_skip = should_filter_email({
+                                'subject': normalized.get('subject', ''),
+                                'body': normalized.get('full_body', ''),
+                                'sender': normalized.get('sender_address', '')
+                            })
+                            
+                            if should_skip:
+                                filtered_count += 1
+                                continue  # Skip ingestion but log it
+                        
+                        # Universal ingestion (documents table + Neo4j + Qdrant) - FULL EMAIL
                         await ingest_to_cortex(cortex_pipeline, normalized, supabase)
 
-                        # Optionally write to JSONL
+                        # Optionally write to JSONL - FULL EMAIL
                         await append_jsonl(normalized)
 
                         messages_synced += 1
@@ -103,6 +117,9 @@ async def run_tenant_sync(
                         error_msg = f"Error processing Outlook message: {e}"
                         logger.error(error_msg)
                         errors.append(error_msg)
+                
+                if filtered_count > 0:
+                    logger.info(f"🚫 Filtered {filtered_count} spam/newsletter emails from this batch")
 
                 # Update cursor for next page
                 if next_cursor:

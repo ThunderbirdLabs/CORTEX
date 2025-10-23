@@ -90,6 +90,14 @@ class Settings(BaseSettings):
     sentry_dsn: Optional[str] = Field(default=None, description="Sentry DSN for error tracking")
 
     # ============================================================================
+    # SPAM FILTERING
+    # ============================================================================
+    
+    enable_spam_filtering: bool = Field(default=True, description="Enable OpenAI-powered spam/newsletter filtering")
+    spam_filter_log_skipped: bool = Field(default=True, description="Log filtered spam emails for monitoring")
+    spam_filter_batch_size: int = Field(default=10, description="Number of emails to classify per OpenAI API call")
+
+    # ============================================================================
     # OPTIONAL SETTINGS
     # ============================================================================
 

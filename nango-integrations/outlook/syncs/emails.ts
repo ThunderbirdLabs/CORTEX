@@ -83,8 +83,8 @@ export default async function fetchData(nango: NangoSync) {
         
         try {
             const config: ProxyConfiguration = {
-                // Change from /me/messages to /users/{userId}/messages
-                endpoint: `/v1.0/users/${user.id}/messages`,
+                // Only fetch from main inbox folder (excludes Junk, Spam, Promotions, etc.)
+                endpoint: `/v1.0/users/${user.id}/mailFolders/inbox/messages`,
                 params: {
                     $filter: `receivedDateTime ge ${syncDate.toISOString()}`,
                     $select: 'id,from,toRecipients,receivedDateTime,subject,hasAttachments,conversationId,body,webLink,changeKey'
@@ -133,7 +133,7 @@ export default async function fetchData(nango: NangoSync) {
 // Update attachment function to work with specific user
 async function fetchAttachmentsForUser(nango: NangoSync, userId: string, messageId: string): Promise<Attachment[]> {
     const config: ProxyConfiguration = {
-        endpoint: `/v1.0/users/${userId}/messages/${messageId}/attachments`,
+        endpoint: `/v1.0/users/${userId}/mailFolders/inbox/messages/${messageId}/attachments`,
         params: { $select: 'id,contentType,name,size' },
         retries: 10
     };

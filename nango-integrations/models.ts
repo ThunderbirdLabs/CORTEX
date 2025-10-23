@@ -478,7 +478,7 @@ export const NangoFlows = [
       {
         "name": "emails",
         "type": "sync",
-        "description": "🚀 V8 DEPLOYED - Syncs ALL users in organization using Exchange FullAccess delegation.\nSkips problematic users (guests, inactive, 404s) and keeps all successfully synced records.\nDefault lookback is 1 week (configurable via backfillPeriodMs metadata).",
+        "description": "🚀 V9 DEPLOYED - Syncs INBOX ONLY (no spam/junk) for ALL users in organization.\nUses Exchange FullAccess delegation. Skips problematic users and keeps successful records.\nDefault lookback is 1 week (configurable via backfillPeriodMs metadata).",
         "sync_type": "incremental",
         "usedModels": [
           "OutlookEmail",
