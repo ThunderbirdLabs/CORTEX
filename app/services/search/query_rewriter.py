@@ -2,8 +2,11 @@
 Query Rewriting - Converts vague follow-up queries into explicit searchable queries
 """
 import os
+import logging
 from typing import List, Dict
 from openai import OpenAI
+
+logger = logging.getLogger(__name__)
 
 
 # Initialize OpenAI client
@@ -83,5 +86,5 @@ Rewrite this query to be explicit and searchable. Return ONLY the rewritten quer
         return rewritten
 
     except Exception as e:
-        print(f"⚠️  Query rewriting failed: {str(e)}")
+        logger.warning(f"⚠️  Query rewriting failed: {str(e)}")
         return query  # Fallback to original query on error

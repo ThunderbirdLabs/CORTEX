@@ -3,10 +3,13 @@ Dependency Injection
 Provides global clients and services to routes via FastAPI dependencies
 """
 from typing import Optional, Any
+import logging
 import httpx
 from supabase import Client, create_client
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # GLOBAL CLIENTS (initialized at startup)
@@ -69,11 +72,11 @@ async def initialize_clients():
     try:
         from app.services.ingestion.llamaindex import UniversalIngestionPipeline
         rag_pipeline = UniversalIngestionPipeline()
-        print("✅ RAG pipeline initialized successfully")
+        logger.info("✅ RAG pipeline initialized successfully")
     except Exception as e:
-        print(f"⚠️  Warning: Failed to initialize RAG pipeline: {e}")
-        print(f"   This is OK - pipeline will initialize on first use")
-        print(f"   Common causes: Neo4j/Qdrant connection issues, missing env vars")
+        logger.warning(f"⚠️  Failed to initialize RAG pipeline: {e}")
+        logger.warning(f"   This is OK - pipeline will initialize on first use")
+        logger.warning(f"   Common causes: Neo4j/Qdrant connection issues, missing env vars")
         rag_pipeline = None
 
 
