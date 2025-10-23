@@ -131,7 +131,8 @@ async def ingest_document_universal(
             supabase=supabase,
             tenant_id=tenant_id,
             content=content,
-            source=source
+            source=source,
+            skip_dedupe=True  # TEMPORARY: Skip deduplication for testing
         )
 
         if not should_ingest:
