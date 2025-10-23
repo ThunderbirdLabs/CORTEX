@@ -234,7 +234,7 @@ def sync_outlook_task(user_id: str, job_id: str):
         raise  # Re-raise for Dramatiq retry logic
 
 
-@dramatiq.actor(max_retries=2, time_limit=300000)  # 5 min timeout
+@dramatiq.actor(max_retries=2)
 def deduplicate_entities_task():
     """
     Periodic entity deduplication task (runs every 15 minutes).
