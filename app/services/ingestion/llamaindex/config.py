@@ -77,9 +77,9 @@ POSSIBLE_RELATIONS = [
     "WORKS_FOR", "WORKS_WITH", "REPORTS_TO", "FOUNDED", "MANAGES",
     # Business relationships
     "CLIENT_OF", "VENDOR_OF", "SUPPLIES",
-    # Content connections
-    "ABOUT", "MENTIONS", "RELATES_TO", "ATTACHED_TO",
-    # Status & actions
+    # Content connections (MENTIONS critical for chunk-to-entity links)
+    "ABOUT", "MENTIONS", "ATTACHED_TO",
+    # Status & actions (manufacturing-critical)
     "REQUIRES", "FOLLOWS_UP", "RESOLVES", "USED_IN",
     # Financial
     "PAID_BY", "PAID_TO"
@@ -143,9 +143,6 @@ KG_VALIDATION_SCHEMA = [
     ("EMAIL", "MENTIONS", "PERSON"),
     ("EMAIL", "MENTIONS", "COMPANY"),
     ("EMAIL", "MENTIONS", "TOPIC"),
-    ("EMAIL", "RELATES_TO", "TOPIC"),
-    ("EMAIL", "RELATES_TO", "DEAL"),
-    ("EMAIL", "RELATES_TO", "TASK"),
 
     # Documents
     ("DOCUMENT", "ABOUT", "TOPIC"),
@@ -154,49 +151,35 @@ KG_VALIDATION_SCHEMA = [
     ("DOCUMENT", "MENTIONS", "PERSON"),
     ("DOCUMENT", "MENTIONS", "COMPANY"),
     ("DOCUMENT", "MENTIONS", "TOPIC"),
-    ("DOCUMENT", "RELATES_TO", "TOPIC"),
-    ("DOCUMENT", "RELATES_TO", "DEAL"),
 
     # Deals
     ("DEAL", "ABOUT", "TOPIC"),
     ("DEAL", "ABOUT", "COMPANY"),
     ("DEAL", "MENTIONS", "PERSON"),
     ("DEAL", "MENTIONS", "COMPANY"),
-    ("DEAL", "RELATES_TO", "TOPIC"),
     ("DEAL", "SENT_BY", "COMPANY"),         # Company sent the RFQ/order
     ("DEAL", "SENT_TO", "COMPANY"),         # Company received the quote
 
     # Tasks
     ("TASK", "ABOUT", "TOPIC"),
     ("TASK", "ABOUT", "PERSON"),
-    ("TASK", "RELATES_TO", "TOPIC"),
-    ("TASK", "RELATES_TO", "DEAL"),
 
     # Meetings
     ("MEETING", "ABOUT", "TOPIC"),
     ("MEETING", "ABOUT", "DEAL"),
     ("MEETING", "MENTIONS", "PERSON"),
     ("MEETING", "MENTIONS", "COMPANY"),
-    ("MEETING", "RELATES_TO", "TOPIC"),
-    ("MEETING", "RELATES_TO", "DEAL"),
 
     # Events
     ("EVENT", "ABOUT", "TOPIC"),
     ("EVENT", "ABOUT", "COMPANY"),
     ("EVENT", "ABOUT", "DEAL"),
     ("EVENT", "MENTIONS", "PERSON"),
-    ("EVENT", "RELATES_TO", "TOPIC"),
-    ("EVENT", "RELATES_TO", "DEAL"),
 
     # Payments
     ("PAYMENT", "ABOUT", "DEAL"),
-    ("PAYMENT", "RELATES_TO", "TOPIC"),
 
-    # Topics (general connections)
-    ("TOPIC", "RELATES_TO", "TOPIC"),
-
-    # Materials (manufacturing/operations)
-    ("MATERIAL", "RELATES_TO", "TOPIC"),        # Material relates to a topic/project
+    # Materials (manufacturing/operations - high-value relationships only)
     ("MATERIAL", "USED_IN", "DEAL"),            # Material is used in this order/quote
     ("DOCUMENT", "MENTIONS", "MATERIAL"),       # Document mentions a material
     ("DOCUMENT", "ABOUT", "MATERIAL"),          # Spec sheets, data sheets, inspection reports
@@ -206,7 +189,7 @@ KG_VALIDATION_SCHEMA = [
     ("DEAL", "ABOUT", "MATERIAL"),              # Deal involves a material
     ("DEAL", "REQUIRES", "MATERIAL"),           # Order specifies material requirements
     ("MEETING", "ABOUT", "MATERIAL"),           # Meeting discusses a material
-    ("PAYMENT", "RELATES_TO", "MATERIAL"),      # Material purchase payments
+    ("PAYMENT", "ABOUT", "MATERIAL"),           # Material purchase payments
     ("COMPANY", "VENDOR_OF", "MATERIAL"),       # Company is vendor of material (passive)
     ("COMPANY", "SUPPLIES", "MATERIAL"),        # Company supplies material (active)
     ("PERSON", "MANAGES", "MATERIAL"),          # Person manages material inventory/procurement

@@ -135,7 +135,7 @@ ENTITY TYPES (11 total):
 - EVENT: Conferences, launches, deadlines, trade shows
 - MATERIAL: Raw materials, supplies, components, parts (e.g., Polycarbonate PC 1000, steel, resin, pellets)
 
-RELATIONSHIP TYPES (26 total):
+RELATIONSHIP TYPES (25 total - focus on HIGH-VALUE relationships only):
 
 Organization & People:
 - WORKS_FOR: Person works for Company (e.g., "Sarah works for Acme")
@@ -157,13 +157,12 @@ Assignment & Attendance:
 - ATTENDED_BY: Meeting/Event attended by Person
 
 Content & References:
-- ABOUT: Email/Document/Deal/Task/Meeting/Event/Payment is about Topic/Person/Company/Deal/Material
-- MENTIONS: Email/Document/Deal/Meeting/Event mentions Person/Company/Topic/Material
-- RELATES_TO: Email/Document/Deal/Task/Meeting/Event/Payment/Topic/Material relates to Topic/Deal/Material
+- ABOUT: Email/Document/Deal/Task/Meeting/Event/Payment is about Topic/Person/Company/Deal/Material (PRIMARY subject)
+- MENTIONS: Email/Document/Deal/Meeting/Event mentions Person/Company/Topic/Material (MENTIONED but not primary)
 - ATTACHED_TO: Email/Document attached to Document
 
-Workflow & Dependencies:
-- REQUIRES: Task/Deal requires Task/Document/Material (critical for manufacturing orders!)
+Workflow & Dependencies (CRITICAL for manufacturing):
+- REQUIRES: Task/Deal requires Task/Document/Material (manufacturing orders need specific materials!)
 - FOLLOWS_UP: Email/Deal/Meeting follows up on Email/Meeting
 - RESOLVES: Email/Task resolves Task
 - USED_IN: Material used in Deal (which materials go into which orders)
@@ -171,6 +170,12 @@ Workflow & Dependencies:
 Financial:
 - PAID_BY: Payment paid by Person/Company
 - PAID_TO: Payment paid to Person/Company
+
+EXTRACTION PRIORITY (Quality > Quantity):
+1. CRITICAL: WORKS_FOR, SUPPLIES, REQUIRES, USED_IN, MANAGES (manufacturing operations)
+2. HIGH: CLIENT_OF, VENDOR_OF, ASSIGNED_TO (business relationships)
+3. MEDIUM: SENT_BY, CREATED_BY, ABOUT (authorship and primary topics only)
+4. LOW: MENTIONS (only extract if highly relevant, not every casual mention)
 
 MANUFACTURING-SPECIFIC GUIDANCE:
 - Extract material names precisely (e.g., "Polycarbonate PC 1000", "ABS resin", "steel alloy")
@@ -180,9 +185,9 @@ MANUFACTURING-SPECIFIC GUIDANCE:
 - Link production tasks to required materials with REQUIRES
 - Track who manages material procurement with MANAGES
 
-The system will validate that relationships are used correctly based on entity types.
+The system will validate relationships using strict schema enforcement.
 
-Extract up to {max_triplets_per_chunk} relevant entity-relationship triplets.
+Extract up to {max_triplets_per_chunk} HIGH-VALUE entity-relationship triplets (prioritize quality over quantity).
 
 Text:
 {text}
@@ -194,12 +199,12 @@ Text:
         # strict=False allows flexibility while guiding toward schema
         self.entity_extractor = SchemaLLMPathExtractor(
             llm=self.extraction_llm,
-            max_triplets_per_chunk=10,  # Extract up to 10 entity relationships per chunk
+            max_triplets_per_chunk=5,  # Extract up to 5 high-value entity relationships per chunk
             num_workers=4,
             possible_entities=POSSIBLE_ENTITIES,
             possible_relations=POSSIBLE_RELATIONS,
             kg_validation_schema=KG_VALIDATION_SCHEMA,
-            strict=False,  # Guide toward schema but allow exceptions
+            strict=True,  # Enforce schema strictly for production quality
             extract_prompt=extraction_prompt  # Custom prompt for accurate extraction
         )
         logger.info(f"✅ Entity Extractor: SchemaLLMPathExtractor (validated business schema + custom prompt)")
