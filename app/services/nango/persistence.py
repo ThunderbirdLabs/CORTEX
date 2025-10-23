@@ -106,6 +106,8 @@ async def ingest_to_cortex(
                 logger.warning(f"Failed to parse received_datetime: {e}")
 
         # Use universal ingestion function
+        logger.info(f"🔍 DEBUG: About to ingest email - tenant_id: {email.get('tenant_id')}, message_id: {email.get('message_id')}")
+        
         result = await ingest_document_universal(
             supabase=supabase,
             cortex_pipeline=cortex_pipeline,
@@ -125,6 +127,8 @@ async def ingest_to_cortex(
                 "web_link": email.get("web_link", "")
             }
         )
+        
+        logger.info(f"🔍 DEBUG: Ingestion result: {result}")
 
         if result['status'] == 'success':
             logger.info(f"✅ Universal ingestion successful")
