@@ -67,11 +67,30 @@ class EntityDeduplicationService:
                 "entities_merged": int,
                 "clusters": List[Dict]
             }
+
+        LEGACY DATA HANDLING:
+        =====================
+        Entities created before the timestamp feature was added have created_at_timestamp = NULL.
+        These "legacy entities" are ALWAYS included in incremental deduplication to ensure:
+
+        1. First-time dedup run catches all historical duplicates
+        2. New entities are compared against entire historical graph
+        3. Example: "Tony Codet" (5 months ago, NULL timestamp) matches
+           "tony c" (this morning, recent timestamp)
+
+        After the first successful dedup run, most entities will have timestamps and
+        performance will improve. However, NULL entities are always checked to be safe.
+
+        PERFORMANCE IMPACT:
+        - First run: ~422 entities × 10 candidates = 4,220 comparisons (~2-5 seconds)
+        - Subsequent runs: Only recent entities (much faster)
+        - At 10K entities/day: ~10,000 × 10 = 100,000 comparisons (~5-10 seconds)
         """
 
         logger.info("Starting entity deduplication...")
         if hours_lookback:
             logger.info(f"   Incremental mode: checking entities from last {hours_lookback} hours")
+            logger.info(f"   NOTE: Legacy entities with NULL timestamps are ALWAYS included")
         else:
             logger.info("   Full scan mode: checking ALL entities (may be slow at scale)")
 
@@ -91,6 +110,10 @@ class EntityDeduplicationService:
             # Explanation:
             # - First condition: NULL timestamp (legacy/backfill - check these too)
             # - Second condition: timestamp is recent (normal incremental case)
+            #
+            # WHY THIS MATTERS:
+            # Without NULL check, we'd miss 95%+ of entities on first run (all historical data).
+            # New entities must be compared against ALL historical entities, not just recent ones.
 
         # Cypher query for deduplication
         query = f"""
