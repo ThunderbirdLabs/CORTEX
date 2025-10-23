@@ -223,13 +223,56 @@ def sync_outlook_task(user_id: str, job_id: str):
         
     except Exception as e:
         logger.error(f"❌ Outlook sync job {job_id} failed: {e}")
-        
+
         # Update job status to failed
         supabase.table("sync_jobs").update({
             "status": "failed",
             "completed_at": "now()",
             "error_message": str(e)
         }).eq("id", job_id).execute()
-        
+
+        raise  # Re-raise for Dramatiq retry logic
+
+
+@dramatiq.actor(max_retries=2, time_limit=300000)  # 5 min timeout
+def deduplicate_entities_task():
+    """
+    Periodic entity deduplication task (runs every 15 minutes).
+
+    Merges duplicate entities created during batch ingestion using:
+    - Vector similarity (cosine > 0.92)
+    - Levenshtein distance (< 3 chars)
+
+    Production-ready for Render with Dramatiq distributed locking.
+    """
+    from app.services.deduplication.entity_deduplication import run_entity_deduplication
+    from app.core.config import settings
+
+    logger.info("⏰ Running scheduled entity deduplication...")
+
+    try:
+        results = run_entity_deduplication(
+            neo4j_uri=settings.neo4j_uri,
+            neo4j_password=settings.neo4j_password,
+            dry_run=False,
+            similarity_threshold=settings.dedup_similarity_threshold,
+            levenshtein_max_distance=settings.dedup_levenshtein_max_distance
+        )
+
+        merged_count = results.get("entities_merged", 0)
+
+        if merged_count > 0:
+            logger.info(f"✅ Entity deduplication complete: {merged_count} entities merged")
+        else:
+            logger.debug("✅ Entity deduplication complete: no duplicates found")
+
+        # Alert if suspiciously high merge count
+        if merged_count > 100:
+            logger.warning(f"🚨 High merge count: {merged_count} entities merged! Review thresholds.")
+
+        return results
+
+    except Exception as e:
+        logger.error(f"❌ Entity deduplication failed: {e}")
         raise  # Re-raise for Dramatiq retry logic
 
