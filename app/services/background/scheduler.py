@@ -57,20 +57,31 @@ def start_periodic_scheduler():
     Usage:
         python -m app.services.background.scheduler
     """
+    # Force print to stdout for Render logs
+    print("🚀 Starting cortex-scheduler process...")
+    print(f"   REDIS_URL configured: {bool(REDIS_URL)}")
+
     if not REDIS_URL:
+        print("❌ REDIS_URL not set - scheduler requires Redis for distributed locking")
         logger.error("❌ REDIS_URL not set - scheduler requires Redis for distributed locking")
         return
 
     # Connect to Redis
+    print("📡 Connecting to Redis...")
     redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+    print("✅ Redis connected")
 
     # Try to acquire distributed lock
+    print("🔒 Attempting to acquire scheduler lock...")
     logger.info("Attempting to acquire scheduler lock...")
     if not acquire_scheduler_lock(redis_client):
+        print("⚠️  Another scheduler instance is already running. Exiting.")
+        print("   (This is normal when running multiple Render instances)")
         logger.info("⚠️  Another scheduler instance is already running. Exiting.")
         logger.info("   (This is normal when running multiple Render instances)")
         return
 
+    print("✅ Scheduler lock acquired - starting scheduler")
     logger.info("✅ Scheduler lock acquired - starting scheduler")
 
     scheduler = BlockingScheduler()
@@ -84,6 +95,13 @@ def start_periodic_scheduler():
         replace_existing=True,
         max_instances=1  # Prevent overlapping executions
     )
+
+    print("=" * 80)
+    print("Dramatiq Periodic Scheduler Started (with distributed lock)")
+    print("=" * 80)
+    print("📅 Scheduled Jobs:")
+    print("   - Entity Deduplication: Every 15 minutes")
+    print("=" * 80)
 
     logger.info("=" * 80)
     logger.info("Dramatiq Periodic Scheduler Started (with distributed lock)")
