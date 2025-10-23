@@ -79,17 +79,18 @@ class EntityDeduplicationService:
         # CRITICAL: Filter recent entities to CHECK, but search AGAINST entire graph
         time_filter = ""
         if hours_lookback:
-            # Only check recently added entities (handles merged entities with array timestamps)
+            # Only check recently added entities
+            # IMPORTANT: Include NULL timestamps (legacy entities from before timestamp feature)
             cutoff_timestamp = int(time.time()) - (hours_lookback * 3600)
             time_filter = f"""
             AND (
-                (e.created_at_timestamp IS NOT NULL AND e.created_at_timestamp >= {cutoff_timestamp})
-                OR (e.created_at_timestamp IS NOT NULL AND NOT apoc.meta.cypher.isType(e.created_at_timestamp, "INTEGER"))
+                e.created_at_timestamp IS NULL
+                OR (e.created_at_timestamp IS NOT NULL AND e.created_at_timestamp >= {cutoff_timestamp})
             )
             """
             # Explanation:
-            # - First condition: timestamp is recent (normal case)
-            # - Second condition: timestamp is NOT an integer (merged entity with array) - skip these
+            # - First condition: NULL timestamp (legacy/backfill - check these too)
+            # - Second condition: timestamp is recent (normal incremental case)
 
         # Cypher query for deduplication
         query = f"""
