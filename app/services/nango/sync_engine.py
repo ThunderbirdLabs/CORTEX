@@ -147,10 +147,16 @@ async def run_tenant_sync(
                                     # Decode base64 content (much faster than Graph API calls!)
                                     logger.info(f"      📦 Decoding pre-downloaded content: {filename} ({'inline CID' if is_inline else 'regular'})")
                                     
-                                    # Clean any non-ASCII characters from base64 string (Nango sometimes has invalid chars)
-                                    if isinstance(content_bytes, str):
-                                        content_bytes = content_bytes.encode('ascii', 'ignore').decode('ascii')
-                                    attachment_bytes = base64.b64decode(content_bytes)
+                                    # Decode base64 - try both methods
+                                    try:
+                                        # Try standard decode first
+                                        attachment_bytes = base64.b64decode(content_bytes)
+                                    except Exception as e:
+                                        # If that fails, clean non-ASCII and retry
+                                        logger.warning(f"      ⚠️  Base64 decode failed, cleaning non-ASCII: {e}")
+                                        if isinstance(content_bytes, str):
+                                            content_bytes = content_bytes.encode('ascii', 'ignore').decode('ascii')
+                                        attachment_bytes = base64.b64decode(content_bytes)
 
                                     # Universal ingestion (Unstructured.io parses it!)
                                     attachment_title = f"[Outlook Attachment] {filename}"
