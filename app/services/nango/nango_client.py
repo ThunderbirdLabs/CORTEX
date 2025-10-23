@@ -211,20 +211,16 @@ async def nango_fetch_attachment(
 
     try:
         # Nango actions use GET with JSON body (unconventional but that's their API)
-        response = await http_client.request("GET", url, headers=headers, json=payload)
+        # Set a longer timeout for large attachments (default is 5s, increase to 120s)
+        response = await http_client.request("GET", url, headers=headers, json=payload, timeout=120.0)
         response.raise_for_status()
         
-        data = response.json()
+        # Nango action returns RAW BINARY CONTENT (not JSON!)
+        # The response body IS the attachment content itself
+        attachment_bytes = response.content  # This is already bytes
         
-        # Nango action returns: {"output": "<base64_string>"}
-        if "output" in data:
-            import base64
-            attachment_bytes = base64.b64decode(data["output"])
-            logger.info(f"   ✅ Fetched attachment: {len(attachment_bytes)} bytes")
-            return attachment_bytes
-        else:
-            logger.error(f"Unexpected Nango action response: {data}")
-            raise HTTPException(status_code=500, detail="Invalid response from Nango fetch-attachment action")
+        logger.info(f"   ✅ Fetched attachment: {len(attachment_bytes)} bytes")
+        return attachment_bytes
 
     except httpx.HTTPStatusError as e:
         logger.error(f"Failed to fetch attachment via Nango: {e.response.status_code} - {e.response.text}")
