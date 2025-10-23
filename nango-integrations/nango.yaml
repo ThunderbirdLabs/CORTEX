@@ -3,8 +3,9 @@ integrations:
         syncs:
             emails:
                 description: |
-                    🔧 V13 PERMISSIONS FIX - Added Mail.ReadWrite scope for attachment access!
-                    Microsoft Graph requires ReadWrite permission even for reading attachments. Should fix CID images + file attachments.
+                    🔍 V14 ENHANCED DEBUGGING - Added detailed attachment detection logging!
+                    Logs hasAttachments flag, CID references in body, Graph API responses, attachment details.
+                    Now with better error handling and endpoint debugging. Mail.ReadWrite scope for attachment access.
                     Uses Exchange FullAccess delegation. Default lookback is 1 week (configurable via backfillPeriodMs metadata).
                 runs: every hour
                 output: OutlookEmail

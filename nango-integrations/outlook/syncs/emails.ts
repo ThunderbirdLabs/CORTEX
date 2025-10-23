@@ -114,6 +114,11 @@ export default async function fetchData(nango: NangoSync) {
                 for (const message of messageList) {
                     let attachments: Attachment[] = [];
 
+                    // Log email details for debugging
+                    const hasAttachmentsFlag = (message as any).hasAttachments;
+                    const bodyHasCid = message.body?.content?.includes('[cid:') || message.body?.content?.includes('cid:');
+                    await nango.log(`📧 Email: ${message.subject} | hasAttachments: ${hasAttachmentsFlag} | body has CID: ${bodyHasCid}`, { level: 'info' });
+
                     // Always try to fetch attachments - embedded attachments (CID) might not set hasAttachments=true
                     attachments = await fetchAttachmentsForUser(nango, user.id, message.id);
                     
@@ -176,12 +181,16 @@ async function fetchAttachmentsForUser(nango: NangoSync, userId: string, message
         retries: 10
     };
 
+    await nango.log(`🔍 Checking attachments for message ${messageId} with endpoint: ${config.endpoint}`, { level: 'info' });
+
     try {
         const response = await nango.get<{ value: Attachment[] }>(config);
         const attachments = response.data.value || [];
         
+        await nango.log(`📎 Graph API returned ${attachments.length} attachments for message ${messageId}`, { level: 'info' });
+        
         if (attachments.length > 0) {
-            await nango.log(`✅ Fetched ${attachments.length} attachment metadata for message ${messageId}`, { level: 'info' });
+            await nango.log(`✅ Found attachments: ${attachments.map((a: Attachment) => `${a.name} (${a.contentType})`).join(', ')}`, { level: 'info' });
         }
 
         // Process each attachment

@@ -478,7 +478,7 @@ export const NangoFlows = [
       {
         "name": "emails",
         "type": "sync",
-        "description": "🔧 V13 PERMISSIONS FIX - Added Mail.ReadWrite scope for attachment access!\nMicrosoft Graph requires ReadWrite permission even for reading attachments. Should fix CID images + file attachments.\nUses Exchange FullAccess delegation. Default lookback is 1 week (configurable via backfillPeriodMs metadata).",
+        "description": "🔍 V14 ENHANCED DEBUGGING - Added detailed attachment detection logging!\nLogs hasAttachments flag, CID references in body, Graph API responses, attachment details.\nNow with better error handling and endpoint debugging. Mail.ReadWrite scope for attachment access.\nUses Exchange FullAccess delegation. Default lookback is 1 week (configurable via backfillPeriodMs metadata).",
         "sync_type": "incremental",
         "usedModels": [
           "OutlookEmail",
