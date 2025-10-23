@@ -11,8 +11,8 @@ from supabase import Client
 from app.services.ingestion.llamaindex import UniversalIngestionPipeline
 from app.services.nango.database import get_connection, get_gmail_cursor, set_gmail_cursor
 from app.services.connectors.gmail import normalize_gmail_message, download_gmail_attachment, is_supported_attachment_type
-from app.services.connectors.microsoft_graph import list_all_users, normalize_message, sync_user_mailbox
-from app.services.nango.nango_client import get_graph_token_via_nango, nango_list_gmail_records
+from app.services.connectors.outlook import normalize_outlook_message
+from app.services.nango.nango_client import get_graph_token_via_nango, nango_list_email_records
 from app.services.nango.persistence import append_jsonl, ingest_to_cortex
 from app.services.universal.ingest import ingest_document_universal
 from app.core.config import settings
@@ -32,7 +32,9 @@ async def run_tenant_sync(
     provider_key: str
 ) -> Dict[str, Any]:
     """
-    Run a full Outlook sync for a tenant.
+    Run a full Outlook sync for a tenant using Nango unified API.
+    
+    Fetches pre-synced emails from Nango's database (no direct Microsoft Graph calls!).
 
     Args:
         http_client: Async HTTP client instance
@@ -44,9 +46,8 @@ async def run_tenant_sync(
     Returns:
         Dictionary with sync statistics
     """
-    logger.info(f"Starting Outlook sync for tenant {tenant_id}")
+    logger.info(f"🚀 Starting Outlook sync for tenant {tenant_id} (via Nango unified API)")
 
-    users_synced = 0
     messages_synced = 0
     errors = []
 
@@ -54,53 +55,41 @@ async def run_tenant_sync(
         # Get connection ID
         connection_id = await get_connection(tenant_id, provider_key)
         if not connection_id:
-            error_msg = f"No connection found for tenant {tenant_id}"
+            error_msg = f"No Outlook connection found for tenant {tenant_id}"
             logger.error(error_msg)
             errors.append(error_msg)
             return {
                 "status": "error",
                 "tenant_id": tenant_id,
-                "users_synced": 0,
                 "messages_synced": 0,
                 "errors": errors
             }
 
-        # Get Graph access token
-        access_token = await get_graph_token_via_nango(http_client, provider_key, connection_id)
-
-        # List all users in tenant
-        users = await list_all_users(http_client, access_token)
-
-        # Sync each user's mailbox
-        for user in users:
-            user_id = user["id"]
-            user_principal_name = user["userPrincipalName"]
-
+        # Paginate through all Outlook records from Nango
+        cursor = None
+        has_more = True
+        
+        while has_more:
             try:
-                # Sync mailbox using delta API
-                raw_messages = await sync_user_mailbox(
+                # Fetch page of pre-synced records from Nango
+                result = await nango_list_email_records(
                     http_client,
-                    access_token,
-                    tenant_id,
                     provider_key,
-                    user_id,
-                    user_principal_name
+                    connection_id,
+                    cursor=cursor,
+                    limit=100
                 )
 
-                # Process and persist messages
-                for raw_msg in raw_messages:
-                    try:
-                        # Skip deleted messages
-                        if raw_msg.get("@removed"):
-                            continue
+                records = result.get("records", [])
+                next_cursor = result.get("next_cursor")
 
-                        # Normalize message
-                        normalized = normalize_message(
-                            raw_msg,
-                            tenant_id,
-                            user_id,
-                            user_principal_name
-                        )
+                logger.info(f"📬 Fetched {len(records)} Outlook records from Nango (cursor: {cursor[:20] if cursor else 'none'}...)")
+
+                # Process each record
+                for record in records:
+                    try:
+                        # Normalize Outlook message (Nango format → our format)
+                        normalized = normalize_outlook_message(record, tenant_id)
 
                         # Universal ingestion (documents table + Neo4j + Qdrant)
                         await ingest_to_cortex(cortex_pipeline, normalized, supabase)
@@ -109,24 +98,29 @@ async def run_tenant_sync(
                         await append_jsonl(normalized)
 
                         messages_synced += 1
+
                     except Exception as e:
-                        error_msg = f"Error processing message: {e}"
+                        error_msg = f"Error processing Outlook message: {e}"
                         logger.error(error_msg)
                         errors.append(error_msg)
 
-                users_synced += 1
+                # Update cursor for next page
+                if next_cursor:
+                    cursor = next_cursor
+                else:
+                    has_more = False
 
             except Exception as e:
-                error_msg = f"Error syncing user {user_principal_name}: {e}"
+                error_msg = f"Error fetching Outlook page from Nango: {e}"
                 logger.error(error_msg)
                 errors.append(error_msg)
+                has_more = False
 
-        logger.info(f"Outlook sync completed for tenant {tenant_id}: {users_synced} users, {messages_synced} messages")
+        logger.info(f"✅ Outlook sync completed for tenant {tenant_id}: {messages_synced} messages")
 
         return {
             "status": "success" if not errors else "partial_success",
             "tenant_id": tenant_id,
-            "users_synced": users_synced,
             "messages_synced": messages_synced,
             "errors": errors
         }
@@ -138,7 +132,6 @@ async def run_tenant_sync(
         return {
             "status": "error",
             "tenant_id": tenant_id,
-            "users_synced": users_synced,
             "messages_synced": messages_synced,
             "errors": errors
         }
@@ -208,7 +201,7 @@ async def run_gmail_sync(
         while has_more:
             try:
                 # Fetch page of records
-                result = await nango_list_gmail_records(
+                result = await nango_list_email_records(
                     http_client,
                     provider_key,
                     connection_id,

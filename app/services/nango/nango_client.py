@@ -67,10 +67,10 @@ async def get_graph_token_via_nango(
 
 
 # ============================================================================
-# GMAIL UNIFIED API
+# NANGO UNIFIED EMAIL API (Gmail, Outlook, etc.)
 # ============================================================================
 
-async def nango_list_gmail_records(
+async def nango_list_email_records(
     http_client: httpx.AsyncClient,
     provider_key: str,
     connection_id: str,
@@ -79,11 +79,14 @@ async def nango_list_gmail_records(
     modified_after: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    List Gmail records from Nango unified API.
+    List email records from Nango unified API (Gmail, Outlook, etc.).
+    
+    Nango syncs emails on its servers and provides a unified API to fetch them.
+    This function fetches pre-synced emails - no direct provider API calls needed!
 
     Args:
         http_client: Async HTTP client instance
-        provider_key: Nango provider configuration key
+        provider_key: Nango provider configuration key (e.g., 'gmail', 'outlook')
         connection_id: Nango connection ID
         cursor: Optional cursor for pagination
         limit: Number of records per page
@@ -150,8 +153,12 @@ async def nango_list_gmail_records(
             return {"records": [], "next_cursor": None}
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"Failed to fetch Gmail records from Nango: {e.response.status_code} - {e.response.text}")
-        raise HTTPException(status_code=500, detail="Failed to fetch Gmail records from Nango")
+        logger.error(f"Failed to fetch email records from Nango: {e.response.status_code} - {e.response.text}")
+        raise HTTPException(status_code=500, detail="Failed to fetch email records from Nango")
     except Exception as e:
-        logger.error(f"Error fetching Gmail records: {e}")
+        logger.error(f"Error fetching email records: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Backward compatibility alias
+nango_list_gmail_records = nango_list_email_records
