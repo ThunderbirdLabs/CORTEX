@@ -67,7 +67,10 @@ async def nango_webhook(
                 return {"status": "error", "message": "Missing end_user information"}
 
             logger.info(f"OAuth successful for user {end_user_id}, saving connection")
-            await save_connection(end_user_id, provider_key, nango_connection_id)
+            # Use email format as connection_id for API calls (matches Nango Connect SDK behavior)
+            connection_id_for_api = f"{end_user_id}@app.internal"
+            await save_connection(end_user_id, provider_key, connection_id_for_api)
+            logger.info(f"Saved connection with ID: {connection_id_for_api}")
             return {"status": "connection_saved", "user": end_user_id}
 
         except Exception as e:
