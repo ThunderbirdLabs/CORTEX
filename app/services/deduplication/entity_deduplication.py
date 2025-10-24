@@ -151,8 +151,11 @@ class EntityDeduplicationService:
         YIELD node, score
 
         // 3. Filter by similarity threshold + text distance
+        // CRITICAL: Use elementId() not deprecated id()
         WHERE score > toFloat($similarity_threshold)
-          AND node.id <> e.id
+          AND elementId(node) <> elementId(e)
+          AND node.name IS NOT NULL
+          AND e.name IS NOT NULL
           AND (
             toLower(node.name) CONTAINS toLower(e.name)
             OR toLower(e.name) CONTAINS toLower(node.name)
@@ -176,17 +179,16 @@ class EntityDeduplicationService:
         """ if dry_run else """
         // MERGE: Combine duplicates into primary node (batched for production scale)
         // Create unique cluster identifier to avoid processing same entities twice
+        // Use elementId() for future-proof Neo4j 5.x+ compatibility
         WITH e, duplicates
-        WITH e, duplicates, [n IN duplicates + [e] | id(n)] AS nodeIds
-        WITH e, duplicates, apoc.coll.min(nodeIds) AS clusterId
+        WITH e, duplicates, [n IN duplicates + [e] | elementId(n)] AS allElementIds
+        WITH e, duplicates, allElementIds, apoc.coll.min(allElementIds) AS clusterId
 
-        // Only process each cluster once (from the perspective of the node with lowest ID)
-        WHERE id(e) = clusterId
+        // Only process each cluster once (from perspective of node with min elementId)
+        WHERE elementId(e) = clusterId
 
-        // Return node IDs for batched processing (not Node objects)
-        WITH [n IN duplicates + [e] | id(n)] AS nodesToMerge
-
-        RETURN nodesToMerge
+        // Return elementIds for batched processing (not Node objects)
+        RETURN allElementIds AS nodesToMerge
         """)
 
         with self.driver.session(database=self.database) as session:
@@ -285,15 +287,28 @@ class EntityDeduplicationService:
 
         logger.info(f"Deduplication complete: {merged_count} entities merged, {skipped_count} skipped, {embeddings_regenerated} embeddings regenerated")
 
+        # Production monitoring: alert on suspicious patterns
+        total_attempts = merged_count + skipped_count
+        if total_attempts > 0:
+            skip_rate = (skipped_count / total_attempts) * 100
+            if skip_rate > 50:
+                logger.warning(f"⚠️  HIGH SKIP RATE: {skip_rate:.1f}% of clusters skipped - may indicate race conditions or configuration issues")
+
+            if embeddings_regenerated > 0:
+                regen_rate = (embeddings_regenerated / merged_count) * 100 if merged_count > 0 else 0
+                if regen_rate > 50:
+                    logger.error(f"🚨 HIGH EMBEDDING REGENERATION: {regen_rate:.1f}% of merges required embedding fix - investigate why embeddings are missing!")
+
         return {
             "entities_merged": merged_count,
             "clusters_processed": merged_count,
             "clusters_skipped": skipped_count,
             "embeddings_regenerated": embeddings_regenerated,
+            "skip_rate_percent": round((skipped_count / total_attempts) * 100, 1) if total_attempts > 0 else 0,
             "dry_run": False
         }
 
-    def _merge_single_cluster(self, session, node_ids: List[int]) -> Dict[str, Any]:
+    def _merge_single_cluster(self, session, node_element_ids: List[str]) -> Dict[str, Any]:
         """
         Merge a single cluster of duplicate nodes with smart property handling.
 
@@ -304,24 +319,26 @@ class EntityDeduplicationService:
         4. Verify embedding exists, regenerate if missing (self-healing)
         5. Preserve oldest created_at_timestamp
 
+        Args:
+            node_element_ids: List of elementId strings (Neo4j 5.x format)
+
         Returns:
             {"merged": bool, "embedding_regenerated": int}
         """
         # Step 1: Get nodes with relationship counts (skip if already deleted)
+        # Use direct MATCH with elementId() - more reliable than apoc.nodes.get
         check_query = """
-        WITH $nodeIds AS nodeIds
-        UNWIND nodeIds AS nodeId
-        CALL apoc.nodes.get([nodeId]) YIELD node
-        WITH node
-        MATCH (node)
+        WITH $elementIds AS elementIds
+        UNWIND elementIds AS elemId
+        MATCH (node) WHERE elementId(node) = elemId
         OPTIONAL MATCH (node)-[r]-()
-        WITH node, count(DISTINCT r) AS rel_count, id(node) AS internal_id
-        RETURN internal_id, node.name AS name, node.embedding AS embedding,
+        WITH node, count(DISTINCT r) AS rel_count, elementId(node) AS elem_id
+        RETURN elem_id, node.name AS name, node.embedding AS embedding,
                node.created_at_timestamp AS timestamp, rel_count
-        ORDER BY rel_count DESC, internal_id ASC
+        ORDER BY rel_count DESC, elem_id ASC
         """
 
-        nodes_info = list(session.run(check_query, {"nodeIds": node_ids}))
+        nodes_info = list(session.run(check_query, {"elementIds": node_element_ids}))
 
         # Skip if nodes already merged (less than 2 remain)
         if len(nodes_info) < 2:
@@ -329,9 +346,9 @@ class EntityDeduplicationService:
 
         # Step 2: Select primary node (most connected = most context)
         primary = nodes_info[0]
-        duplicates = [n["internal_id"] for n in nodes_info[1:]]
+        duplicates = [n["elem_id"] for n in nodes_info[1:]]
 
-        primary_id = primary["internal_id"]
+        primary_id = primary["elem_id"]
         primary_name = primary["name"]
         primary_embedding = primary["embedding"]
 
@@ -340,10 +357,12 @@ class EntityDeduplicationService:
         # Step 3: Merge duplicates into primary
         # CRITICAL: Keep primary's properties (discard duplicates' values)
         # This ensures we keep the most-connected node's context
+        # Use direct MATCH with elementId - no deprecated functions
         merge_query = """
-        WITH $primaryId AS primaryId, $duplicateIds AS duplicateIds
-        CALL apoc.nodes.get([primaryId]) YIELD node AS primaryNode
-        CALL apoc.nodes.get(duplicateIds) YIELD node AS dupNode
+        WITH $primaryElemId AS primaryElemId, $duplicateElemIds AS duplicateElemIds
+        MATCH (primaryNode) WHERE elementId(primaryNode) = primaryElemId
+        UNWIND duplicateElemIds AS dupElemId
+        MATCH (dupNode) WHERE elementId(dupNode) = dupElemId
         WITH primaryNode, collect(dupNode) AS dupNodes
         WHERE size(dupNodes) > 0
 
@@ -364,8 +383,8 @@ class EntityDeduplicationService:
         """
 
         merge_result = session.run(merge_query, {
-            "primaryId": primary_id,
-            "duplicateIds": duplicates
+            "primaryElemId": primary_id,
+            "duplicateElemIds": duplicates
         })
         merged_node = merge_result.single()
 
@@ -374,7 +393,7 @@ class EntityDeduplicationService:
 
         # Step 4: Preserve oldest timestamp across all nodes
         oldest_timestamp_query = """
-        MATCH (n) WHERE id(n) = $nodeId
+        MATCH (n) WHERE elementId(n) = $elemId
         WITH n, $timestamps AS timestamps
         WITH n, [t IN timestamps WHERE t IS NOT NULL] AS valid_timestamps
         WHERE size(valid_timestamps) > 0
@@ -384,36 +403,45 @@ class EntityDeduplicationService:
 
         all_timestamps = [n["timestamp"] for n in nodes_info]
         session.run(oldest_timestamp_query, {
-            "nodeId": primary_id,
+            "elemId": primary_id,
             "timestamps": all_timestamps
         })
 
         # Step 5: Self-healing - verify embedding exists, regenerate if missing
         embedding_regenerated = 0
-        if not primary_embedding or primary_embedding == []:
-            logger.warning(f"Embedding missing for '{primary_name}' after merge, regenerating...")
+        # Check for None, empty list, or list of zeros (invalid embedding)
+        embedding_invalid = (
+            primary_embedding is None
+            or primary_embedding == []
+            or (isinstance(primary_embedding, list) and len(primary_embedding) > 0 and all(v == 0 for v in primary_embedding))
+        )
+
+        if embedding_invalid:
+            logger.warning(f"Embedding missing/invalid for '{primary_name}' after merge, regenerating...")
 
             if self.embed_model:
                 try:
                     # Generate embedding for entity using name + label for context
                     get_label_query = """
-                    MATCH (n) WHERE id(n) = $nodeId
+                    MATCH (n) WHERE elementId(n) = $elemId
                     RETURN n.name AS name, [l IN labels(n) WHERE l <> '__Entity__'][0] AS label
                     """
-                    label_result = session.run(get_label_query, {"nodeId": primary_id}).single()
+                    label_result = session.run(get_label_query, {"elemId": primary_id}).single()
 
-                    if label_result:
-                        entity_text = f"{label_result['label']}: {label_result['name']}"
+                    if label_result and label_result['name']:
+                        # Use label if available, otherwise just name
+                        label = label_result['label'] if label_result['label'] else "Entity"
+                        entity_text = f"{label}: {label_result['name']}"
                         new_embedding = self.embed_model.get_text_embedding(entity_text)
 
                         # Update node with regenerated embedding
                         update_query = """
-                        MATCH (n) WHERE id(n) = $nodeId
+                        MATCH (n) WHERE elementId(n) = $elemId
                         SET n.embedding = $embedding
                         RETURN n.embedding AS embedding
                         """
                         session.run(update_query, {
-                            "nodeId": primary_id,
+                            "elemId": primary_id,
                             "embedding": new_embedding
                         })
 
