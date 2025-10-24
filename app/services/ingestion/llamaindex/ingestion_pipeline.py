@@ -485,6 +485,19 @@ Text:
             if extract_entities and content:
                 logger.info(f"   → Extracting entities from {document_type} content (LLM)...")
                 try:
+                    # CONTEXT LENGTH FIX: Truncate content to fit within model's token limit
+                    # gpt-4o-mini has 8K token limit (~6K tokens usable for content after prompt overhead)
+                    # Estimate: 1 token ≈ 4 characters, so 6000 tokens ≈ 24000 characters
+                    MAX_EXTRACTION_CHARS = 24000
+                    extraction_content = content
+
+                    if len(content) > MAX_EXTRACTION_CHARS:
+                        logger.warning(
+                            f"   ⚠️  Content too long for entity extraction "
+                            f"({len(content)} chars), truncating to {MAX_EXTRACTION_CHARS} chars..."
+                        )
+                        extraction_content = content[:MAX_EXTRACTION_CHARS]
+
                     # CRITICAL FIX: Create Document with NO metadata for extraction
                     # This ensures entity nodes have ONLY entity-intrinsic properties
                     #
@@ -500,7 +513,7 @@ Text:
                     #
                     # Document linkage: Via MENTIONED_IN relationships (already implemented)
                     document_for_extraction = Document(
-                        text=content,
+                        text=extraction_content,  # Use truncated content
                         metadata={},  # Empty metadata = clean entity properties
                         excluded_llm_metadata_keys=list(doc_metadata.keys())  # Exclude ALL from LLM
                     )

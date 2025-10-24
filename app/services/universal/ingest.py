@@ -213,7 +213,27 @@ async def ingest_document_universal(
                 
             except Exception as upload_error:
                 logger.warning(f"   ⚠️  Failed to upload file to storage: {upload_error}")
-                # Continue without file storage - not critical
+                logger.info(f"   💾 Falling back to PostgreSQL binary storage in raw_data...")
+
+                # BACKUP STRATEGY: Store file bytes in raw_data if Supabase Storage fails
+                # Base64 encode for safe JSON storage
+                import base64
+                if not raw_data:
+                    raw_data = {}
+
+                # Store file as base64 in raw_data (for small files only, <10MB)
+                if len(file_bytes) <= 10 * 1024 * 1024:  # 10MB limit
+                    raw_data['_file_backup'] = {
+                        'filename': filename,
+                        'mime_type': mime_type,
+                        'size_bytes': len(file_bytes),
+                        'data_base64': base64.b64encode(file_bytes).decode('utf-8'),
+                        'note': 'Stored due to Supabase Storage upload failure'
+                    }
+                    file_size_bytes = len(file_bytes)
+                    logger.info(f"   ✅ File backed up to raw_data ({len(file_bytes)} bytes)")
+                else:
+                    logger.warning(f"   ⚠️  File too large for PostgreSQL backup ({len(file_bytes)} bytes), skipping...")
 
         # ========================================================================
         # STEP 3: Save to Unified Documents Table (Supabase) - SOURCE OF TRUTH
