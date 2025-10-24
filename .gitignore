@@ -7,6 +7,10 @@
 .env.local
 .env.*.local
 
+# Google Cloud Credentials
+google-cloud-vision-key.json
+*-key.json
+
 # Dependencies
 node_modules/
 .nango/

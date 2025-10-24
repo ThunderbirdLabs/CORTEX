@@ -1,13 +1,13 @@
 """
-Universal File Parser using Unstructured + LlamaIndex + AWS Textract OCR
+Universal File Parser using Unstructured + LlamaIndex + Google Cloud Vision OCR
 Extracts plain text from ANY file type (PDF, Word, Excel, Images, etc.)
 
 Strategy:
-1. PDFs: Fast mode first, then Textract OCR for scanned PDFs (< 100 chars)
-2. Images: AWS Textract (HIPAA-compliant, instant, no model downloads)
+1. PDFs: Fast mode first, then Cloud Vision OCR for scanned PDFs (< 100 chars)
+2. Images: Google Cloud Vision (HIPAA-compliant, accurate OCR)
 3. Office files: Unstructured parsing (lightweight)
 4. Lazy loading: Heavy ML models only loaded when needed
-5. OCR: AWS Textract - HIPAA/SOC2 compliant, pay-per-use
+5. OCR: Google Cloud Vision - HIPAA/SOC2 compliant, pay-per-use
 """
 import logging
 import tempfile
@@ -23,10 +23,10 @@ import magic
 logger = logging.getLogger(__name__)
 
 
-def extract_with_textract(file_path: str, file_type: str) -> Tuple[str, Dict]:
+def extract_with_vision(file_path: str, file_type: str) -> Tuple[str, Dict]:
     """
-    Extract text from images using AWS Textract (HIPAA-compliant OCR).
-    Fast, no model downloads, pay-per-use.
+    Extract text from images using Google Cloud Vision API (HIPAA-compliant OCR).
+    Fast, accurate, pay-per-use.
 
     Args:
         file_path: Path to image file
@@ -35,59 +35,58 @@ def extract_with_textract(file_path: str, file_type: str) -> Tuple[str, Dict]:
     Returns:
         Tuple of (extracted_text, metadata)
     """
-    import boto3
-    from botocore.exceptions import ClientError
-
-    # Initialize Textract client
-    textract = boto3.client('textract', region_name=os.getenv('AWS_REGION', 'us-east-1'))
-
-    # Read image file
-    with open(file_path, 'rb') as image_file:
-        image_bytes = image_file.read()
+    from google.cloud import vision
+    from google.api_core.exceptions import GoogleAPIError
 
     try:
-        # Call Textract to detect text
-        response = textract.detect_document_text(
-            Document={'Bytes': image_bytes}
-        )
+        # Initialize Vision client
+        client = vision.ImageAnnotatorClient()
 
-        # Extract all text from blocks
-        lines = []
-        for block in response.get('Blocks', []):
-            if block['BlockType'] == 'LINE':
-                lines.append(block['Text'])
+        # Read image file
+        with open(file_path, 'rb') as image_file:
+            content = image_file.read()
 
-        text = "\n".join(lines)
+        image = vision.Image(content=content)
+
+        # Perform text detection
+        response = client.text_detection(image=image)
+
+        if response.error.message:
+            raise GoogleAPIError(response.error.message)
+
+        texts = response.text_annotations
+
+        # First annotation contains full text
+        text = texts[0].description if texts else ""
 
         metadata = {
-            "parser": "aws_textract",
+            "parser": "google_cloud_vision",
             "file_type": file_type,
             "file_name": Path(file_path).name,
             "file_size": os.path.getsize(file_path),
             "characters": len(text),
             "ocr_enabled": True,
-            "ocr_method": "aws_textract_hipaa_compliant",
-            "blocks_detected": len(response.get('Blocks', []))
+            "ocr_method": "google_cloud_vision_hipaa_compliant",
+            "annotations_detected": len(texts)
         }
 
-        logger.info(f"   ✅ AWS Textract extracted {len(text)} characters ({len(lines)} lines)")
+        logger.info(f"   ✅ Google Cloud Vision extracted {len(text)} characters")
         return text, metadata
 
-    except ClientError as e:
-        error_code = e.response['Error']['Code']
-        logger.error(f"   ❌ AWS Textract failed: {error_code} - {e}")
+    except Exception as e:
+        logger.error(f"   ❌ Google Cloud Vision failed: {e}")
 
         # Fallback: Save file without OCR
         text = ""
         metadata = {
-            "parser": "textract_failed",
+            "parser": "vision_failed",
             "file_type": file_type,
             "file_name": Path(file_path).name,
             "file_size": os.path.getsize(file_path),
             "characters": 0,
             "ocr_enabled": False,
             "ocr_error": str(e),
-            "note": "AWS Textract failed - original file stored"
+            "note": "Google Cloud Vision failed - original file stored"
         }
 
         return text, metadata
@@ -169,9 +168,9 @@ def extract_text_from_file(
                 )
                 text = "\n\n".join([str(el) for el in elements])
                 
-                # Step 2: If we got barely any text, it's probably scanned - use Textract OCR!
+                # Step 2: If we got barely any text, it's probably scanned - use Cloud Vision OCR!
                 if len(text.strip()) < 100:
-                    logger.warning(f"   ⚠️  Only {len(text)} chars extracted - PDF might be scanned, trying Textract OCR...")
+                    logger.warning(f"   ⚠️  Only {len(text)} chars extracted - PDF might be scanned, trying Cloud Vision OCR...")
                     try:
                         # Convert PDF to images and OCR each page
                         from pdf2image import convert_from_path
@@ -180,7 +179,7 @@ def extract_text_from_file(
                         images = convert_from_path(file_path, dpi=200)
                         logger.info(f"   📄 Converted PDF to {len(images)} images for OCR")
 
-                        # OCR each page with Textract
+                        # OCR each page with Cloud Vision
                         page_texts = []
                         for i, image in enumerate(images):
                             # Save image to temp file
@@ -188,16 +187,16 @@ def extract_text_from_file(
                                 image.save(tmp.name, 'PNG')
                                 tmp_path = tmp.name
 
-                            # OCR the page image with Textract
+                            # OCR the page image with Cloud Vision
                             try:
-                                page_text, _ = extract_with_textract(tmp_path, 'image/png')
+                                page_text, _ = extract_with_vision(tmp_path, 'image/png')
                                 page_texts.append(page_text)
                                 logger.info(f"   ✅ Page {i+1}: {len(page_text)} chars extracted")
                             finally:
                                 os.unlink(tmp_path)
 
                         text = "\n\n".join(page_texts)
-                        logger.info(f"   ✅ Textract OCR extracted {len(text)} chars from scanned PDF")
+                        logger.info(f"   ✅ Cloud Vision OCR extracted {len(text)} chars from scanned PDF")
                     except Exception as ocr_err:
                         logger.warning(f"   ⚠️  PDF OCR failed: {ocr_err}, using fast extraction result")
                 
@@ -215,11 +214,11 @@ def extract_text_from_file(
                 # Fall back to generic parser
                 text, metadata = extract_with_generic_parser(file_path, file_type)
         
-        # Special handling for images (OCR with AWS Textract - HIPAA compliant)
+        # Special handling for images (OCR with Google Cloud Vision - HIPAA compliant)
         elif file_type in ['image/png', 'image/jpeg', 'image/jpg', 'image/tiff', 'image/bmp']:
-            logger.info(f"   🔍 Running OCR on image (AWS Textract - HIPAA compliant)...")
-            text, metadata = extract_with_textract(file_path, file_type)
-            # Note: extract_with_textract already handles errors gracefully
+            logger.info(f"   🔍 Running OCR on image (Google Cloud Vision - HIPAA compliant)...")
+            text, metadata = extract_with_vision(file_path, file_type)
+            # Note: extract_with_vision already handles errors gracefully
         
         else:
             # Non-PDF, non-image files: use standard Unstructured

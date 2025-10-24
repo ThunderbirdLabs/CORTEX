@@ -49,7 +49,7 @@ pillow-heif>=0.10.0
 pi-heif>=0.10.0
 
 # OCR support for images and scanned PDFs
-boto3>=1.35.0  # AWS SDK for Textract (HIPAA-compliant OCR)
+google-cloud-vision>=3.7.0  # Google Cloud Vision API for OCR (HIPAA-compliant)
 pdf2image>=1.16.3  # PDF to image conversion
 
 # Background job queue
