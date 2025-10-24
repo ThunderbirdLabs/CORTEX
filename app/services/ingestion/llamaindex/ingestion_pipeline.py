@@ -359,15 +359,24 @@ Text:
                 "created_at_timestamp": created_at_timestamp,  # Unix timestamp for filtering
             }
 
-            # Merge in any additional metadata from the row
+            # Merge in any additional metadata from the row (TRUNCATE to prevent metadata > chunk_size error)
             if "metadata" in document_row and document_row["metadata"]:
+                additional_meta = {}
                 if isinstance(document_row["metadata"], dict):
-                    doc_metadata.update(document_row["metadata"])
+                    additional_meta = document_row["metadata"]
                 elif isinstance(document_row["metadata"], str):
                     try:
-                        doc_metadata.update(json.loads(document_row["metadata"]))
+                        additional_meta = json.loads(document_row["metadata"])
                     except:
                         pass
+
+                # Truncate metadata values to prevent total metadata length > chunk size
+                MAX_META_VALUE_LEN = 200  # Max chars per metadata value
+                for key, value in additional_meta.items():
+                    if isinstance(value, str) and len(value) > MAX_META_VALUE_LEN:
+                        doc_metadata[key] = value[:MAX_META_VALUE_LEN] + "..."
+                    else:
+                        doc_metadata[key] = value
 
             # For emails: preserve email-specific fields
             if document_type == "email":

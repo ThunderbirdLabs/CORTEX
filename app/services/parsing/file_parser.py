@@ -37,8 +37,23 @@ def extract_with_vision(file_path: str, file_type: str) -> Tuple[str, Dict]:
     """
     from google.cloud import vision
     from google.api_core.exceptions import GoogleAPIError
+    import json
 
     try:
+        # Handle GOOGLE_APPLICATION_CREDENTIALS env var
+        # If it's JSON content (not a path), write it to temp file
+        creds_env = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+        if creds_env and creds_env.strip().startswith('{'):
+            # It's JSON content, write to temp file
+            logger.info("   🔑 Creating temp credentials file from JSON env var")
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_creds:
+                tmp_creds.write(creds_env)
+                tmp_creds_path = tmp_creds.name
+
+            # Set env var to point to temp file
+            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = tmp_creds_path
+            logger.info(f"   ✅ Credentials written to {tmp_creds_path}")
+
         # Initialize Vision client
         client = vision.ImageAnnotatorClient()
 

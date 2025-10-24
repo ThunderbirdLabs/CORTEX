@@ -8,5 +8,13 @@ echo "📦 Installing Python dependencies..."
 pip install --upgrade pip
 pip install -r requirements.txt
 
+# Create Google Cloud credentials file from environment variable
+if [ ! -z "$GOOGLE_CLOUD_CREDENTIALS_JSON" ]; then
+  echo "🔑 Creating Google Cloud credentials file..."
+  echo "$GOOGLE_CLOUD_CREDENTIALS_JSON" > /tmp/google-cloud-key.json
+  export GOOGLE_APPLICATION_CREDENTIALS="/tmp/google-cloud-key.json"
+  echo "✅ Google Cloud credentials saved to /tmp/google-cloud-key.json"
+fi
+
 echo "✅ Build complete!"
 
