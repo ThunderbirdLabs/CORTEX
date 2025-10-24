@@ -32,6 +32,7 @@ def main():
         merged_count = results.get("entities_merged", 0)
         skipped_count = results.get("clusters_skipped", 0)
         embeddings_regen = results.get("embeddings_regenerated", 0)
+        examples = results.get("merge_examples", [])
 
         if merged_count > 0:
             print(f"✅ Merged {merged_count} entities in {elapsed:.1f}s")
@@ -39,6 +40,13 @@ def main():
                 print(f"   ℹ️  Skipped {skipped_count} already-merged clusters")
             if embeddings_regen > 0:
                 print(f"   🔧 Regenerated {embeddings_regen} missing embeddings (self-healing)")
+
+            # Show examples of what was merged
+            if examples:
+                print(f"\n   📋 Examples merged:")
+                for i, ex in enumerate(examples[:5], 1):
+                    dups = ', '.join(ex['duplicates'])
+                    print(f"      {i}. {ex['primary']} ← [{dups}]")
         else:
             print(f"✅ No duplicates found ({elapsed:.1f}s)")
 

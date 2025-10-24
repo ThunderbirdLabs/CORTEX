@@ -252,6 +252,7 @@ class EntityDeduplicationService:
         merged_count = 0
         skipped_count = 0
         embeddings_regenerated = 0
+        merge_examples = []  # Track first 5 merges for logging
         # Batch size optimization based on Neo4j best practices:
         # - Neo4j recommendation: 2,000-20,000 nodes per transaction
         # - Each cluster = 2-10 nodes average
@@ -278,6 +279,10 @@ class EntityDeduplicationService:
                         if result["merged"]:
                             merged_count += 1
                             embeddings_regenerated += result.get("embedding_regenerated", 0)
+
+                            # Track first 5 examples for logging
+                            if len(merge_examples) < 5 and "example" in result:
+                                merge_examples.append(result["example"])
                         else:
                             skipped_count += 1
 
@@ -291,6 +296,12 @@ class EntityDeduplicationService:
             logger.info(f"Batch {batch_num}/{total_batches} complete: {merged_count} merged, {skipped_count} skipped")
 
         logger.info(f"Deduplication complete: {merged_count} entities merged, {skipped_count} skipped, {embeddings_regenerated} embeddings regenerated")
+
+        # Log examples of what was merged
+        if merge_examples:
+            logger.info(f"\n📋 Sample merges ({len(merge_examples)} examples):")
+            for i, example in enumerate(merge_examples, 1):
+                logger.info(f"  {i}. {example['primary']} ← [{', '.join(example['duplicates'])}]")
 
         # Production monitoring: alert on suspicious patterns
         total_attempts = merged_count + skipped_count
@@ -310,6 +321,7 @@ class EntityDeduplicationService:
             "clusters_skipped": skipped_count,
             "embeddings_regenerated": embeddings_regenerated,
             "skip_rate_percent": round((skipped_count / total_attempts) * 100, 1) if total_attempts > 0 else 0,
+            "merge_examples": merge_examples[:5],  # Return first 5 examples
             "dry_run": False
         }
 
@@ -352,6 +364,7 @@ class EntityDeduplicationService:
         # Step 2: Select primary node (most connected = most context)
         primary = nodes_info[0]
         duplicates = [n["elem_id"] for n in nodes_info[1:]]
+        duplicate_names = [n["name"] for n in nodes_info[1:]]
 
         primary_id = primary["elem_id"]
         primary_name = primary["name"]
@@ -498,7 +511,11 @@ class EntityDeduplicationService:
 
         return {
             "merged": True,
-            "embedding_regenerated": embedding_regenerated
+            "embedding_regenerated": embedding_regenerated,
+            "example": {
+                "primary": primary_name or "Unknown",
+                "duplicates": duplicate_names
+            }
         }
 
     def get_deduplication_stats(self) -> Dict[str, Any]:

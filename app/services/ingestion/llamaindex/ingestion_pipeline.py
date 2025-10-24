@@ -443,6 +443,9 @@ Text:
                         "email": sender_address
                     }
                 )
+                # CRITICAL: Generate embedding for deduplication (same as LLM entities)
+                sender_text = f"PERSON: {sender_name}"
+                sender_person.embedding = await self.embed_model.aget_text_embedding(sender_text)
                 self.graph_store.upsert_nodes([sender_person])
 
                 sent_by_rel = Relation(
@@ -468,6 +471,9 @@ Text:
                         name=recipient_name,
                         properties={"name": recipient_name, "email": recipient_email}
                     )
+                    # CRITICAL: Generate embedding for deduplication (same as LLM entities)
+                    recipient_text = f"PERSON: {recipient_name}"
+                    recipient_person.embedding = await self.embed_model.aget_text_embedding(recipient_text)
                     self.graph_store.upsert_nodes([recipient_person])
 
                     sent_to_rel = Relation(
@@ -856,6 +862,9 @@ Text:
                         "email": sender_address
                     }
                 )
+                # CRITICAL: Generate embedding for deduplication (same as LLM entities)
+                sender_text = f"PERSON: {display_name}"
+                sender_person.embedding = await self.embed_model.aget_text_embedding(sender_text)
                 self.graph_store.upsert_nodes([sender_person])
 
                 sent_by_rel = Relation(
@@ -886,6 +895,9 @@ Text:
                             "email": recipient_email
                         }
                     )
+                    # CRITICAL: Generate embedding for deduplication (same as LLM entities)
+                    recipient_text = f"PERSON: {recipient_name}"
+                    recipient_person.embedding = await self.embed_model.aget_text_embedding(recipient_text)
                     self.graph_store.upsert_nodes([recipient_person])
 
                     sent_to_rel = Relation(
