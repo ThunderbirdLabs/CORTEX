@@ -3,10 +3,12 @@ integrations:
         syncs:
             emails:
                 description: |
-                    ✨ V21 METADATA ONLY - Sync returns email + attachment metadata ONLY!
-                    No attachment content download (like Google Drive approach).
-                    Backend uses /fetch-attachment action on-demand for clean binary handling.
-                    Uses Exchange FullAccess delegation. Mail.ReadWrite scope required.
+                    ✨ V23 - 1 WEEK BACKFILL + Google Cloud Vision OCR!
+                    - Default backfill: 7 days (was 1 hour)
+                    - Metadata-only sync (no attachment download during sync)
+                    - Backend uses /fetch-attachment action on-demand
+                    - OCR via Google Cloud Vision for images/scanned PDFs
+                    - Uses Exchange FullAccess delegation
                 runs: every hour
                 output: OutlookEmail
                 sync_type: incremental
