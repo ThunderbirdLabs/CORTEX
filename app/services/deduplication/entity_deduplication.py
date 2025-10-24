@@ -252,7 +252,12 @@ class EntityDeduplicationService:
         merged_count = 0
         skipped_count = 0
         embeddings_regenerated = 0
-        batch_size = 10
+        # Batch size optimization based on Neo4j best practices:
+        # - Neo4j recommendation: 2,000-20,000 nodes per transaction
+        # - Each cluster = 2-10 nodes average
+        # - 50 clusters = ~100-500 nodes (within optimal range)
+        # - Balances transaction size vs commit overhead
+        batch_size = 50
         total_clusters = len(merge_candidates)
 
         logger.info(f"Starting safe merge of {total_clusters} clusters (batch size: {batch_size})")
@@ -358,6 +363,10 @@ class EntityDeduplicationService:
         # CRITICAL: Keep primary's properties (discard duplicates' values)
         # This ensures we keep the most-connected node's context
         # Use direct MATCH with elementId - no deprecated functions
+        #
+        # DEADLOCK PREVENTION (GitHub neo4j-apoc-procedures#1408):
+        # Rebind nodes using apoc.nodes.get() before mergeNodes to prevent
+        # infinite locks from stale transaction references
         merge_query = """
         WITH $primaryElemId AS primaryElemId, $duplicateElemIds AS duplicateElemIds
         MATCH (primaryNode) WHERE elementId(primaryNode) = primaryElemId
@@ -366,14 +375,23 @@ class EntityDeduplicationService:
         WITH primaryNode, collect(dupNode) AS dupNodes
         WHERE size(dupNodes) > 0
 
-        // Merge: keep primary's properties, discard duplicates
-        CALL apoc.refactor.mergeNodes([primaryNode] + dupNodes, {
+        // CRITICAL: Collect elementIds and rebind nodes to current transaction
+        // This prevents apoc.refactor.mergeNodes from grabbing stale write locks
+        WITH [primaryNode] + dupNodes AS allNodesToMerge
+        WITH [n IN allNodesToMerge | elementId(n)] AS elemIds
+        UNWIND elemIds AS elemId
+        MATCH (n) WHERE elementId(n) = elemId
+        WITH collect(n) AS reboundNodes
+        WHERE size(reboundNodes) >= 2
+
+        // Merge: keep primary's properties (first node in list), discard duplicates
+        CALL apoc.refactor.mergeNodes(reboundNodes, {
           properties: {
             id: 'discard',
             name: 'discard',
             embedding: 'discard',
             created_at_timestamp: 'discard',
-            `.*`: 'overwrite'  // Keep primary's properties
+            `.*`: 'overwrite'  // Keep first node's properties (primary)
           },
           mergeRels: true
         })
@@ -382,14 +400,39 @@ class EntityDeduplicationService:
         RETURN node
         """
 
-        merge_result = session.run(merge_query, {
-            "primaryElemId": primary_id,
-            "duplicateElemIds": duplicates
-        })
-        merged_node = merge_result.single()
+        # Retry logic for transient deadlock errors (Neo4j best practice)
+        max_retries = 3
+        retry_delay = 0.1  # Start with 100ms
 
-        if not merged_node:
-            return {"merged": False}
+        for attempt in range(max_retries):
+            try:
+                merge_result = session.run(merge_query, {
+                    "primaryElemId": primary_id,
+                    "duplicateElemIds": duplicates
+                })
+                merged_node = merge_result.single()
+
+                if not merged_node:
+                    return {"merged": False}
+
+                break  # Success!
+
+            except Exception as e:
+                error_str = str(e)
+                # Check for transient deadlock error
+                if "DeadlockDetected" in error_str or "LockAcquisitionFailure" in error_str:
+                    if attempt < max_retries - 1:
+                        import time
+                        sleep_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                        logger.warning(f"Deadlock detected on attempt {attempt + 1}/{max_retries}, retrying in {sleep_time}s...")
+                        time.sleep(sleep_time)
+                        continue
+                    else:
+                        logger.error(f"Deadlock persisted after {max_retries} attempts for cluster with primary '{primary_name}'")
+                        raise
+                else:
+                    # Non-transient error, don't retry
+                    raise
 
         # Step 4: Preserve oldest timestamp across all nodes
         oldest_timestamp_query = """
