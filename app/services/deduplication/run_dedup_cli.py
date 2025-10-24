@@ -24,14 +24,21 @@ def main():
             dry_run=False,
             similarity_threshold=settings.dedup_similarity_threshold,
             levenshtein_max_distance=settings.dedup_levenshtein_max_distance,
-            hours_lookback=24
+            hours_lookback=24,
+            openai_api_key=settings.openai_api_key  # For self-healing embedding regeneration
         )
 
         elapsed = time.time() - start_time
         merged_count = results.get("entities_merged", 0)
+        skipped_count = results.get("clusters_skipped", 0)
+        embeddings_regen = results.get("embeddings_regenerated", 0)
 
         if merged_count > 0:
             print(f"✅ Merged {merged_count} entities in {elapsed:.1f}s")
+            if skipped_count > 0:
+                print(f"   ℹ️  Skipped {skipped_count} already-merged clusters")
+            if embeddings_regen > 0:
+                print(f"   🔧 Regenerated {embeddings_regen} missing embeddings (self-healing)")
         else:
             print(f"✅ No duplicates found ({elapsed:.1f}s)")
 
