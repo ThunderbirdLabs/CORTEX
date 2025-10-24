@@ -234,51 +234,5 @@ def sync_outlook_task(user_id: str, job_id: str):
         raise  # Re-raise for Dramatiq retry logic
 
 
-@dramatiq.actor(max_retries=2)
-def deduplicate_entities_task():
-    """
-    Periodic entity deduplication task (runs every 15 minutes).
-
-    Merges duplicate entities created during batch ingestion using:
-    - Vector similarity (cosine > 0.92)
-    - Levenshtein distance (< 3 chars)
-
-    PERFORMANCE:
-    - Uses incremental mode (last 24 hours only)
-    - Scales to millions of entities
-    - ~2-5 seconds per run at 100K entity scale
-
-    Production-ready for Render with Dramatiq distributed locking.
-    """
-    from app.services.deduplication.entity_deduplication import run_entity_deduplication
-    from app.core.config import settings
-
-    logger.info("⏰ Running scheduled entity deduplication (incremental)...")
-
-    try:
-        results = run_entity_deduplication(
-            neo4j_uri=settings.neo4j_uri,
-            neo4j_password=settings.neo4j_password,
-            dry_run=False,
-            similarity_threshold=settings.dedup_similarity_threshold,
-            levenshtein_max_distance=settings.dedup_levenshtein_max_distance,
-            hours_lookback=24  # Only check entities from last 24 hours
-        )
-
-        merged_count = results.get("entities_merged", 0)
-
-        if merged_count > 0:
-            logger.info(f"✅ Entity deduplication complete: {merged_count} entities merged")
-        else:
-            logger.debug("✅ Entity deduplication complete: no duplicates found")
-
-        # Alert if suspiciously high merge count
-        if merged_count > 100:
-            logger.warning(f"🚨 High merge count: {merged_count} entities merged! Review thresholds.")
-
-        return results
-
-    except Exception as e:
-        logger.error(f"❌ Entity deduplication failed: {e}")
-        raise  # Re-raise for Dramatiq retry logic
+# Entity deduplication is now handled by Render cron job (see app/services/deduplication/run_dedup_cli.py)
 
