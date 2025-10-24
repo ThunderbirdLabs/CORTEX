@@ -169,7 +169,8 @@ VALIDATION_SCHEMA = KG_VALIDATION_SCHEMA  # Alias for backward compatibility
 # ============================================
 
 # Text chunking (per expert guidance)
-CHUNK_SIZE = 512
+# Increased to 1024 to handle long attachment metadata (filenames + CID + properties)
+CHUNK_SIZE = 1024
 CHUNK_OVERLAP = 50
 
 # Vector search
