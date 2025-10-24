@@ -51,8 +51,10 @@ interface OutlookEmail {
             isInline: boolean;
             contentId: string | null;
             contentBytes?: string; // Base64-encoded attachment content
+            userId: string; // User ID for multi-mailbox attachment fetching
         }>;
     threadId: string;
+    userId: string; // User ID for email owner
 }
 
 // Default to 1 week for testing (can be changed via metadata)
@@ -131,7 +133,7 @@ export default async function fetchData(nango: NangoSync) {
                         await nango.log(`Found ${attachments.length} attachments for message: ${message.subject}`);
                     }
 
-                    emails.push(mapEmail(message, attachments));
+                    emails.push(mapEmail(message, attachments, user.id));
                 }
 
                 await nango.batchSave(emails, 'OutlookEmail');
@@ -189,7 +191,7 @@ async function fetchAttachmentsForUser(nango: NangoSync, userId: string, message
     }
 }
 
-function mapEmail(message: OutlookMessage, rawAttachments: Attachment[]): OutlookEmail {
+function mapEmail(message: OutlookMessage, rawAttachments: Attachment[], userId: string): OutlookEmail {
     const sender = message.from?.emailAddress.address || '';
     const recipients = message.toRecipients?.map(r => r.emailAddress.address).join(', ') || '';
     const body = message.body?.content || '';
@@ -201,6 +203,7 @@ function mapEmail(message: OutlookMessage, rawAttachments: Attachment[]): Outloo
         size: att.size,
         isInline: att.isInline || false,
         contentId: att.contentId || null,
+        userId: userId, // CRITICAL: Store userId for attachment fetching!
         ...(att.contentBytes ? { contentBytes: att.contentBytes } : {}) // Only include if defined
     }));
 
@@ -212,7 +215,8 @@ function mapEmail(message: OutlookMessage, rawAttachments: Attachment[]): Outloo
         subject: message.subject || '(No Subject)',
         body,
         attachments,
-        threadId: message.conversationId || message.id
+        threadId: message.conversationId || message.id,
+        userId: userId // Store userId at email level too
     };
 }
 

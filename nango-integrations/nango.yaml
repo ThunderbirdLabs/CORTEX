@@ -70,6 +70,7 @@ models:
         mimeType: string
         size: number
         attachmentId: string
+        userId: string
     
     OutlookEmail:
         id: string
@@ -80,6 +81,7 @@ models:
         body: string
         attachments: Attachments[]
         threadId: string
+        userId: string
     
     GmailAttachment:
         attachmentId: string

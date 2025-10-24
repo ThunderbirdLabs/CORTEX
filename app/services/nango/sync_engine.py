@@ -127,6 +127,7 @@ async def run_tenant_sync(
                                     size = attachment.get("size", 0)
                                     is_inline = attachment.get("isInline", False)
                                     content_id = attachment.get("contentId")
+                                    user_id = attachment.get("userId", "me")  # CRITICAL: userId for multi-mailbox support!
 
                                     # Skip if not supported
                                     if not is_supported_attachment_type(mime_type):
@@ -148,7 +149,8 @@ async def run_tenant_sync(
                                         provider_key=provider_key,
                                         connection_id=connection_id,
                                         thread_id=normalized["message_id"],
-                                        attachment_id=attachment_id
+                                        attachment_id=attachment_id,
+                                        user_id=user_id  # Pass actual userId for multi-mailbox!
                                     )
 
                                     # Universal ingestion (Unstructured.io parses it!)

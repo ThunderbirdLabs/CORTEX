@@ -197,8 +197,8 @@ async def nango_fetch_attachment(
         HTTPException: If request fails
     """
     # Use Nango PROXY to call Microsoft Graph /$value endpoint
-    # Use /me/ (not /users/me/) - Nango injects correct user from Connection-Id
-    url = f"https://api.nango.dev/proxy/v1.0/me/messages/{thread_id}/attachments/{attachment_id}/$value"
+    # For multi-user mailboxes, use /users/{userId}/ (not /me/!)
+    url = f"https://api.nango.dev/proxy/v1.0/users/{user_id}/messages/{thread_id}/attachments/{attachment_id}/$value"
     
     headers = {
         "Authorization": f"Bearer {settings.nango_secret}",
