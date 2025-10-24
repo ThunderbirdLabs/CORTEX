@@ -137,20 +137,38 @@ def extract_text_from_file(
                 )
                 text = "\n\n".join([str(el) for el in elements])
                 
-                # Step 2: If we got barely any text, it's probably scanned - enable OCR!
+                # Step 2: If we got barely any text, it's probably scanned - use EasyOCR!
                 if len(text.strip()) < 100:
-                    logger.warning(f"   ⚠️  Only {len(text)} chars extracted - PDF might be scanned, trying OCR...")
+                    logger.warning(f"   ⚠️  Only {len(text)} chars extracted - PDF might be scanned, trying EasyOCR...")
                     try:
-                        elements = partition_pdf(
-                            filename=file_path,
-                            strategy="hi_res",  # Enable OCR for scanned PDFs
-                            extract_images_in_pdf=False,
-                            infer_table_structure=False
-                        )
-                        text = "\n\n".join([str(el) for el in elements])
-                        logger.info(f"   ✅ OCR extracted {len(text)} chars from scanned PDF")
+                        # Convert PDF to images and OCR each page
+                        from pdf2image import convert_from_path
+                        import tempfile
+
+                        # Convert PDF pages to images
+                        images = convert_from_path(file_path, dpi=200)
+                        logger.info(f"   📄 Converted PDF to {len(images)} images for OCR")
+
+                        # OCR each page
+                        page_texts = []
+                        for i, image in enumerate(images):
+                            # Save image to temp file
+                            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                                image.save(tmp.name, 'PNG')
+                                tmp_path = tmp.name
+
+                            # OCR the page image
+                            try:
+                                page_text, _ = extract_with_easyocr(tmp_path, 'image/png')
+                                page_texts.append(page_text)
+                                logger.info(f"   ✅ Page {i+1}: {len(page_text)} chars extracted")
+                            finally:
+                                os.unlink(tmp_path)
+
+                        text = "\n\n".join(page_texts)
+                        logger.info(f"   ✅ EasyOCR extracted {len(text)} chars from scanned PDF")
                     except Exception as ocr_err:
-                        logger.warning(f"   ⚠️  OCR failed: {ocr_err}, using fast extraction result")
+                        logger.warning(f"   ⚠️  PDF OCR failed: {ocr_err}, using fast extraction result")
                 
                 metadata = {
                     "parser": "unstructured_pdf",
