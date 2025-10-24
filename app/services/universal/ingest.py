@@ -192,7 +192,10 @@ async def ingest_document_universal(
                 import uuid
                 
                 now = datetime.utcnow()
-                safe_filename = filename.replace(' ', '_').replace('/', '_')
+                # Sanitize filename: Remove special characters that break Supabase Storage
+                import re
+                safe_filename = re.sub(r'[^\w\s\-\.]', '_', filename)  # Keep alphanumeric, spaces, hyphens, dots
+                safe_filename = safe_filename.replace(' ', '_')  # Replace spaces with underscores
                 unique_id = str(uuid.uuid4())[:8]
                 storage_path = f"{tenant_id}/{source}/{now.year}/{now.month:02d}/{unique_id}_{safe_filename}"
                 
