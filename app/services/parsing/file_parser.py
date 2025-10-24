@@ -190,8 +190,23 @@ def extract_text_from_file(
                 logger.info(f"   🔍 Running OCR on image (EasyOCR)...")
                 text, metadata = extract_with_easyocr(file_path, file_type)
             except Exception as ocr_error:
-                logger.warning(f"EasyOCR failed: {ocr_error}, falling back to generic parser")
-                text, metadata = extract_with_generic_parser(file_path, file_type)
+                # ENTERPRISE FALLBACK: Even if OCR fails, still save the file
+                # Parent email context will be added by ingest.py
+                logger.error(f"   ❌ EasyOCR failed: {ocr_error}")
+                logger.info(f"   💾 Saving file without OCR text (manual review may be needed)")
+
+                text = ""  # Empty text, but file will still be stored
+                metadata = {
+                    "parser": "failed_ocr_fallback",
+                    "file_type": file_type,
+                    "file_name": Path(file_path).name,
+                    "file_size": os.path.getsize(file_path),
+                    "characters": 0,
+                    "ocr_enabled": False,
+                    "ocr_error": str(ocr_error),
+                    "needs_manual_review": True,  # Flag for later reprocessing
+                    "note": "OCR extraction failed - original file stored for manual review or reprocessing"
+                }
         
         else:
             # Non-PDF, non-image files: use standard Unstructured
