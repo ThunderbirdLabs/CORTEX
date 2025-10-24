@@ -173,13 +173,14 @@ async def nango_fetch_attachment(
     provider_key: str,
     connection_id: str,
     thread_id: str,
-    attachment_id: str
+    attachment_id: str,
+    user_id: str = "me"
 ) -> bytes:
     """
-    Fetch attachment content via Nango's /fetch-attachment action.
+    Fetch attachment content via Nango's PROXY (not action!).
     
-    This uses Nango's built-in action to properly download and encode binary content.
-    Much cleaner than manually calling Microsoft Graph API!
+    Nango proxy routes requests to Microsoft Graph with automatic auth handling.
+    No 2MB output limit like actions have - perfect for large PDFs/DOCX!
 
     Args:
         http_client: Async HTTP client instance
@@ -187,6 +188,7 @@ async def nango_fetch_attachment(
         connection_id: Nango connection ID
         thread_id: Email message ID
         attachment_id: Attachment ID
+        user_id: Microsoft Graph user ID (default "me" for authenticated user)
 
     Returns:
         Raw bytes of attachment content
@@ -194,37 +196,32 @@ async def nango_fetch_attachment(
     Raises:
         HTTPException: If request fails
     """
-    url = "https://api.nango.dev/v1/fetch-attachment"
+    # Use Nango PROXY to call Microsoft Graph /$value endpoint
+    # This is the SAME as calling Graph directly, but Nango handles auth/token refresh!
+    url = f"https://api.nango.dev/proxy/v1.0/users/{user_id}/messages/{thread_id}/attachments/{attachment_id}/$value"
+    
     headers = {
         "Authorization": f"Bearer {settings.nango_secret}",
         "Connection-Id": connection_id,
-        "Provider-Config-Key": provider_key,
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "threadId": thread_id,
-        "attachmentId": attachment_id
+        "Provider-Config-Key": provider_key
     }
 
-    logger.info(f"🔽 Nango /fetch-attachment: threadId={thread_id[:30]}..., attachmentId={attachment_id[:30]}...")
+    logger.info(f"🔽 Nango proxy: messageId={thread_id[:30]}..., attachmentId={attachment_id[:30]}...")
 
     try:
-        # Nango actions use GET with JSON body (unconventional but that's their API)
-        # Set a longer timeout for large attachments (default is 5s, increase to 120s)
-        response = await http_client.request("GET", url, headers=headers, json=payload, timeout=120.0)
+        # Simple GET request - Nango proxy handles everything!
+        response = await http_client.get(url, headers=headers, timeout=120.0)
         response.raise_for_status()
         
-        # Nango action returns RAW BINARY CONTENT (not JSON!)
-        # The response body IS the attachment content itself
-        attachment_bytes = response.content  # This is already bytes
+        # Response body IS the attachment content (raw binary)
+        attachment_bytes = response.content
         
-        logger.info(f"   ✅ Fetched attachment: {len(attachment_bytes)} bytes")
+        logger.info(f"   ✅ Fetched via proxy: {len(attachment_bytes)} bytes")
         return attachment_bytes
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"Failed to fetch attachment via Nango: {e.response.status_code} - {e.response.text}")
-        raise HTTPException(status_code=500, detail="Failed to fetch attachment from Nango")
+        logger.error(f"Failed to fetch attachment via Nango proxy: {e.response.status_code} - {e.response.text[:500]}")
+        raise HTTPException(status_code=500, detail="Failed to fetch attachment from Nango proxy")
     except Exception as e:
         logger.error(f"Error fetching attachment: {e}")
         raise HTTPException(status_code=500, detail=str(e))
