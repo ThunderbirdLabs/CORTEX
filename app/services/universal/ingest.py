@@ -166,6 +166,44 @@ async def ingest_document_universal(
         logger.info(f"   ✅ No duplicate found (hash: {content_hash[:16]}...)")
 
         # ========================================================================
+        # STEP 2.5: Upload Original File to Supabase Storage (Optional)
+        # ========================================================================
+        
+        file_url = None
+        file_size_bytes = None
+        mime_type = file_type
+        
+        if file_bytes and filename:
+            try:
+                # Generate unique storage path: tenant_id/source/year/month/filename
+                from datetime import datetime
+                import uuid
+                
+                now = datetime.utcnow()
+                safe_filename = filename.replace(' ', '_').replace('/', '_')
+                unique_id = str(uuid.uuid4())[:8]
+                storage_path = f"{tenant_id}/{source}/{now.year}/{now.month:02d}/{unique_id}_{safe_filename}"
+                
+                logger.info(f"   📤 Uploading original file to storage: {storage_path}")
+                
+                # Upload to Supabase Storage (bucket: 'documents')
+                upload_result = supabase.storage.from_('documents').upload(
+                    path=storage_path,
+                    file=file_bytes,
+                    file_options={"content-type": mime_type or "application/octet-stream"}
+                )
+                
+                # Get public URL
+                file_url = supabase.storage.from_('documents').get_public_url(storage_path)
+                file_size_bytes = len(file_bytes)
+                
+                logger.info(f"   ✅ File uploaded: {file_url[:80]}...")
+                
+            except Exception as upload_error:
+                logger.warning(f"   ⚠️  Failed to upload file to storage: {upload_error}")
+                # Continue without file storage - not critical
+
+        # ========================================================================
         # STEP 3: Save to Unified Documents Table (Supabase) - SOURCE OF TRUTH
         # ========================================================================
 
@@ -191,6 +229,10 @@ async def ingest_document_universal(
             'source_created_at': source_created_at.isoformat() if source_created_at else None,
             'source_modified_at': source_modified_at.isoformat() if source_modified_at else None,
             'metadata': metadata,
+            # File storage fields (NEW)
+            'file_url': file_url,
+            'file_size_bytes': file_size_bytes,
+            'mime_type': mime_type,
         }
 
         # Upsert to documents table (handles duplicates)

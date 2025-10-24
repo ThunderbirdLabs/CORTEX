@@ -2,9 +2,7 @@ services:
   - type: web
     name: email-connector-backend
     env: python
-    buildCommand: |
-      apt-get update && apt-get install -y tesseract-ocr poppler-utils
-      pip install -r requirements.txt
+    buildCommand: ./render-build.sh
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
@@ -14,9 +12,7 @@ services:
   - type: worker
     name: cortex-dramatiq-worker
     env: python
-    buildCommand: |
-      apt-get update && apt-get install -y tesseract-ocr poppler-utils
-      pip install -r requirements.txt
+    buildCommand: ./render-build.sh
     startCommand: dramatiq app.services.background.tasks
     envVars:
       - key: PYTHON_VERSION
