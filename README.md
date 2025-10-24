@@ -160,44 +160,155 @@ Together, they give you comprehensive answers with sources you can trust.
 
 ## 📊 Data Flow
 
-### **FLOW 1: Universal Document Ingestion**
+### **FLOW 1: Universal Document Ingestion (End-to-End)**
 
 ```
-1. DATA SOURCE (Gmail/Drive/Upload)
-   └─> Fetch via Nango API or direct upload
-
-2. NORMALIZATION
-   ├─> Google Workspace files → Export to text/CSV
-   ├─> PDFs → Fast text extraction (no OCR)
-   ├─> Office files → Unstructured parsing
-   └─> Content hash → SHA256 for deduplication
-
-3. DEDUPLICATION CHECK
-   └─> Query Supabase by (tenant_id + content_hash + source)
-   └─> Skip if duplicate found
-
-4. SAVE TO SUPABASE
-   └─> Insert into documents table (full text + metadata)
-
-5. DUAL INGESTION (UniversalIngestionPipeline)
-   ├─> QDRANT PATH:
-   │   ├─> SentenceSplitter (chunk_size=512, overlap=50)
-   │   ├─> OpenAIEmbedding (text-embedding-3-small)
-   │   └─> Store chunks + embeddings in Qdrant
-   │
-   └─> NEO4J PATH:
-       ├─> Create document node (EMAIL/DOCUMENT)
-       │   └─> Unique ID: "title|doc_id" (prevents duplicate merging)
-       ├─> SchemaLLMPathExtractor (GPT-4o-mini)
-       │   ├─> Extract entities: PERSON, COMPANY, etc.
-       │   ├─> Extract relationships: SENT_BY, WORKS_AT, etc.
-       │   └─> Generate entity embeddings
-       └─> Store in Neo4j Property Graph
-
-6. HOURLY ENTITY DEDUPLICATION (Neo4j only)
-   ├─> Find similar entities (vector similarity > 0.92)
-   ├─> Verify with Levenshtein distance (< 3 chars)
-   └─> Merge duplicates with apoc.refactor.mergeNodes
+┌─────────────────────────────────────────────────────────────┐
+│ 1. FILE ARRIVES                                             │
+│    - Upload: User uploads via API                           │
+│    - Email: Synced from Gmail/Outlook                       │
+│    - Drive: Pulled from Google Drive                        │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 2. SPAM FILTER (Emails Only)                                │
+│    Location: app/services/filters/openai_spam_detector.py   │
+│    - Uses GPT-4o-mini to classify: BUSINESS or SPAM         │
+│    - Checks business indicators first (fast bypass)         │
+│    - SPAM = filtered out (not ingested)                     │
+│    - BUSINESS = continues to next step                      │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 3. UNIVERSAL INGESTION ENTRY                                │
+│    Location: app/services/universal/ingest.py               │
+│    Function: ingest_document_universal()                    │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 4. TEXT EXTRACTION (OCR for images/scanned PDFs)           │
+│    Location: app/services/parsing/file_parser.py            │
+│                                                              │
+│    Strategy by file type:                                   │
+│    ┌──────────────────────────────────────────────────┐    │
+│    │ PDFs:                                             │    │
+│    │  → Try fast text extraction first                │    │
+│    │  → If <100 chars (scanned PDF):                  │    │
+│    │     1. Convert PDF to images (pdf2image)         │    │
+│    │     2. Google Cloud Vision OCR each page         │    │
+│    │     3. Combine all page text                     │    │
+│    └──────────────────────────────────────────────────┘    │
+│    ┌──────────────────────────────────────────────────┐    │
+│    │ Images (PNG/JPG/TIFF):                           │    │
+│    │  → Google Cloud Vision OCR (HIPAA-compliant)     │    │
+│    │  → Extract all text from image                   │    │
+│    └──────────────────────────────────────────────────┘    │
+│    ┌──────────────────────────────────────────────────┐    │
+│    │ Office Files (Word/Excel/PowerPoint):            │    │
+│    │  → Unstructured library parsing                  │    │
+│    │  → No OCR needed (text-based formats)            │    │
+│    └──────────────────────────────────────────────────┘    │
+│                                                              │
+│    Result: Plain text + metadata (file size, type, etc.)   │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 5. DEDUPLICATION CHECK                                      │
+│    Location: app/services/deduplication/                    │
+│    - Generate content hash (SHA-256)                        │
+│    - Check if already exists in documents table             │
+│    - Skip if duplicate (based on content similarity)        │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 6. FILE STORAGE (Supabase Storage)                         │
+│    - Upload original file to bucket: 'documents'            │
+│    - Path: tenant_id/source/year/month/uuid_filename       │
+│    - Get public URL for file download                       │
+│    - Fallback: If storage fails, save as base64 in JSONB   │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 7. SAVE TO DOCUMENTS TABLE (Supabase PostgreSQL)           │
+│    Table: documents                                          │
+│    Columns:                                                  │
+│      - id (auto-increment)                                  │
+│      - tenant_id (user ID)                                  │
+│      - source (gmail/gdrive/upload/slack)                   │
+│      - source_id (external ID from source)                  │
+│      - document_type (email/pdf/file/attachment)            │
+│      - title (subject/filename)                             │
+│      - content (extracted plain text)                       │
+│      - content_hash (for deduplication)                     │
+│      - file_url (Supabase Storage URL)                      │
+│      - file_type, file_size, mime_type                      │
+│      - metadata (JSONB - parsing info)                      │
+│      - raw_data (JSONB - original data from source)         │
+│      - parent_document_id (for attachments)                 │
+│                                                              │
+│    This is the SOURCE OF TRUTH for all documents!          │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 8. PROPERTY GRAPH INGESTION (Neo4j + Qdrant)               │
+│    Location: app/services/ingestion/llamaindex/            │
+│              ingestion_pipeline.py                           │
+│                                                              │
+│    A. TEXT CHUNKING                                         │
+│       - Split text into chunks (SentenceSplitter)           │
+│       - Chunk size: 1024 chars, overlap: 200 chars          │
+│                                                              │
+│    B. EMBEDDING                                             │
+│       - Generate vector embeddings (OpenAI text-embedding-3)│
+│       - Each chunk gets its own embedding vector            │
+│                                                              │
+│    C. QDRANT STORAGE (Vector Database)                     │
+│       - Store chunks with embeddings                        │
+│       - Metadata: document_id, chunk_index, source, etc.    │
+│       - Enable semantic search ("find similar content")     │
+│                                                              │
+│    D. NEO4J STORAGE (Knowledge Graph)                      │
+│       Step 1: Create Document Node                          │
+│         - Properties: title, type, source, created_at       │
+│         - Label: __Entity__                                 │
+│                                                              │
+│       Step 2: Entity Extraction (SchemaLLMPathExtractor)    │
+│         Uses GPT-4o to extract:                             │
+│         • Entities (10 types):                              │
+│           - PERSON, COMPANY, ROLE, DEAL, TASK, MEETING     │
+│           - PAYMENT, MATERIAL, CERTIFICATION, PROJECT       │
+│                                                              │
+│         • Relationships (17 types):                         │
+│           - WORKS_FOR, REPORTS_TO, HAS_ROLE                │
+│           - CLIENT_OF, VENDOR_OF, SUPPLIES_MATERIAL        │
+│           - REQUIRES_MATERIAL, ATTENDED_MEETING            │
+│           - etc. (manufacturing-focused)                    │
+│                                                              │
+│       Step 3: Create Entity Nodes + Relationships           │
+│         - Person → WORKS_FOR → Company                     │
+│         - Deal → REQUIRES_MATERIAL → Material              │
+│         - Company → SUPPLIES_MATERIAL → Material           │
+│         - Person → ATTENDED_MEETING → Meeting              │
+│                                                              │
+│       Step 4: Link Document to Entities                    │
+│         - Document → MENTIONS → Entity                     │
+│         - Enables: "Show all docs mentioning John Doe"     │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 9. HOURLY ENTITY DEDUPLICATION (Neo4j only)                │
+│    - Find similar entities (vector similarity > 0.92)       │
+│    - Verify with Levenshtein distance (< 3 chars)           │
+│    - Merge duplicates with apoc.refactor.mergeNodes         │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 10. INDEXING COMPLETE ✅                                    │
+│     File is now searchable via:                             │
+│     • Vector search (Qdrant) - semantic similarity          │
+│     • Graph queries (Neo4j) - relationship traversal        │
+│     • SQL queries (Supabase) - metadata filtering           │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ### **FLOW 2: AI Search (Hybrid RAG)**
