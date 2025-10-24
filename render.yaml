@@ -23,7 +23,7 @@ services:
     name: entity-deduplication
     schedule: "*/15 * * * *"
     env: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.lock.txt --no-deps
     startCommand: python -m app.services.deduplication.run_dedup_cli
     envVars:
       - key: PYTHON_VERSION
