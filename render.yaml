@@ -18,12 +18,13 @@ services:
       - key: PYTHON_VERSION
         value: 3.13.1
 
-  # Scheduler for periodic entity deduplication (every 15 min)
-  - type: worker
-    name: cortex-scheduler
+  # Entity deduplication cron job (every 15 minutes)
+  - type: cron
+    name: entity-deduplication
+    schedule: "*/15 * * * *"
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python -m app.services.background.scheduler
+    startCommand: python -m app.services.deduplication.run_dedup_cli
     envVars:
       - key: PYTHON_VERSION
         value: 3.13.1
