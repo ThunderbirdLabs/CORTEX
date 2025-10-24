@@ -57,8 +57,8 @@ interface OutlookEmail {
     userId: string; // User ID for email owner
 }
 
-// Default to 1 week for testing (can be changed via metadata)
-const DEFAULT_BACKFILL_MS = 1 * 60 * 60 * 1000; // 1 HOUR for testing attachments
+// Default to 1 week backfill (can be changed via metadata)
+const DEFAULT_BACKFILL_MS = 7 * 24 * 60 * 60 * 1000; // 1 WEEK
 
 export default async function fetchData(nango: NangoSync) {
     const metadata = await nango.getMetadata<{ backfillPeriodMs?: number }>();
