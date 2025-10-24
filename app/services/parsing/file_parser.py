@@ -1,13 +1,13 @@
 """
-Universal File Parser using Unstructured + LlamaIndex + EasyOCR
+Universal File Parser using Unstructured + LlamaIndex + AWS Textract OCR
 Extracts plain text from ANY file type (PDF, Word, Excel, Images, etc.)
 
 Strategy:
-1. PDFs: Fast mode first, then OCR for scanned PDFs (< 100 chars)
-2. Images: EasyOCR (deep learning, no system dependencies)
+1. PDFs: Fast mode first, then Textract OCR for scanned PDFs (< 100 chars)
+2. Images: AWS Textract (HIPAA-compliant, instant, no model downloads)
 3. Office files: Unstructured parsing (lightweight)
 4. Lazy loading: Heavy ML models only loaded when needed
-5. OCR: EasyOCR - 100% free, pure Python, no Tesseract needed
+5. OCR: AWS Textract - HIPAA/SOC2 compliant, pay-per-use
 """
 import logging
 import tempfile
@@ -23,10 +23,10 @@ import magic
 logger = logging.getLogger(__name__)
 
 
-def extract_with_easyocr(file_path: str, file_type: str) -> Tuple[str, Dict]:
+def extract_with_textract(file_path: str, file_type: str) -> Tuple[str, Dict]:
     """
-    Extract text from images using EasyOCR (deep learning-based OCR).
-    Fallback when Tesseract is not available. 100% free, no system dependencies.
+    Extract text from images using AWS Textract (HIPAA-compliant OCR).
+    Fast, no model downloads, pay-per-use.
 
     Args:
         file_path: Path to image file
@@ -35,30 +35,62 @@ def extract_with_easyocr(file_path: str, file_type: str) -> Tuple[str, Dict]:
     Returns:
         Tuple of (extracted_text, metadata)
     """
-    import easyocr
+    import boto3
+    from botocore.exceptions import ClientError
 
-    # Initialize EasyOCR reader (lazy load, cached after first use)
-    # English only for now - add more languages as needed: ['en', 'es', 'fr']
-    reader = easyocr.Reader(['en'], gpu=False)  # Use CPU (GPU optional if available)
+    # Initialize Textract client
+    textract = boto3.client('textract', region_name=os.getenv('AWS_REGION', 'us-east-1'))
 
-    # Read text from image
-    results = reader.readtext(file_path, detail=0)  # detail=0 returns only text, no bounding boxes
+    # Read image file
+    with open(file_path, 'rb') as image_file:
+        image_bytes = image_file.read()
 
-    # Join all detected text with newlines
-    text = "\n".join(results)
+    try:
+        # Call Textract to detect text
+        response = textract.detect_document_text(
+            Document={'Bytes': image_bytes}
+        )
 
-    metadata = {
-        "parser": "easyocr",
-        "file_type": file_type,
-        "file_name": Path(file_path).name,
-        "file_size": os.path.getsize(file_path),
-        "characters": len(text),
-        "ocr_enabled": True,
-        "ocr_method": "easyocr_deep_learning"
-    }
+        # Extract all text from blocks
+        lines = []
+        for block in response.get('Blocks', []):
+            if block['BlockType'] == 'LINE':
+                lines.append(block['Text'])
 
-    logger.info(f"   ✅ EasyOCR extracted {len(text)} characters")
-    return text, metadata
+        text = "\n".join(lines)
+
+        metadata = {
+            "parser": "aws_textract",
+            "file_type": file_type,
+            "file_name": Path(file_path).name,
+            "file_size": os.path.getsize(file_path),
+            "characters": len(text),
+            "ocr_enabled": True,
+            "ocr_method": "aws_textract_hipaa_compliant",
+            "blocks_detected": len(response.get('Blocks', []))
+        }
+
+        logger.info(f"   ✅ AWS Textract extracted {len(text)} characters ({len(lines)} lines)")
+        return text, metadata
+
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        logger.error(f"   ❌ AWS Textract failed: {error_code} - {e}")
+
+        # Fallback: Save file without OCR
+        text = ""
+        metadata = {
+            "parser": "textract_failed",
+            "file_type": file_type,
+            "file_name": Path(file_path).name,
+            "file_size": os.path.getsize(file_path),
+            "characters": 0,
+            "ocr_enabled": False,
+            "ocr_error": str(e),
+            "note": "AWS Textract failed - original file stored"
+        }
+
+        return text, metadata
 
 
 def detect_file_type(file_path: str) -> str:
@@ -137,19 +169,18 @@ def extract_text_from_file(
                 )
                 text = "\n\n".join([str(el) for el in elements])
                 
-                # Step 2: If we got barely any text, it's probably scanned - use EasyOCR!
+                # Step 2: If we got barely any text, it's probably scanned - use Textract OCR!
                 if len(text.strip()) < 100:
-                    logger.warning(f"   ⚠️  Only {len(text)} chars extracted - PDF might be scanned, trying EasyOCR...")
+                    logger.warning(f"   ⚠️  Only {len(text)} chars extracted - PDF might be scanned, trying Textract OCR...")
                     try:
                         # Convert PDF to images and OCR each page
                         from pdf2image import convert_from_path
-                        import tempfile
 
                         # Convert PDF pages to images
                         images = convert_from_path(file_path, dpi=200)
                         logger.info(f"   📄 Converted PDF to {len(images)} images for OCR")
 
-                        # OCR each page
+                        # OCR each page with Textract
                         page_texts = []
                         for i, image in enumerate(images):
                             # Save image to temp file
@@ -157,16 +188,16 @@ def extract_text_from_file(
                                 image.save(tmp.name, 'PNG')
                                 tmp_path = tmp.name
 
-                            # OCR the page image
+                            # OCR the page image with Textract
                             try:
-                                page_text, _ = extract_with_easyocr(tmp_path, 'image/png')
+                                page_text, _ = extract_with_textract(tmp_path, 'image/png')
                                 page_texts.append(page_text)
                                 logger.info(f"   ✅ Page {i+1}: {len(page_text)} chars extracted")
                             finally:
                                 os.unlink(tmp_path)
 
                         text = "\n\n".join(page_texts)
-                        logger.info(f"   ✅ EasyOCR extracted {len(text)} chars from scanned PDF")
+                        logger.info(f"   ✅ Textract OCR extracted {len(text)} chars from scanned PDF")
                     except Exception as ocr_err:
                         logger.warning(f"   ⚠️  PDF OCR failed: {ocr_err}, using fast extraction result")
                 
@@ -184,29 +215,11 @@ def extract_text_from_file(
                 # Fall back to generic parser
                 text, metadata = extract_with_generic_parser(file_path, file_type)
         
-        # Special handling for images (OCR with EasyOCR)
+        # Special handling for images (OCR with AWS Textract - HIPAA compliant)
         elif file_type in ['image/png', 'image/jpeg', 'image/jpg', 'image/tiff', 'image/bmp']:
-            try:
-                logger.info(f"   🔍 Running OCR on image (EasyOCR)...")
-                text, metadata = extract_with_easyocr(file_path, file_type)
-            except Exception as ocr_error:
-                # ENTERPRISE FALLBACK: Even if OCR fails, still save the file
-                # Parent email context will be added by ingest.py
-                logger.error(f"   ❌ EasyOCR failed: {ocr_error}")
-                logger.info(f"   💾 Saving file without OCR text (manual review may be needed)")
-
-                text = ""  # Empty text, but file will still be stored
-                metadata = {
-                    "parser": "failed_ocr_fallback",
-                    "file_type": file_type,
-                    "file_name": Path(file_path).name,
-                    "file_size": os.path.getsize(file_path),
-                    "characters": 0,
-                    "ocr_enabled": False,
-                    "ocr_error": str(ocr_error),
-                    "needs_manual_review": True,  # Flag for later reprocessing
-                    "note": "OCR extraction failed - original file stored for manual review or reprocessing"
-                }
+            logger.info(f"   🔍 Running OCR on image (AWS Textract - HIPAA compliant)...")
+            text, metadata = extract_with_textract(file_path, file_type)
+            # Note: extract_with_textract already handles errors gracefully
         
         else:
             # Non-PDF, non-image files: use standard Unstructured
