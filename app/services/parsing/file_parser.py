@@ -1,18 +1,18 @@
 """
-Universal File Parser using Unstructured + LlamaIndex + Tesseract OCR
+Universal File Parser using Unstructured + LlamaIndex + EasyOCR
 Extracts plain text from ANY file type (PDF, Word, Excel, Images, etc.)
-100% LOCAL - no API calls (except OpenAI for embeddings/entities)
 
 Strategy:
 1. PDFs: Fast mode first, then OCR for scanned PDFs (< 100 chars)
-2. Images: OCR enabled (PNG, JPG, TIFF, BMP)
+2. Images: EasyOCR (deep learning, no system dependencies)
 3. Office files: Unstructured parsing (lightweight)
 4. Lazy loading: Heavy ML models only loaded when needed
-5. OCR: Tesseract for image text extraction
+5. OCR: EasyOCR - 100% free, pure Python, no Tesseract needed
 """
 import logging
 import tempfile
 import os
+import base64
 from typing import Tuple, Dict, Optional
 from pathlib import Path
 
@@ -21,6 +21,44 @@ from llama_index.readers.file import UnstructuredReader
 import magic
 
 logger = logging.getLogger(__name__)
+
+
+def extract_with_easyocr(file_path: str, file_type: str) -> Tuple[str, Dict]:
+    """
+    Extract text from images using EasyOCR (deep learning-based OCR).
+    Fallback when Tesseract is not available. 100% free, no system dependencies.
+
+    Args:
+        file_path: Path to image file
+        file_type: MIME type
+
+    Returns:
+        Tuple of (extracted_text, metadata)
+    """
+    import easyocr
+
+    # Initialize EasyOCR reader (lazy load, cached after first use)
+    # English only for now - add more languages as needed: ['en', 'es', 'fr']
+    reader = easyocr.Reader(['en'], gpu=False)  # Use CPU (GPU optional if available)
+
+    # Read text from image
+    results = reader.readtext(file_path, detail=0)  # detail=0 returns only text, no bounding boxes
+
+    # Join all detected text with newlines
+    text = "\n".join(results)
+
+    metadata = {
+        "parser": "easyocr",
+        "file_type": file_type,
+        "file_name": Path(file_path).name,
+        "file_size": os.path.getsize(file_path),
+        "characters": len(text),
+        "ocr_enabled": True,
+        "ocr_method": "easyocr_deep_learning"
+    }
+
+    logger.info(f"   ✅ EasyOCR extracted {len(text)} characters")
+    return text, metadata
 
 
 def detect_file_type(file_path: str) -> str:
@@ -128,29 +166,13 @@ def extract_text_from_file(
                 # Fall back to generic parser
                 text, metadata = extract_with_generic_parser(file_path, file_type)
         
-        # Special handling for images (OCR)
+        # Special handling for images (OCR with EasyOCR)
         elif file_type in ['image/png', 'image/jpeg', 'image/jpg', 'image/tiff', 'image/bmp']:
             try:
-                from unstructured.partition.image import partition_image
-                logger.info(f"   🔍 Running OCR on image...")
-                elements = partition_image(
-                    filename=file_path,
-                    strategy="hi_res",  # Enable OCR
-                    languages=["eng"]    # English OCR
-                )
-                text = "\n\n".join([str(el) for el in elements])
-                
-                metadata = {
-                    "parser": "unstructured_ocr",
-                    "file_type": file_type,
-                    "file_name": Path(file_path).name,
-                    "file_size": os.path.getsize(file_path),
-                    "characters": len(text),
-                    "ocr_enabled": True
-                }
-                
+                logger.info(f"   🔍 Running OCR on image (EasyOCR)...")
+                text, metadata = extract_with_easyocr(file_path, file_type)
             except Exception as ocr_error:
-                logger.warning(f"Image OCR failed: {ocr_error}, falling back to generic parser")
+                logger.warning(f"EasyOCR failed: {ocr_error}, falling back to generic parser")
                 text, metadata = extract_with_generic_parser(file_path, file_type)
         
         else:

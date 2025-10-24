@@ -49,8 +49,9 @@ pillow-heif>=0.10.0
 pi-heif>=0.10.0
 
 # OCR support for images and scanned PDFs
-pytesseract>=0.3.10
+pytesseract>=0.3.10  # Requires Tesseract system binary
 pdf2image>=1.16.3
+easyocr>=1.7.0  # Fallback OCR - pure Python, no system dependencies
 
 # Background job queue
 dramatiq[redis]==1.17.0
