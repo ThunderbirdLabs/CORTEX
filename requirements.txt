@@ -47,6 +47,10 @@ pdfminer.six>=20221105
 pillow-heif>=0.10.0
 pi-heif>=0.10.0
 
+# OCR support for images and scanned PDFs
+pytesseract>=0.3.10
+pdf2image>=1.16.3
+
 # Background job queue
 dramatiq[redis]==1.17.0
 redis==5.0.0

@@ -1,13 +1,14 @@
 """
-Universal File Parser using Unstructured + LlamaIndex
-Extracts plain text from ANY file type (PDF, Word, Excel, etc.)
+Universal File Parser using Unstructured + LlamaIndex + Tesseract OCR
+Extracts plain text from ANY file type (PDF, Word, Excel, Images, etc.)
 100% LOCAL - no API calls (except OpenAI for embeddings/entities)
 
 Strategy:
-1. PDFs: Fast mode (text extraction only, NO OCR)
-2. Office files: Unstructured parsing (lightweight)
-3. Lazy loading: Heavy ML models only loaded when needed
-4. Memory optimized for 512MB deployment
+1. PDFs: Fast mode first, then OCR for scanned PDFs (< 100 chars)
+2. Images: OCR enabled (PNG, JPG, TIFF, BMP)
+3. Office files: Unstructured parsing (lightweight)
+4. Lazy loading: Heavy ML models only loaded when needed
+5. OCR: Tesseract for image text extraction
 """
 import logging
 import tempfile
@@ -56,19 +57,16 @@ def detect_file_type(file_path: str) -> str:
     return ext_to_mime.get(ext, 'application/octet-stream')
 
 
-# Ghostscript PDF compression removed - OCR disabled for memory optimization
-
-
 def extract_text_from_file(
     file_path: str,
     file_type: Optional[str] = None
 ) -> Tuple[str, Dict]:
     """
-    Extract text from any file type using hybrid strategy.
+    Extract text from any file type using hybrid strategy with OCR.
 
     Strategy:
-    1. PDFs → Try fast mode first (text only, no OCR)
-    2. If < 100 chars → compress + OCR (scanned PDF)
+    1. PDFs → Try fast mode first (text only), if < 100 chars → OCR (scanned PDF)
+    2. Images → Tesseract OCR for text extraction
     3. Other files → standard Unstructured parsing
 
     Args:
@@ -101,9 +99,20 @@ def extract_text_from_file(
                 )
                 text = "\n\n".join([str(el) for el in elements])
                 
-                # Step 2: If we got barely any text, it's probably scanned (skip OCR to save memory)
+                # Step 2: If we got barely any text, it's probably scanned - enable OCR!
                 if len(text.strip()) < 100:
-                    logger.warning(f"   ⚠️  Only {len(text)} chars extracted - PDF might be scanned (OCR disabled for low memory)")
+                    logger.warning(f"   ⚠️  Only {len(text)} chars extracted - PDF might be scanned, trying OCR...")
+                    try:
+                        elements = partition_pdf(
+                            filename=file_path,
+                            strategy="hi_res",  # Enable OCR for scanned PDFs
+                            extract_images_in_pdf=False,
+                            infer_table_structure=False
+                        )
+                        text = "\n\n".join([str(el) for el in elements])
+                        logger.info(f"   ✅ OCR extracted {len(text)} chars from scanned PDF")
+                    except Exception as ocr_err:
+                        logger.warning(f"   ⚠️  OCR failed: {ocr_err}, using fast extraction result")
                 
                 metadata = {
                     "parser": "unstructured_pdf",
@@ -111,14 +120,41 @@ def extract_text_from_file(
                     "file_name": Path(file_path).name,
                     "file_size": os.path.getsize(file_path),
                     "characters": len(text),
+                    "ocr_enabled": len(text.strip()) > 100  # OCR was used if we got more text
                 }
                 
             except Exception as pdf_error:
                 logger.warning(f"PDF-specific parsing failed: {pdf_error}, falling back to generic parser")
                 # Fall back to generic parser
                 text, metadata = extract_with_generic_parser(file_path, file_type)
+        
+        # Special handling for images (OCR)
+        elif file_type in ['image/png', 'image/jpeg', 'image/jpg', 'image/tiff', 'image/bmp']:
+            try:
+                from unstructured.partition.image import partition_image
+                logger.info(f"   🔍 Running OCR on image...")
+                elements = partition_image(
+                    filename=file_path,
+                    strategy="hi_res",  # Enable OCR
+                    languages=["eng"]    # English OCR
+                )
+                text = "\n\n".join([str(el) for el in elements])
+                
+                metadata = {
+                    "parser": "unstructured_ocr",
+                    "file_type": file_type,
+                    "file_name": Path(file_path).name,
+                    "file_size": os.path.getsize(file_path),
+                    "characters": len(text),
+                    "ocr_enabled": True
+                }
+                
+            except Exception as ocr_error:
+                logger.warning(f"Image OCR failed: {ocr_error}, falling back to generic parser")
+                text, metadata = extract_with_generic_parser(file_path, file_type)
+        
         else:
-            # Non-PDF files: use standard Unstructured
+            # Non-PDF, non-image files: use standard Unstructured
             text, metadata = extract_with_generic_parser(file_path, file_type)
 
         logger.info(f"✅ Extracted {len(text)} chars from {Path(file_path).name}")
