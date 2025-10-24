@@ -57,7 +57,11 @@ async def ingest_document_universal(
     raw_data: Optional[Dict] = None,
     source_created_at: Optional[datetime] = None,
     source_modified_at: Optional[datetime] = None,
-    metadata: Optional[Dict] = None
+    metadata: Optional[Dict] = None,
+    
+    # Parent-child relationships (NEW: for attachments)
+    parent_document_id: Optional[int] = None,
+    parent_email_content: Optional[str] = None  # Email body to add as context
 ) -> Dict[str, Any]:
     """
     Universal ingestion function for ANY data source.
@@ -86,6 +90,8 @@ async def ingest_document_universal(
         source_created_at: When created in source system
         source_modified_at: When last modified in source
         metadata: Additional source-specific metadata
+        parent_document_id: For attachments - ID of parent email/document
+        parent_email_content: For attachments - Parent email body for context
 
     Returns:
         Dict with ingestion results
@@ -128,6 +134,12 @@ async def ingest_document_universal(
             file_type = parse_metadata['file_type']
 
         logger.info(f"   ✅ Text extracted: {len(content)} characters")
+        
+        # If this is an attachment with parent email content, add it as context!
+        if parent_email_content and document_type == "attachment":
+            context_prefix = f"\n\n[EMAIL CONTEXT - This file was attached to an email with the following content:]\n{parent_email_content}\n[END EMAIL CONTEXT]\n\n"
+            content = context_prefix + content
+            logger.info(f"   📎 Added parent email context ({len(parent_email_content)} chars)")
         
         # Strip null bytes (Postgres can't handle them) from ALL text fields
         content = content.replace('\x00', '') if content else ''
@@ -233,6 +245,8 @@ async def ingest_document_universal(
             'file_url': file_url,
             'file_size_bytes': file_size_bytes,
             'mime_type': mime_type,
+            # Parent-child relationship (NEW: for attachments)
+            'parent_document_id': parent_document_id,
         }
 
         # Upsert to documents table (handles duplicates)
@@ -273,6 +287,7 @@ async def ingest_document_universal(
 
         return {
             'status': 'success',
+            'document_id': inserted_doc['id'],  # Return document ID for parent-child linking
             'source': source,
             'source_id': source_id,
             'document_type': document_type,

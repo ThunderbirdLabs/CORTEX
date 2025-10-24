@@ -107,7 +107,7 @@ async def run_tenant_sync(
                                 continue  # Skip ingestion but log it
                         
                         # Universal ingestion (documents table + Neo4j + Qdrant) - FULL EMAIL
-                        await ingest_to_cortex(cortex_pipeline, normalized, supabase)
+                        email_result = await ingest_to_cortex(cortex_pipeline, normalized, supabase)
 
                         # Optionally write to JSONL - FULL EMAIL
                         await append_jsonl(normalized)
@@ -118,6 +118,10 @@ async def run_tenant_sync(
                         attachments = normalized.get("attachments", [])
                         if attachments and cortex_pipeline and supabase:
                             logger.info(f"   📎 Processing {len(attachments)} attachments for Outlook message {normalized['message_id']}")
+                            
+                            # Get parent email document ID for linking (BRILLIANT IDEA FROM USER!)
+                            parent_doc_id = email_result.get('document_id') if email_result else None
+                            parent_email_content = normalized.get('full_body', '')  # Email content for context
 
                             for attachment in attachments:
                                 try:
@@ -177,7 +181,10 @@ async def run_tenant_sync(
                                             "attached_to": "email",
                                             "is_inline": is_inline,
                                             "content_id": content_id
-                                        }
+                                        },
+                                        # LINK TO PARENT EMAIL (USER'S BRILLIANT IDEA!)
+                                        parent_document_id=parent_doc_id,
+                                        parent_email_content=parent_email_content
                                     )
 
                                     logger.info(f"      ✅ Outlook attachment ingested: {filename}")
