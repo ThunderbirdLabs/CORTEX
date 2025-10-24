@@ -10,11 +10,11 @@ from app.services.deduplication.entity_deduplication import run_entity_deduplica
 from app.core.config import settings
 
 def main():
-    from datetime import datetime
+    from datetime import datetime, timezone
     import time
 
     start_time = time.time()
-    print(f"🚀 Starting deduplication at {datetime.utcnow().strftime('%H:%M:%S UTC')}")
+    print(f"🚀 Starting deduplication at {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}")
     print(f"   Similarity: {settings.dedup_similarity_threshold} | Levenshtein: {settings.dedup_levenshtein_max_distance} | Lookback: 24h")
 
     try:

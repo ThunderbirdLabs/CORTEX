@@ -160,9 +160,9 @@ class EntityDeduplicationService:
         // Only process each cluster once (from the perspective of the node with lowest ID)
         WHERE id(e) = clusterId
 
-        WITH duplicates + [e] AS nodesToMerge
+        // Return node IDs for batched processing (not Node objects)
+        WITH [n IN duplicates + [e] | id(n)] AS nodesToMerge
 
-        // Return merge candidates for batched processing
         RETURN nodesToMerge
         """)
 
