@@ -243,9 +243,20 @@ def extract_text_from_file(
         return text, metadata
 
     except Exception as e:
-        error_msg = f"Failed to parse file {Path(file_path).name}: {str(e)}"
-        logger.error(error_msg)
-        raise ValueError(error_msg)
+        # FALLBACK: Try Google Cloud Vision OCR as last resort for ANY file
+        logger.warning(f"⚠️  Standard parsing failed: {e}")
+        logger.info(f"   🔄 Attempting Google Cloud Vision OCR fallback...")
+
+        try:
+            text, metadata = extract_with_vision(file_path, file_type)
+            logger.info(f"✅ Vision OCR fallback succeeded: {len(text)} chars extracted")
+            metadata['fallback_method'] = 'google_cloud_vision_ocr'
+            metadata['original_error'] = str(e)
+            return text, metadata
+        except Exception as vision_error:
+            error_msg = f"Failed to parse file {Path(file_path).name} (even with Vision OCR fallback): {str(e)}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
 
 def extract_with_generic_parser(file_path: str, file_type: str) -> Tuple[str, Dict]:

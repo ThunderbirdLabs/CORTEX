@@ -273,6 +273,17 @@ async def ingest_document_universal(
         }
 
         # Upsert to documents table (handles duplicates)
+        # If parent_document_id is set but doesn't exist, set to None to avoid FK constraint error
+        if parent_document_id:
+            try:
+                parent_check = supabase.table('documents').select('id').eq('id', parent_document_id).execute()
+                if not parent_check.data:
+                    logger.warning(f"   ⚠️  Parent document {parent_document_id} not found, setting parent_document_id to None")
+                    document_row['parent_document_id'] = None
+            except Exception as e:
+                logger.warning(f"   ⚠️  Error checking parent document: {e}, setting parent_document_id to None")
+                document_row['parent_document_id'] = None
+
         result = supabase.table('documents').upsert(
             document_row,
             on_conflict='tenant_id,source,source_id'
