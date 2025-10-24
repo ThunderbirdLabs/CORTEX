@@ -79,7 +79,7 @@ class Settings(BaseSettings):
 
     dedup_enabled: bool = Field(default=True, description="Enable periodic entity deduplication")
     dedup_interval_hours: int = Field(default=1, description="Deduplication run interval (hours)")
-    dedup_similarity_threshold: float = Field(default=0.92, description="Vector similarity threshold (0.88-0.95)")
+    dedup_similarity_threshold: float = Field(default=0.85, description="Vector similarity threshold (0.85-0.90 recommended)")
     dedup_levenshtein_max_distance: int = Field(default=3, description="Max Levenshtein distance (2-5)")
     dedup_batch_size: int = Field(default=50, description="Merge batch size (20-100, tune based on load)")
 
