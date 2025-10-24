@@ -115,6 +115,7 @@ def start_periodic_scheduler():
         def renew_lock():
             redis_client.expire(SCHEDULER_LOCK_KEY, SCHEDULER_LOCK_TIMEOUT)
 
+        print("📝 Adding lock renewal job...")
         scheduler.add_job(
             func=renew_lock,
             trigger=IntervalTrigger(seconds=30),
@@ -123,12 +124,18 @@ def start_periodic_scheduler():
             replace_existing=True
         )
 
+        print("🎬 Starting scheduler (this will block)...")
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
+        print("⚠️  Scheduler stopped - releasing lock")
         logger.info("Scheduler stopped - releasing lock")
         redis_client.delete(SCHEDULER_LOCK_KEY)
     except Exception as e:
-        logger.error(f"Scheduler error: {e}")
+        print(f"❌ Scheduler error: {e}")
+        print(f"   Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+        logger.error(f"Scheduler error: {e}", exc_info=True)
         redis_client.delete(SCHEDULER_LOCK_KEY)
         raise
 
