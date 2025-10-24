@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Distributed lock configuration
 REDIS_URL = os.getenv("REDIS_URL")
 SCHEDULER_LOCK_KEY = "cortex:scheduler:lock"
-SCHEDULER_LOCK_TIMEOUT = 60  # seconds
+SCHEDULER_LOCK_TIMEOUT = 120  # seconds (2 minutes - longer to prevent race conditions)
 
 
 def acquire_scheduler_lock(redis_client):
@@ -70,6 +70,18 @@ def start_periodic_scheduler():
     print("📡 Connecting to Redis...")
     redis_client = redis.from_url(REDIS_URL, decode_responses=True)
     print("✅ Redis connected")
+
+    # Check if lock exists and how long it's been held
+    print("🔍 Checking for existing lock...")
+    lock_ttl = redis_client.ttl(SCHEDULER_LOCK_KEY)
+    if lock_ttl > 0:
+        print(f"   ⚠️  Lock exists, TTL: {lock_ttl} seconds")
+        print(f"   Will retry after lock expires (max {lock_ttl}s)")
+    elif lock_ttl == -1:
+        print("   ⚠️  Lock exists with NO expiration (stale lock from crash)")
+        print("   🧹 Clearing stale lock...")
+        redis_client.delete(SCHEDULER_LOCK_KEY)
+        print("   ✅ Stale lock cleared")
 
     # Try to acquire distributed lock
     print("🔒 Attempting to acquire scheduler lock...")
