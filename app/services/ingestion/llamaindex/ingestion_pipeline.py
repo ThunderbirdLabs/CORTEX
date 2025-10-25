@@ -33,6 +33,9 @@ from llama_index.llms.openai import OpenAI
 from llama_index.core.graph_stores.types import EntityNode, Relation
 from qdrant_client import QdrantClient, AsyncQdrantClient
 
+# Import retry decorators for production resilience
+from app.core.circuit_breakers import with_neo4j_retry
+
 from .config import (
     NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE,
     NEO4J_MAX_POOL_SIZE, NEO4J_LIVENESS_CHECK_TIMEOUT,
@@ -299,6 +302,30 @@ Text:
         logger.info("   Storage: Dual (chunks in Qdrant, full documents in Neo4j)")
         logger.info("   Supports: Emails, PDFs, Sheets, Structured data")
 
+    # ============================================================================
+    # PRODUCTION RESILIENCE: Neo4j operations with automatic retry
+    # ============================================================================
+
+    @with_neo4j_retry
+    def _upsert_nodes_with_retry(self, nodes: List[EntityNode]):
+        """
+        Upsert nodes to Neo4j with automatic retry on transient failures.
+
+        Retries on: Connection errors, timeouts, transient errors
+        Strategy: 3 attempts, exponential backoff (1s, 2s, 4s)
+        """
+        self.graph_store.upsert_nodes(nodes)
+
+    @with_neo4j_retry
+    def _upsert_relations_with_retry(self, relations: List[Relation]):
+        """
+        Upsert relations to Neo4j with automatic retry on transient failures.
+
+        Retries on: Connection errors, timeouts, transient errors
+        Strategy: 3 attempts, exponential backoff (1s, 2s, 4s)
+        """
+        self.graph_store.upsert_relations(relations)
+
     async def ingest_document(
         self,
         document_row: Dict[str, Any],
@@ -474,7 +501,7 @@ Text:
                 properties=node_properties
             )
 
-            self.graph_store.upsert_nodes([document_node])
+            self._upsert_nodes_with_retry([document_node])
             logger.info(f"   ✅ {node_label} node created: {document_node.id}")
 
             # Step 4: For emails only - create sender/recipient Person nodes
@@ -494,14 +521,14 @@ Text:
                 # CRITICAL: Generate embedding for deduplication (same as LLM entities)
                 sender_text = f"PERSON: {sender_name}"
                 sender_person.embedding = await self.embed_model.aget_text_embedding(sender_text)
-                self.graph_store.upsert_nodes([sender_person])
+                self._upsert_nodes_with_retry([sender_person])
 
                 sent_by_rel = Relation(
                     label="SENT_BY",
                     source_id=document_node.id,
                     target_id=sender_person.id
                 )
-                self.graph_store.upsert_relations([sent_by_rel])
+                self._upsert_relations_with_retry([sent_by_rel])
                 email_relationships.append("SENT_BY")
                 logger.info(f"   ✅ Created: {node_label} -[SENT_BY]-> {sender_name}")
 
@@ -522,14 +549,14 @@ Text:
                     # CRITICAL: Generate embedding for deduplication (same as LLM entities)
                     recipient_text = f"PERSON: {recipient_name}"
                     recipient_person.embedding = await self.embed_model.aget_text_embedding(recipient_text)
-                    self.graph_store.upsert_nodes([recipient_person])
+                    self._upsert_nodes_with_retry([recipient_person])
 
                     sent_to_rel = Relation(
                         label="SENT_TO",
                         source_id=document_node.id,
                         target_id=recipient_person.id
                     )
-                    self.graph_store.upsert_relations([sent_to_rel])
+                    self._upsert_relations_with_retry([sent_to_rel])
                     email_relationships.append("SENT_TO")
 
                 if len(to_addresses) > 0:
@@ -605,7 +632,7 @@ Text:
                         )
                         # Embed the chunk for semantic retrieval
                         chunk_node.embedding = await self.embed_model.aget_text_embedding(llama_node.text)
-                        self.graph_store.upsert_nodes([chunk_node])
+                        self._upsert_nodes_with_retry([chunk_node])
                         total_chunks += 1
 
                         if entities:
@@ -621,7 +648,7 @@ Text:
                                 entity.properties['created_at_timestamp'] = created_at_timestamp
 
                             # Upsert entities with embeddings
-                            self.graph_store.upsert_nodes(entities)
+                            self._upsert_nodes_with_retry(entities)
                             total_entities += len(entities)
 
                             # Create MENTIONS relationships from chunk → entities
@@ -635,11 +662,11 @@ Text:
                                 mentions_relations.append(mentions_rel)
 
                             if mentions_relations:
-                                self.graph_store.upsert_relations(mentions_relations)
+                                self._upsert_relations_with_retry(mentions_relations)
 
                         if relations:
                             # Upsert extracted relationships between entities
-                            self.graph_store.upsert_relations(relations)
+                            self._upsert_relations_with_retry(relations)
                             total_relations += len(relations)
 
                     if total_chunks > 0:
@@ -913,14 +940,14 @@ Text:
                 # CRITICAL: Generate embedding for deduplication (same as LLM entities)
                 sender_text = f"PERSON: {display_name}"
                 sender_person.embedding = await self.embed_model.aget_text_embedding(sender_text)
-                self.graph_store.upsert_nodes([sender_person])
+                self._upsert_nodes_with_retry([sender_person])
 
                 sent_by_rel = Relation(
                     label="SENT_BY",
                     source_id=document_node.id,
                     target_id=sender_person.id
                 )
-                self.graph_store.upsert_relations([sent_by_rel])
+                self._upsert_relations_with_retry([sent_by_rel])
                 email_relationships.append("SENT_BY")
 
             # Handle to_addresses (can be list or JSON string)
@@ -946,14 +973,14 @@ Text:
                     # CRITICAL: Generate embedding for deduplication (same as LLM entities)
                     recipient_text = f"PERSON: {recipient_name}"
                     recipient_person.embedding = await self.embed_model.aget_text_embedding(recipient_text)
-                    self.graph_store.upsert_nodes([recipient_person])
+                    self._upsert_nodes_with_retry([recipient_person])
 
                     sent_to_rel = Relation(
                         label="SENT_TO",
                         source_id=document_node.id,
                         target_id=recipient_person.id
                     )
-                    self.graph_store.upsert_relations([sent_to_rel])
+                    self._upsert_relations_with_retry([sent_to_rel])
                     email_relationships.append("SENT_TO")
 
         # Entity extraction (expensive, optional)
