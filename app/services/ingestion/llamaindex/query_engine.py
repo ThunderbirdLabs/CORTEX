@@ -24,6 +24,7 @@ from qdrant_client import QdrantClient, AsyncQdrantClient
 
 from .config import (
     NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE,
+    NEO4J_QUERY_USERNAME, NEO4J_QUERY_PASSWORD,  # Read-only user for queries
     QDRANT_URL, QDRANT_API_KEY, QDRANT_COLLECTION_NAME,
     OPENAI_API_KEY, QUERY_MODEL, QUERY_TEMPERATURE,
     EMBEDDING_MODEL, SIMILARITY_TOP_K
@@ -106,10 +107,11 @@ class HybridQueryEngine:
         )
         logger.info("✅ VectorStoreIndex created for semantic search")
 
-        # Neo4j graph store
+        # Neo4j graph store (read-only user for queries)
+        # Uses NEO4J_QUERY_USERNAME which falls back to admin if not set
         graph_store = Neo4jPropertyGraphStore(
-            username=NEO4J_USERNAME,
-            password=NEO4J_PASSWORD,
+            username=NEO4J_QUERY_USERNAME,  # Read-only user (or admin if not configured)
+            password=NEO4J_QUERY_PASSWORD,
             url=NEO4J_URI,
             database=NEO4J_DATABASE
         )

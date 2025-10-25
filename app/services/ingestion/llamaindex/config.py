@@ -22,6 +22,11 @@ NEO4J_USERNAME = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 NEO4J_DATABASE = "neo4j"
 
+# Read-only user for queries (optional but recommended for production security)
+# Fallback to admin credentials if not set - ingestion and queries work either way
+NEO4J_QUERY_USERNAME = os.getenv("NEO4J_QUERY_USER", NEO4J_USERNAME)
+NEO4J_QUERY_PASSWORD = os.getenv("NEO4J_QUERY_PASSWORD", NEO4J_PASSWORD)
+
 # ============================================
 # QDRANT CONFIGURATION
 # ============================================
