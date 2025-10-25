@@ -42,7 +42,7 @@ EXTRACTION_TEMPERATURE = 0.0
 
 # LLM for queries and synthesis
 QUERY_MODEL = "gpt-4o-mini"
-QUERY_TEMPERATURE = 0.3
+QUERY_TEMPERATURE = 0.0  # IMPORTANT: 0 for deterministic Cypher generation (Neo4j + OpenAI best practice)
 
 # Embeddings
 EMBEDDING_MODEL = "text-embedding-3-small"

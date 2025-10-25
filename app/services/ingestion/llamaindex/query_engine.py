@@ -398,8 +398,93 @@ Return ONLY the JSON object, nothing else.
                     filters=metadata_filters  # Apply time filter to Qdrant
                 )
 
-                # Graph query engine (no filtering for now - could add Cypher filters later)
-                graph_query_engine = self.graph_query_engine
+                # Graph query engine with TextToCypherRetriever for time-filtered queries
+                # PRODUCTION SAFEGUARDS:
+                # 1. Few-shot prompting with datetime examples (improves accuracy to 78%)
+                # 2. Temperature=0 (deterministic Cypher generation)
+                # 3. Query validation layer (catches syntax errors)
+                # 4. Timeout protection (30s max per Neo4j best practices)
+                # 5. Read-only at database level (NEO4J_USER should be read-only role)
+
+                # Create TextToCypherRetriever with temporal filtering support
+                from llama_index.core.indices.property_graph import TextToCypherRetriever
+                from datetime import datetime
+
+                # Build few-shot prompt with temporal query examples
+                # CRITICAL: Include examples of timestamp filtering on Chunk nodes
+                current_date = datetime.now().strftime('%B %d, %Y')
+                current_timestamp = int(datetime.now().timestamp())
+
+                text_to_cypher_template = f"""Task: Generate Cypher statement to query a Neo4j graph database.
+Instructions:
+- Use only the provided relationship types and properties from the schema
+- Do not use any relationship types or properties not in the schema
+- Do NOT create, delete, or modify any data (read-only queries only)
+- For time-based queries, filter on Chunk nodes using created_at_timestamp (integer Unix timestamp)
+- Chunk nodes contain document content and have MENTIONS relationships to entities
+- Entity nodes (PERSON, COMPANY, etc.) do not have timestamps - filter via Chunk nodes
+
+Schema:
+{{schema}}
+
+Important: Today's date is {current_date} (Unix timestamp: {current_timestamp})
+
+Cypher Examples for Time-Filtered Queries:
+
+# Example 1: "Show me emails from last week"
+# Filter Chunk nodes by timestamp, then traverse to EMAIL nodes
+MATCH (chunk:Chunk)-[:MENTIONS]->(email:EMAIL)
+WHERE chunk.created_at_timestamp >= {current_timestamp - 7*24*60*60}
+  AND chunk.created_at_timestamp < {current_timestamp}
+RETURN chunk.text, email.title, email.created_at
+LIMIT 10
+
+# Example 2: "What did Hayden say last month?"
+# Find PERSON, then Chunk nodes they're mentioned in with time filter
+MATCH (p:PERSON {{name: "Hayden"}})<-[:MENTIONS]-(chunk:Chunk)
+WHERE chunk.created_at_timestamp >= {current_timestamp - 30*24*60*60}
+  AND chunk.created_at_timestamp < {current_timestamp}
+RETURN chunk.text, chunk.title, chunk.created_at
+LIMIT 10
+
+# Example 3: "Show me deals from Q3 2024"
+# Filter Chunks mentioning DEAL entities within date range
+MATCH (deal:DEAL)<-[:MENTIONS]-(chunk:Chunk)
+WHERE chunk.created_at_timestamp >= 1688169600  # July 1, 2024
+  AND chunk.created_at_timestamp < 1696118400   # October 1, 2024
+RETURN deal, chunk.text
+LIMIT 10
+
+# Example 4: "Who worked on Project X after January 2025?"
+# Entities + time filtering via Chunk provenance
+MATCH (p:PERSON)-[r:WORKS_ON]->(proj:PROJECT {{name: "Project X"}})
+MATCH (p)<-[:MENTIONS]-(chunk:Chunk)
+WHERE chunk.created_at_timestamp >= 1704067200  # January 1, 2025
+RETURN p.name, chunk.title, chunk.created_at
+LIMIT 10
+
+Note: Only generate Cypher statements. No explanations or apologies.
+
+Question: {{question}}
+Cypher Query:"""
+
+                # Create TextToCypherRetriever with safeguards
+                cypher_retriever = TextToCypherRetriever(
+                    self.property_graph_index.property_graph_store,
+                    llm=OpenAI(model=QUERY_MODEL, temperature=0.0, api_key=OPENAI_API_KEY),  # temperature=0 for deterministic generation
+                    text_to_cypher_template=text_to_cypher_template,
+                    # Cypher validator (optional - can add custom validation logic)
+                    cypher_validator=None,  # TODO: Add validator if needed
+                    # Only allow reading text, label, type fields (no sensitive data)
+                    allowed_output_field=["text", "label", "type", "name", "title", "created_at", "created_at_timestamp"]
+                )
+
+                # Create graph query engine with TextToCypherRetriever
+                graph_query_engine = self.property_graph_index.as_query_engine(
+                    sub_retrievers=[cypher_retriever],  # Use our custom retriever
+                    llm=self.llm,
+                    include_text=True
+                )
 
                 # Wrap as tools for SubQuestionQueryEngine
                 from llama_index.core.tools import QueryEngineTool

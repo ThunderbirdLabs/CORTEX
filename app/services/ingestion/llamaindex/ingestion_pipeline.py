@@ -439,6 +439,34 @@ Text:
         source_id = document_row.get("source_id") or document_row.get("message_id", str(doc_id))
         created_at = document_row.get("source_created_at") or document_row.get("received_datetime", "")
 
+        # FIX: Attachments inherit timestamp from parent email
+        # CRITICAL for time-filtered queries (e.g., "show me emails from last week")
+        # Without this, 70%+ of Qdrant data has created_at_timestamp = None
+        if not created_at and document_row.get("parent_document_id"):
+            parent_id = document_row.get("parent_document_id")
+            logger.info(f"   📎 Attachment detected with no timestamp, fetching from parent document {parent_id}...")
+
+            try:
+                # Query parent document's timestamp from Supabase
+                from supabase import create_client
+                import os
+                supabase = create_client(
+                    os.getenv('SUPABASE_URL'),
+                    os.getenv('SUPABASE_ANON_KEY')
+                )
+
+                parent_result = supabase.table('documents') \
+                    .select('source_created_at') \
+                    .eq('id', parent_id) \
+                    .single() \
+                    .execute()
+
+                if parent_result.data and parent_result.data.get('source_created_at'):
+                    created_at = parent_result.data['source_created_at']
+                    logger.info(f"   ✅ Inherited timestamp from parent: {created_at}")
+            except Exception as e:
+                logger.warning(f"   ⚠️  Could not fetch parent timestamp: {e}")
+
         # Convert created_at to Unix timestamp for Qdrant filtering
         created_at_timestamp = None
         if created_at:
@@ -709,16 +737,18 @@ Text:
                                 entity_text = f"{entity.label}: {entity.name if hasattr(entity, 'name') else entity.id}"
                                 entity.embedding = await self.embed_model.aget_text_embedding(entity_text)
 
-                                # Add timestamp for incremental deduplication
-                                if not hasattr(entity, 'properties') or entity.properties is None:
-                                    entity.properties = {}
-                                entity.properties['created_at_timestamp'] = created_at_timestamp
+                                # NOTE: Do NOT add created_at_timestamp to entities!
+                                # Entities are context-free and appear in multiple documents.
+                                # When Neo4j merges the same entity from different documents,
+                                # it would create an array [timestamp1, timestamp2, ...] which breaks schema.
+                                # Timestamps belong on Chunk nodes (document content) not Entity nodes.
 
                                 # Sanitize entity properties (LLM can return nested dicts/arrays)
-                                entity.properties = {
-                                    k: sanitize_neo4j_properties(v)
-                                    for k, v in entity.properties.items()
-                                }
+                                if hasattr(entity, 'properties') and entity.properties:
+                                    entity.properties = {
+                                        k: sanitize_neo4j_properties(v)
+                                        for k, v in entity.properties.items()
+                                    }
 
                             # Upsert entities with embeddings
                             self._upsert_nodes_with_retry(entities)
