@@ -75,12 +75,13 @@ async def run_tenant_sync(
         while has_more:
             try:
                 # Fetch page of pre-synced records from Nango
+                # REDUCED to 10 to prevent memory/timeout issues with large email batches
                 result = await nango_list_email_records(
                     http_client,
                     provider_key,
                     connection_id,
                     cursor=cursor,
-                    limit=100
+                    limit=10
                 )
 
                 records = result.get("records", [])
@@ -217,7 +218,9 @@ async def run_tenant_sync(
                 # Update cursor for next page
                 if next_cursor:
                     cursor = next_cursor
+                    logger.info(f"   ⏭️  Moving to next page (cursor: {cursor[:30]}...)")
                 else:
+                    logger.info(f"   ✅ No more pages - sync complete!")
                     has_more = False
 
             except Exception as e:
