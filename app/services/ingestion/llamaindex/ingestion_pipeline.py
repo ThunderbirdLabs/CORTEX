@@ -379,19 +379,28 @@ Text:
                         pass
 
                 # Truncate metadata values to prevent total metadata length > chunk size
+                # CRITICAL: Convert arrays to JSON strings to prevent Neo4j LongArray toString() error
                 MAX_META_VALUE_LEN = 200  # Max chars per metadata value
                 for key, value in additional_meta.items():
-                    if isinstance(value, str) and len(value) > MAX_META_VALUE_LEN:
+                    if isinstance(value, list):
+                        # Convert lists to JSON strings to prevent Neo4j LongArray error
+                        doc_metadata[key] = json.dumps(value)
+                    elif isinstance(value, str) and len(value) > MAX_META_VALUE_LEN:
                         doc_metadata[key] = value[:MAX_META_VALUE_LEN] + "..."
                     else:
                         doc_metadata[key] = value
 
             # For emails: preserve email-specific fields
             if document_type == "email":
+                # CRITICAL: Convert to_addresses to JSON string to prevent Neo4j LongArray error
+                to_addrs = document_row.get("to_addresses", "[]")
+                if isinstance(to_addrs, list):
+                    to_addrs = json.dumps(to_addrs)
+
                 doc_metadata.update({
                     "sender_name": document_row.get("sender_name", ""),
                     "sender_address": document_row.get("sender_address", ""),
-                    "to_addresses": document_row.get("to_addresses", "[]"),
+                    "to_addresses": to_addrs,
                 })
 
             # CRITICAL: Set doc_id to ensure chunks preserve original document_id
@@ -430,8 +439,14 @@ Text:
                 "created_at": str(created_at),
             }
 
-            # Add any extra metadata
-            node_properties.update(doc_metadata)
+            # Add any extra metadata (sanitize arrays to prevent Neo4j LongArray error)
+            for key, value in doc_metadata.items():
+                if isinstance(value, list):
+                    node_properties[key] = json.dumps(value)  # Convert arrays to JSON strings
+                elif isinstance(value, dict):
+                    node_properties[key] = json.dumps(value)  # Convert dicts to JSON strings
+                else:
+                    node_properties[key] = value
 
             # CRITICAL: Use unique ID to prevent merging documents with same title
             # EntityNode uses 'name' as the node ID, so we must make it unique
