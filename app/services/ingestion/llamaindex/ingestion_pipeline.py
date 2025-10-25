@@ -20,7 +20,7 @@ Handles ALL document types:
 import logging
 import json
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, date
 
 from llama_index.core import Document, PromptTemplate
 from llama_index.core.ingestion import IngestionPipeline
@@ -48,6 +48,78 @@ from .config import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_neo4j_properties(value: Any, max_depth: int = 10, current_depth: int = 0) -> Any:
+    """
+    Industry-standard Neo4j property sanitization (production-grade).
+
+    Based on Neo4j official constraints + LlamaIndex best practices:
+    - Neo4j ONLY supports: primitives (str, int, float, bool) and homogeneous arrays
+    - NO nested dicts, NO mixed-type arrays, NO None in arrays
+    - Temporal types → ISO strings
+    - Complex structures → JSON strings
+
+    Research sources:
+    - Neo4j Cypher Manual (2025): Property value constraints
+    - LlamaIndex Neo4jPropertyGraphStore source code
+    - Neo4j community consensus: "flatten or stringify"
+
+    Args:
+        value: Any Python value
+        max_depth: Max recursion depth (prevents infinite loops)
+        current_depth: Current recursion level
+
+    Returns:
+        Neo4j-safe value: primitive, homogeneous array, or JSON string
+    """
+    # Prevent infinite recursion on circular references
+    if current_depth > max_depth:
+        logger.warning(f"⚠️  Sanitization max depth {max_depth} exceeded, converting to string")
+        return str(value)
+
+    # None → empty string (Neo4j doesn't support null in some contexts)
+    if value is None:
+        return ""
+
+    # Primitives: pass through unchanged (Neo4j native support)
+    if isinstance(value, (str, int, float, bool)):
+        return value
+
+    # Temporal types → ISO 8601 strings (Neo4j best practice)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+
+    # Lists/Arrays: Neo4j requires homogeneous types
+    if isinstance(value, list):
+        if not value:  # Empty list → JSON string (safest approach)
+            return "[]"
+
+        # Recursively sanitize each item
+        sanitized = [sanitize_neo4j_properties(item, max_depth, current_depth + 1) for item in value]
+
+        # Check if homogeneous (all same type after sanitization)
+        types = set(type(x) for x in sanitized)
+
+        # If all primitives of same type → native Neo4j array
+        if len(types) == 1 and list(types)[0] in (str, int, float, bool):
+            return sanitized
+        else:
+            # Mixed types or complex → JSON string
+            return json.dumps(sanitized)
+
+    # Dicts: Neo4j does NOT support nested dicts → JSON string
+    if isinstance(value, dict):
+        # Recursively sanitize nested dict values
+        sanitized_dict = {
+            k: sanitize_neo4j_properties(v, max_depth, current_depth + 1)
+            for k, v in value.items()
+        }
+        # Always convert dicts to JSON strings (Neo4j limitation)
+        return json.dumps(sanitized_dict)
+
+    # Fallback: stringify unknown types (bytes, custom objects, etc.)
+    return str(value)
 
 
 class UniversalIngestionPipeline:
@@ -482,14 +554,9 @@ Text:
                 "created_at": str(created_at),
             }
 
-            # Add any extra metadata (sanitize arrays to prevent Neo4j LongArray error)
+            # Add any extra metadata (production-grade sanitization for Neo4j constraints)
             for key, value in doc_metadata.items():
-                if isinstance(value, list):
-                    node_properties[key] = json.dumps(value)  # Convert arrays to JSON strings
-                elif isinstance(value, dict):
-                    node_properties[key] = json.dumps(value)  # Convert dicts to JSON strings
-                else:
-                    node_properties[key] = value
+                node_properties[key] = sanitize_neo4j_properties(value)
 
             # CRITICAL: Use unique ID to prevent merging documents with same title
             # EntityNode uses 'name' as the node ID, so we must make it unique
@@ -646,6 +713,12 @@ Text:
                                 if not hasattr(entity, 'properties') or entity.properties is None:
                                     entity.properties = {}
                                 entity.properties['created_at_timestamp'] = created_at_timestamp
+
+                                # Sanitize entity properties (LLM can return nested dicts/arrays)
+                                entity.properties = {
+                                    k: sanitize_neo4j_properties(v)
+                                    for k, v in entity.properties.items()
+                                }
 
                             # Upsert entities with embeddings
                             self._upsert_nodes_with_retry(entities)
