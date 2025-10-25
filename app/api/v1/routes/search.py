@@ -102,6 +102,19 @@ async def search(
             if episode_id:
                 episode_ids.add(episode_id)
 
+            # If file_url not in metadata, fetch from documents table (for old chunks)
+            if not metadata.get("file_url") and metadata.get("document_id"):
+                try:
+                    doc_result = supabase.table("documents").select("file_url,mime_type,file_size_bytes").eq(
+                        "id", metadata["document_id"]
+                    ).single().execute()
+                    if doc_result.data:
+                        metadata["file_url"] = doc_result.data.get("file_url")
+                        metadata["mime_type"] = doc_result.data.get("mime_type")
+                        metadata["file_size_bytes"] = doc_result.data.get("file_size_bytes")
+                except Exception as e:
+                    logger.warning(f"Failed to fetch file_url for document {metadata['document_id']}: {e}")
+
             vector_results.append(VectorResult(
                 id=str(i),
                 document_name=metadata.get("document_name", "Unknown"),
