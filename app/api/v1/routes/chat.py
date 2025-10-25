@@ -181,14 +181,25 @@ async def chat(
                 continue
 
             # DEDUPLICATE: Create unique key for this document
+            # Use parent_document_id if available (for attachments), otherwise use source:doc_name
             doc_name = metadata.get('title', metadata.get('document_name', 'Untitled'))
-            unique_key = str(document_id) if document_id else f"{source_system}:{doc_name}"
-            
+            parent_doc_id = metadata.get('parent_document_id')
+
+            # Create unique key based on parent document or name+source combination
+            if parent_doc_id:
+                unique_key = f"parent:{parent_doc_id}"
+            elif metadata.get('file_url'):
+                # Use file_url as unique identifier for uploaded files
+                unique_key = f"file:{metadata.get('file_url')}"
+            else:
+                # Fallback to source:document_name combination
+                unique_key = f"{source_system}:{doc_name}"
+
             # Skip if we've already seen this document
             if unique_key in seen_documents:
                 logger.debug(f"   🔄 Skipping duplicate document: {doc_name}")
                 continue
-                
+
             seen_documents.add(unique_key)
 
             # This is a valid, unique document source
@@ -200,7 +211,11 @@ async def chat(
                 'document_type': metadata.get('document_type', 'document'),
                 'timestamp': metadata.get('created_at', metadata.get('timestamp', 'Unknown')),
                 'text_preview': node.text[:200] if hasattr(node, 'text') else '',
-                'score': node.score if hasattr(node, 'score') else None
+                'score': node.score if hasattr(node, 'score') else None,
+                # Add file metadata for Supabase Storage files
+                'file_url': metadata.get('file_url'),
+                'mime_type': metadata.get('mime_type'),
+                'file_size_bytes': metadata.get('file_size_bytes')
             }
             sources.append(source_info)
             logger.info(f"   📄 Source {source_index}: {source_info['source']} - {source_info['document_name']}")
