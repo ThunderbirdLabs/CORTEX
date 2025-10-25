@@ -194,3 +194,26 @@ CACHE_COLLECTION = "cortex_ingestion_cache"
 
 # Enable caching if Redis is configured
 ENABLE_CACHE = REDIS_HOST is not None
+
+# ============================================
+# NEO4J PRODUCTION CONNECTION POOLING
+# ============================================
+
+# Connection pool optimization for Neo4j Aura
+# Research: Neo4j best practices recommend 50 connections for production workloads
+# https://neo4j.com/docs/operations-manual/current/performance/memory-configuration/#_connection_pool_size
+NEO4J_MAX_POOL_SIZE = int(os.getenv("NEO4J_MAX_POOL_SIZE", "50"))
+
+# Liveness check prevents using stale connections (FIXES CONNECTION RESET ERRORS)
+# Research: Neo4j recommends 5s for cloud deployments with load balancers
+# https://support.neo4j.com/s/article/14249408309395-Neo4j-Driver-Best-Practices
+NEO4J_LIVENESS_CHECK_TIMEOUT = float(os.getenv("NEO4J_LIVENESS_CHECK_TIMEOUT", "5.0"))
+
+# Connection timeout for initial TCP connection
+NEO4J_CONNECTION_TIMEOUT = float(os.getenv("NEO4J_CONNECTION_TIMEOUT", "30.0"))
+
+# Max time for transaction retries (handles transient failures)
+NEO4J_MAX_RETRY_TIME = float(os.getenv("NEO4J_MAX_RETRY_TIME", "30.0"))
+
+# Keep alive prevents idle connection drops
+NEO4J_KEEP_ALIVE = os.getenv("NEO4J_KEEP_ALIVE", "true").lower() == "true"
