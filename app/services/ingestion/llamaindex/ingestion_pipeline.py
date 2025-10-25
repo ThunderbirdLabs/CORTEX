@@ -359,6 +359,14 @@ Text:
                 "created_at_timestamp": created_at_timestamp,  # Unix timestamp for filtering
             }
 
+            # Add file metadata if available (for attachments/files)
+            if document_row.get("file_url"):
+                doc_metadata["file_url"] = document_row["file_url"]
+            if document_row.get("file_size_bytes"):
+                doc_metadata["file_size_bytes"] = document_row["file_size_bytes"]
+            if document_row.get("mime_type"):
+                doc_metadata["mime_type"] = document_row["mime_type"]
+
             # Merge in any additional metadata from the row (TRUNCATE to prevent metadata > chunk_size error)
             if "metadata" in document_row and document_row["metadata"]:
                 additional_meta = {}
