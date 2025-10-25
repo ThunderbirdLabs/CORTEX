@@ -51,6 +51,7 @@ async def run_tenant_sync(
     logger.info(f"🚀 Starting Outlook sync for tenant {tenant_id} (via Nango unified API)")
 
     messages_synced = 0
+    total_filtered = 0  # Track total spam filtered across all batches
     errors = []
 
     try:
@@ -89,6 +90,7 @@ async def run_tenant_sync(
 
                 # Process each record
                 filtered_count = 0
+                filtered_emails = []  # Track what got filtered for debugging
                 for record in records:
                     try:
                         # Normalize Outlook message (Nango format → our format) - FULL EMAIL
@@ -101,9 +103,13 @@ async def run_tenant_sync(
                                 'body': normalized.get('full_body', ''),
                                 'sender': normalized.get('sender_address', '')
                             })
-                            
+
                             if should_skip:
                                 filtered_count += 1
+                                filtered_emails.append({
+                                    'subject': normalized.get('subject', 'No Subject')[:60],
+                                    'sender': normalized.get('sender_address', 'Unknown')
+                                })
                                 continue  # Skip ingestion but log it
                         
                         # Universal ingestion (documents table + Neo4j + Qdrant) - FULL EMAIL
@@ -200,7 +206,13 @@ async def run_tenant_sync(
                         errors.append(error_msg)
                 
                 if filtered_count > 0:
+                    total_filtered += filtered_count
                     logger.info(f"🚫 Filtered {filtered_count} spam/newsletter emails from this batch")
+                    # Log first 5 filtered emails for debugging
+                    for i, email in enumerate(filtered_emails[:5]):
+                        logger.info(f"   {i+1}. '{email['subject']}' from {email['sender']}")
+                    if len(filtered_emails) > 5:
+                        logger.info(f"   ... and {len(filtered_emails) - 5} more")
 
                 # Update cursor for next page
                 if next_cursor:
@@ -214,12 +226,21 @@ async def run_tenant_sync(
                 errors.append(error_msg)
                 has_more = False
 
-        logger.info(f"✅ Outlook sync completed for tenant {tenant_id}: {messages_synced} messages")
+        # Final summary with spam filter stats
+        total_processed = messages_synced + total_filtered
+        filter_percent = (total_filtered / total_processed * 100) if total_processed > 0 else 0
+
+        logger.info(f"✅ Outlook sync completed for tenant {tenant_id}")
+        logger.info(f"   📊 Total processed: {total_processed} emails")
+        logger.info(f"   ✅ Ingested: {messages_synced} business emails")
+        logger.info(f"   🚫 Filtered: {total_filtered} spam/newsletters ({filter_percent:.1f}%)")
 
         return {
             "status": "success" if not errors else "partial_success",
             "tenant_id": tenant_id,
             "messages_synced": messages_synced,
+            "emails_filtered": total_filtered,
+            "total_processed": total_processed,
             "errors": errors
         }
 

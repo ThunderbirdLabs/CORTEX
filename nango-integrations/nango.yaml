@@ -3,11 +3,12 @@ integrations:
         syncs:
             emails:
                 description: |
-                    ✨ V23 - 1 WEEK BACKFILL + Google Cloud Vision OCR!
-                    - Default backfill: 7 days (was 1 hour)
+                    ✨ V25 - 2 WEEK BACKFILL + Enhanced Spam Filter Logging!
+                    - Default backfill: 14 days (was 7 days)
                     - Metadata-only sync (no attachment download during sync)
                     - Backend uses /fetch-attachment action on-demand
                     - OCR via Google Cloud Vision for images/scanned PDFs
+                    - Spam filter with detailed logging of filtered emails
                     - Uses Exchange FullAccess delegation
                 runs: every hour
                 output: OutlookEmail

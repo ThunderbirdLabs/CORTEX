@@ -58,7 +58,7 @@ interface OutlookEmail {
 }
 
 // Default to 1 week backfill (can be changed via metadata)
-const DEFAULT_BACKFILL_MS = 7 * 24 * 60 * 60 * 1000; // 1 WEEK
+const DEFAULT_BACKFILL_MS = 14 * 24 * 60 * 60 * 1000; // 2 WEEKS
 
 export default async function fetchData(nango: NangoSync) {
     const metadata = await nango.getMetadata<{ backfillPeriodMs?: number }>();
