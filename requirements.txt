@@ -61,7 +61,7 @@ pillow-heif==0.22.0
 pi-heif==0.22.0
 
 # OCR support for images and scanned PDFs
-google-cloud-vision==3.9.1  # Google Cloud Vision API for OCR (HIPAA-compliant)
+google-cloud-vision==3.11.0  # Google Cloud Vision API for OCR (HIPAA-compliant)
 pdf2image==1.17.0  # PDF to image conversion
 
 # Background job queue
