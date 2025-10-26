@@ -35,7 +35,7 @@ llama-index-llms-openai==0.3.0  # Compatible with core 0.12.x
 llama-index-vector-stores-qdrant==0.5.0  # Requires core >=0.12.7, <0.13.0
 llama-index-graph-stores-neo4j==0.4.3  # Compatible with core 0.12.x
 llama-index-readers-file==0.4.0  # Compatible with core 0.12.x
-llama-index-question-gen-openai==0.2.5  # Compatible with core 0.12.x
+llama-index-question-gen-openai==0.2.0  # Compatible with core 0.12.x (0.2.1-4 don't exist)
 
 # RAG Enhancements: Multi-stage reranking + conversational chat
 llama-index-postprocessor-sbert-rerank==0.3.0  # Compatible with core 0.12.x
