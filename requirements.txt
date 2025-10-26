@@ -38,7 +38,7 @@ llama-index-readers-file==0.5.4  # Latest py313 version (0.6.0 doesn't exist)
 llama-index-question-gen-openai==0.3.0  # Python 3.13 compatible
 
 # RAG Enhancements: Multi-stage reranking + conversational chat
-llama-index-postprocessor-sbert-rerank==0.5.1  # Latest py313 version
+llama-index-postprocessor-sbert-rerank==0.4.2  # Latest available (0.5.x doesn't exist)
 sentence-transformers==5.0.0  # Required by sbert-rerank
 torch==2.6.0  # Required by sentence-transformers (CPU-only build)
 
