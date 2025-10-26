@@ -45,9 +45,10 @@ torch==2.6.0  # Required by sentence-transformers (CPU-only build)
 # File parsing (lightweight - lazy loaded, no heavy ML at startup)
 # IMPORTANT: pandas pinned for Python 3.13 compatibility (unstructured dependency)
 # Research: pandas 2.2.3 has pre-built wheels for py313, avoids compilation errors
+# NOTE: unstructured 0.12-0.16.18 don't exist, jumped to 0.16.19
 pandas==2.2.3
-unstructured==0.16.14
-unstructured-inference==0.7.48
+unstructured==0.18.15  # Latest available for py313
+unstructured-inference==0.8.6  # Compatible with unstructured 0.18.15
 unstructured-pytesseract==0.3.13
 python-magic==0.4.27
 pypdf==5.8.0
