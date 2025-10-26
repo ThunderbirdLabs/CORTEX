@@ -127,13 +127,25 @@ class HybridQueryEngine:
         )
 
         # Qdrant vector store (with async client for retrieval)
-        qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
-        qdrant_aclient = AsyncQdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+        # Connection pool limits to prevent exhaustion under load
+        qdrant_client = QdrantClient(
+            url=QDRANT_URL,
+            api_key=QDRANT_API_KEY,
+            timeout=30.0,  # 30s timeout for operations
+            # Connection pooling handled by httpx internally (default: 100 max connections)
+        )
+        qdrant_aclient = AsyncQdrantClient(
+            url=QDRANT_URL,
+            api_key=QDRANT_API_KEY,
+            timeout=30.0
+        )
         vector_store = QdrantVectorStore(
             client=qdrant_client,
             aclient=qdrant_aclient,
             collection_name=QDRANT_COLLECTION_NAME
         )
+        self.qdrant_client = qdrant_client
+        self.qdrant_aclient = qdrant_aclient
         logger.info(f"✅ Qdrant Vector Store: {QDRANT_COLLECTION_NAME}")
 
         # VectorStoreIndex for semantic search
@@ -143,13 +155,19 @@ class HybridQueryEngine:
         )
         logger.info("✅ VectorStoreIndex created for semantic search")
 
-        # Neo4j graph store
+        # Neo4j graph store with connection pool limits
         graph_store = Neo4jPropertyGraphStore(
             username=NEO4J_USERNAME,
             password=NEO4J_PASSWORD,
             url=NEO4J_URI,
-            database=NEO4J_DATABASE
+            database=NEO4J_DATABASE,
+            timeout=30.0,  # 30s timeout for queries
+            # Neo4j driver config (prevent connection exhaustion under load)
+            max_connection_pool_size=50,  # Max 50 concurrent connections
+            connection_acquisition_timeout=30.0,  # 30s wait for connection from pool
+            max_connection_lifetime=3600,  # Recycle connections after 1 hour
         )
+        self.graph_store = graph_store
         logger.info(f"✅ Neo4j Graph Store: {NEO4J_URI}")
 
         # PropertyGraphIndex for graph queries
@@ -199,18 +217,20 @@ class HybridQueryEngine:
         # 1. Retrieve 20 candidates (SIMILARITY_TOP_K=20)
         # 2. RecencyBoostPostprocessor: Boost recent documents (soft preference)
         # 3. SentenceTransformerRerank: Deep relevance scoring with cross-encoder (narrows to top 10)
+        #    - Using ONNX backend for 2-3x faster initialization (production best practice 2024)
         self.vector_query_engine = self.vector_index.as_query_engine(
             similarity_top_k=SIMILARITY_TOP_K,  # Now 20 (cast wider net)
             llm=self.llm,
             text_qa_template=vector_qa_prompt,
             node_postprocessors=[
                 RecencyBoostPostprocessor(decay_days=90),  # Boost recent
-                # Reranker temporarily disabled - causes 2min init stall
-                # SentenceTransformerRerank(
-                #     model="BAAI/bge-reranker-base",
-                #     top_n=10,
-                #     device="cpu"
-                # )
+                SentenceTransformerRerank(
+                    model="BAAI/bge-reranker-base",
+                    top_n=10,
+                    device="cpu",
+                    # ONNX backend: 2-3x faster init than PyTorch (sentence-transformers v4.1.0+)
+                    backend="onnx"
+                )
             ]
         )
 
@@ -486,7 +506,7 @@ Return ONLY the JSON object, nothing else.
                 # 0. MetadataFilters: Database-level filtering (STRICT - only docs in time range)
                 # 1. Retrieve 20 candidates from filtered set
                 # 2. RecencyBoost: Soft preference for recent within time range
-                # 3. SentenceTransformerRerank: Deep relevance scoring → top 10
+                # 3. SentenceTransformerRerank: Deep relevance scoring → top 10 (ONNX optimized)
                 vector_query_engine = self.vector_index.as_query_engine(
                     similarity_top_k=SIMILARITY_TOP_K,  # 20 candidates
                     llm=self.llm,
@@ -494,11 +514,12 @@ Return ONLY the JSON object, nothing else.
                     filters=metadata_filters,  # STRICT: Database-level time filtering
                     node_postprocessors=[
                         RecencyBoostPostprocessor(decay_days=90),  # Boost recent within filter
-                        # SentenceTransformerRerank(
-                        #     model="BAAI/bge-reranker-base",
-                        #     top_n=10,
-                        #     device="cpu"
-                        # )
+                        SentenceTransformerRerank(
+                            model="BAAI/bge-reranker-base",
+                            top_n=10,
+                            device="cpu",
+                            backend="onnx"  # 2-3x faster initialization
+                        )
                     ]
                 )
 
@@ -887,7 +908,7 @@ Cypher Query:"""
 
         return nodes
 
-    def close(self):
+    async def cleanup(self):
         """
         Cleanup database connections and resources.
 
@@ -895,7 +916,7 @@ Cypher Query:"""
         Research: "Containerized setups need proper resource cleanup" (2025 best practice)
 
         Cleans up:
-        - Neo4j driver connections
+        - Neo4j driver connections (with connection pool)
         - Qdrant client connections
         - Chat memory buffers
         - SentenceTransformer models (if loaded)
@@ -903,23 +924,30 @@ Cypher Query:"""
         Example:
             >>> engine = HybridQueryEngine()
             >>> # ... use engine ...
-            >>> engine.close()  # On shutdown
+            >>> await engine.cleanup()  # On shutdown
         """
         try:
-            # Close Neo4j connection
-            if hasattr(self, 'property_graph_index') and hasattr(self.property_graph_index, 'property_graph_store'):
-                if hasattr(self.property_graph_index.property_graph_store, '_driver'):
-                    self.property_graph_index.property_graph_store._driver.close()
-                    logger.info("   ✅ Neo4j driver closed")
+            # Close Neo4j connection pool
+            if hasattr(self, 'graph_store') and hasattr(self.graph_store, '_driver'):
+                self.graph_store._driver.close()
+                logger.info("   ✅ Neo4j driver & connection pool closed")
 
-            # Close Qdrant clients (if they have close methods)
-            # Note: QdrantClient doesn't require explicit close, but clearing reference helps GC
-            if hasattr(self, 'vector_index'):
-                self.vector_index = None
-                logger.info("   ✅ Qdrant vector index reference cleared")
+            # Close Qdrant clients
+            if hasattr(self, 'qdrant_client'):
+                try:
+                    self.qdrant_client.close()
+                    logger.info("   ✅ Qdrant sync client closed")
+                except Exception:
+                    pass  # Client may not have close method
 
+            if hasattr(self, 'qdrant_aclient'):
+                try:
+                    await self.qdrant_aclient.close()
+                    logger.info("   ✅ Qdrant async client closed")
+                except Exception:
+                    pass  # Client may not have close method
 
-            logger.info("🧹 All resources cleaned up successfully")
+            logger.info("🧹 All query engine resources cleaned up")
 
         except Exception as e:
             logger.warning(f"⚠️  Cleanup warning (non-fatal): {e}")
@@ -927,7 +955,9 @@ Cypher Query:"""
     def __del__(self):
         """Destructor - ensure cleanup on garbage collection"""
         try:
-            self.close()
+            # Sync cleanup for destructor (can't use async)
+            if hasattr(self, 'graph_store') and hasattr(self.graph_store, '_driver'):
+                self.graph_store._driver.close()
         except:
             pass  # Silent cleanup on destruction
 

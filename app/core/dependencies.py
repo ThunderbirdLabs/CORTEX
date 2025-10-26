@@ -91,7 +91,25 @@ async def initialize_clients():
 
 async def shutdown_clients():
     """Cleanup clients at shutdown."""
-    global http_client
+    global http_client, query_engine, rag_pipeline
 
+    # Close HTTP client to prevent socket exhaustion
     if http_client:
         await http_client.aclose()
+        logger.info("✅ HTTP client closed")
+
+    # Cleanup query engine connections (Neo4j/Qdrant)
+    if query_engine:
+        try:
+            await query_engine.cleanup()
+            logger.info("✅ Query engine connections closed")
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to cleanup query engine: {e}")
+
+    # Cleanup RAG pipeline connections
+    if rag_pipeline:
+        try:
+            await rag_pipeline.cleanup()
+            logger.info("✅ RAG pipeline connections closed")
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to cleanup RAG pipeline: {e}")

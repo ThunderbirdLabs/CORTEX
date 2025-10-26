@@ -8,9 +8,16 @@ echo "📦 Installing Python dependencies..."
 pip install --upgrade pip
 pip install -r requirements.txt
 
-echo "🔥 Pre-downloading reranker model (prevents first-query timeout)..."
-python3 -c "from sentence_transformers import CrossEncoder; CrossEncoder('BAAI/bge-reranker-base')"
-echo "✅ Reranker model cached"
+echo "🔥 Pre-downloading & exporting reranker model to ONNX (prevents first-query timeout)..."
+python3 -c "
+from sentence_transformers import CrossEncoder
+import os
+# Download model and export to ONNX (one-time, 2-3x faster than PyTorch at runtime)
+# ONNX = production standard for inference optimization (2024 best practice)
+model = CrossEncoder('BAAI/bge-reranker-base', backend='onnx', device='cpu')
+print('✅ Reranker model downloaded & exported to ONNX')
+"
+echo "✅ Reranker model ready (ONNX optimized)"
 
 # Create Google Cloud credentials file from environment variable
 if [ ! -z "$GOOGLE_CLOUD_CREDENTIALS_JSON" ]; then
