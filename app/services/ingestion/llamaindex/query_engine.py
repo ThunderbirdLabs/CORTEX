@@ -28,6 +28,7 @@ from .config import (
     OPENAI_API_KEY, QUERY_MODEL, QUERY_TEMPERATURE,
     EMBEDDING_MODEL, SIMILARITY_TOP_K
 )
+from .recency_postprocessor import RecencyBoostPostprocessor
 
 logger = logging.getLogger(__name__)
 
@@ -152,11 +153,14 @@ class HybridQueryEngine:
             "Answer: "
         )
 
-        # Create query engines with custom prompts
+        # Create query engines with custom prompts + recency boost
         self.vector_query_engine = self.vector_index.as_query_engine(
             similarity_top_k=SIMILARITY_TOP_K,
             llm=self.llm,
-            text_qa_template=vector_qa_prompt
+            text_qa_template=vector_qa_prompt,
+            node_postprocessors=[
+                RecencyBoostPostprocessor(decay_days=90)  # Boost recent documents
+            ]
         )
 
         self.graph_query_engine = self.property_graph_index.as_query_engine(
@@ -391,11 +395,14 @@ Return ONLY the JSON object, nothing else.
             if metadata_filters:
                 logger.info(f"   🔍 Creating filtered query engines...")
 
-                # Create filtered vector query engine
+                # Create filtered vector query engine with recency boost
                 vector_query_engine = self.vector_index.as_query_engine(
                     similarity_top_k=SIMILARITY_TOP_K,
                     llm=self.llm,
-                    filters=metadata_filters  # Apply time filter to Qdrant
+                    filters=metadata_filters,  # Apply time filter to Qdrant
+                    node_postprocessors=[
+                        RecencyBoostPostprocessor(decay_days=90)  # Boost recent within filter
+                    ]
                 )
 
                 # Graph query engine with TextToCypherRetriever for time-filtered queries

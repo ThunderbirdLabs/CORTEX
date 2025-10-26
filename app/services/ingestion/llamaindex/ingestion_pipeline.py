@@ -190,113 +190,20 @@ class UniversalIngestionPipeline:
             api_key=OPENAI_API_KEY
         )
 
-        # Custom extraction prompt for CEO business intelligence
-        # The strict validation schema handles relationship rules, so this focuses on context
-        extraction_prompt = PromptTemplate(
-            """CONTEXT: You are building a knowledge graph for a CEO of an injection molding manufacturing company.
-
-IMPORTANT: This graph works ALONGSIDE a vector database that already handles semantic search over ALL document content.
-Your job is NOT to capture everything - the vector store does that.
-Your ONLY job is to map the MOST IMPORTANT RELATIONSHIPS in the company that enable multi-hop reasoning.
-
-WHY THIS MATTERS:
-- Vector store answers: "What documents mention polycarbonate?" (semantic similarity)
-- Knowledge graph answers: "Which supplier provides polycarbonate AND has worked with Deal X?" (relationship traversal)
-
-YOU SHOULD EXTRACT:
-✓ Critical business relationships: who works where, who supplies what materials, who manages accounts
-✓ High-value connections: deals requiring specific materials, supplier-customer relationships
-✓ Organizational structure: reporting lines, team connections, account ownership
-✗ DO NOT extract generic mentions or every person/topic referenced (vector store handles that)
-✗ DO NOT extract relationships that don't enable multi-hop queries
-
-FOCUS ON RELATIONSHIPS THAT ANSWER:
-- "Who works for our company?" "Who manages this account/material?"
-- "Which supplier provides Material X?" "Who is our contact at Supplier Y?"
-- "What materials does Deal Z require?" "Which deals use Material A?"
-- "Who reports to Manager B?" "Which person handles Client C?"
-- "Which company supplies which materials?" "Who manages material procurement?"
-
-ENTITY TYPES (10 total - Manufacturing Critical):
-- PERSON: Individuals (employees, contacts, account managers, suppliers)
-- COMPANY: Organizations (clients, suppliers, vendors, partners)
-- ROLE: Job titles (VP of Sales, Quality Engineer, Procurement Manager, Account Manager)
-- DEAL: Orders, quotes, RFQs, sales opportunities
-- TASK: Action items, production tasks, follow-ups
-- MEETING: Calls, meetings, appointments, conferences
-- PAYMENT: Invoices, payments, purchase orders
-- MATERIAL: Raw materials (Polycarbonate PC-1000, steel alloy, ABS resin, pellets)
-- CERTIFICATION: ISO certs, material certifications, quality certifications
-- PROJECT: Named programs/initiatives (ISO 9001 Audit, Tesla Model Y Program - PROPER NAMES ONLY)
-
-RELATIONSHIP TYPES (17 total - Manufacturing Critical ONLY):
-
-Organizational Structure (Who works where):
-- WORKS_FOR: Person works for Company
-- REPORTS_TO: Person reports to Person
-- HAS_ROLE: Person has job title (e.g., "John HAS_ROLE VP of Sales")
-
-Business Relationships (Supply chain):
-- CLIENT_OF: Company is client of Company
-- VENDOR_OF: Company is vendor of Company
-- SUPPLIES: Company supplies Material
-- MANAGES: Person manages Company (account) OR Person manages Material (procurement)
-
-Contact & Assignment:
-- CONTACT_FOR: Person is contact for Company/Deal
-- ASSIGNED_TO: Deal/Task assigned to Person
-- ATTENDED_BY: Meeting attended by Person
-- WORKS_ON: Person works on Project
-
-Manufacturing Dependencies (CRITICAL):
-- REQUIRES: Deal/Task requires Material/Certification
-- USED_IN: Material used in Deal/Project
-- PART_OF: Deal/Task/Payment part of Project
-
-Certifications:
-- HAS_CERTIFICATION: Company/Material/Person has Certification
-
-Financial:
-- PAID_BY: Payment paid by Company
-- PAID_TO: Payment paid to Company
-
-EXTRACTION PRIORITY (Quality > Quantity):
-1. CRITICAL: HAS_ROLE, WORKS_FOR, SUPPLIES, REQUIRES, USED_IN (organizational + supply chain)
-2. HIGH: CLIENT_OF, VENDOR_OF, MANAGES, CONTACT_FOR (business relationships)
-3. MEDIUM: ASSIGNED_TO, WORKS_ON, HAS_CERTIFICATION (work assignments + compliance)
-
-MANUFACTURING-SPECIFIC GUIDANCE:
-- Extract material names precisely (e.g., "Polycarbonate PC 1000", "ABS resin", "steel alloy")
-- Link materials to deals/orders using REQUIRES or USED_IN
-- Track supplier relationships with SUPPLIES and VENDOR_OF
-- Connect spec sheets and data sheets to materials with ABOUT
-- Link production tasks to required materials with REQUIRES
-- Track who manages material procurement with MANAGES
-
-The system will validate relationships using strict schema enforcement.
-
-Extract up to {max_triplets_per_chunk} HIGH-VALUE entity-relationship triplets (prioritize quality over quantity).
-
-Text:
-{text}
-"""
-        )
-
         # Entity extractor (for Person/Company/Deal/etc.)
-        # Using SchemaLLMPathExtractor for consistent, validated entity extraction
-        # strict=False allows flexibility while guiding toward schema
-        # Import Literal types for schema validation
+        # Using SchemaLLMPathExtractor with NO custom prompt to prevent hallucinations
+        # Let pydantic schema validation do the work (LlamaIndex best practice)
         from .config import ENTITIES, RELATIONS
 
         self.entity_extractor = SchemaLLMPathExtractor(
             llm=self.extraction_llm,
-            max_triplets_per_chunk=5,  # Extract up to 5 high-value entity relationships per chunk
+            max_triplets_per_chunk=5,  # Extract up to 5 highest-value relationships (quality over quantity)
             num_workers=4,
             possible_entities=ENTITIES,  # Use Literal type for pydantic validation
             possible_relations=RELATIONS,  # Use Literal type for pydantic validation
             kg_validation_schema=KG_VALIDATION_SCHEMA,
-            strict=True,  # Enforce schema strictly for production quality
-            extract_prompt=extraction_prompt  # Custom prompt for accurate extraction
+            strict=True  # Enforce schema strictly for production quality
+            # NO extract_prompt - use default SchemaLLMPathExtractor prompt (prevents example name hallucinations)
         )
         logger.info(f"✅ Entity Extractor: SchemaLLMPathExtractor (validated business schema + custom prompt)")
 
