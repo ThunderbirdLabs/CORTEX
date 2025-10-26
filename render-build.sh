@@ -8,6 +8,10 @@ echo "📦 Installing Python dependencies..."
 pip install --upgrade pip
 pip install -r requirements.txt
 
+echo "🔥 Pre-downloading reranker model (prevents first-query timeout)..."
+python3 -c "from sentence_transformers import CrossEncoder; CrossEncoder('BAAI/bge-reranker-base')"
+echo "✅ Reranker model cached"
+
 # Create Google Cloud credentials file from environment variable
 if [ ! -z "$GOOGLE_CLOUD_CREDENTIALS_JSON" ]; then
   echo "🔑 Creating Google Cloud credentials file..."
