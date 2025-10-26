@@ -43,10 +43,11 @@ class EntityDeduplicationService:
         neo4j_password: str,
         neo4j_database: str = "neo4j",
         vector_index_name: str = "entity",
-        similarity_threshold: float = 0.92,
-        levenshtein_max_distance: int = 3,
+        similarity_threshold: float = 0.92,  # Research: Tomaz Bratanic (Neo4j) recommends 0.9-0.92
+        levenshtein_max_distance: int = 5,   # Research: Increased from 3 to allow typos, less substring abuse
         top_k_candidates: int = 10,
-        openai_api_key: Optional[str] = None
+        openai_api_key: Optional[str] = None,
+        enable_llm_validation: bool = False  # NEW: LLM validation for merge decisions
     ):
         self.driver = GraphDatabase.driver(neo4j_uri, auth=("neo4j", neo4j_password))
         self.database = neo4j_database
@@ -54,21 +55,39 @@ class EntityDeduplicationService:
         self.similarity_threshold = similarity_threshold
         self.levenshtein_max_distance = levenshtein_max_distance
         self.top_k_candidates = top_k_candidates
+        self.enable_llm_validation = enable_llm_validation
 
-        # OpenAI embedding service for self-healing
+        # OpenAI services for self-healing and validation
         self.embed_model = None
+        self.llm = None  # NEW: LLM for merge validation
+
         if openai_api_key:
             try:
                 from llama_index.embeddings.openai import OpenAIEmbedding
+                from llama_index.llms.openai import OpenAI
+
                 self.embed_model = OpenAIEmbedding(
                     model_name="text-embedding-3-small",
                     api_key=openai_api_key
                 )
                 logger.info("   Embedding self-healing: ENABLED")
+
+                if enable_llm_validation:
+                    self.llm = OpenAI(
+                        model="gpt-4o-mini",  # Fast + cheap for validation
+                        api_key=openai_api_key,
+                        temperature=0.0  # Deterministic
+                    )
+                    logger.info("   LLM merge validation: ENABLED (gpt-4o-mini)")
+                else:
+                    logger.info("   LLM merge validation: DISABLED")
+
             except ImportError:
                 logger.warning("   Embedding self-healing: DISABLED (llama-index not available)")
+                logger.warning("   LLM merge validation: DISABLED (llama-index not available)")
         else:
             logger.info("   Embedding self-healing: DISABLED (no API key)")
+            logger.info("   LLM merge validation: DISABLED (no API key)")
 
         logger.info("EntityDeduplicationService initialized")
         logger.info(f"   Vector index: {vector_index_name}")
@@ -150,16 +169,34 @@ class EntityDeduplicationService:
         CALL db.index.vector.queryNodes($index_name, $top_k, e.embedding)
         YIELD node, score
 
-        // 3. Filter by similarity threshold + text distance
+        // 3. Filter by similarity threshold + text distance + label matching
         // CRITICAL: Use elementId() not deprecated id()
+        // RESEARCH: Label-aware blocking prevents cross-category merges (Neo4j best practices)
         WHERE score > toFloat($similarity_threshold)
           AND elementId(node) <> elementId(e)
           AND node.name IS NOT NULL
           AND e.name IS NOT NULL
+          // CRITICAL: Only merge entities with same labels (PERSON with PERSON, COMPANY with COMPANY)
+          AND labels(node) = labels(e)
           AND (
-            toLower(node.name) CONTAINS toLower(e.name)
-            OR toLower(e.name) CONTAINS toLower(node.name)
-            OR apoc.text.distance(toLower(node.name), toLower(e.name)) < $max_distance
+            // Case 1: High vector similarity + small edit distance (typos, abbreviations)
+            // Research: Levenshtein distance for typo detection (Tomaz Bratanic, Neo4j)
+            // Examples: "Debbie Krus" ↔ "Debbie Kruse", "SoCal" ↔ "So Cal"
+            (score > 0.92 AND apoc.text.distance(toLower(node.name), toLower(e.name)) < $max_distance)
+
+            OR
+
+            // Case 2: Substring match for proper name variations
+            // Research: Dynamic business domain - can't hardcode term blacklists
+            // "Specificity Wins" rule: Longer/more detailed names will become primary (handled in Python)
+            // Examples: "LivaNova PLC" ↔ "LivaNova", "Tony Codet" ↔ "Tony"
+            (
+              score > 0.90
+              AND (
+                toLower(node.name) CONTAINS toLower(e.name)
+                OR toLower(e.name) CONTAINS toLower(node.name)
+              )
+            )
           )
 
         // 4. Group duplicates
@@ -331,7 +368,10 @@ class EntityDeduplicationService:
 
         Strategy:
         1. Check all nodes still exist (idempotency)
-        2. Select primary node (most relationships = most context)
+        2. Select primary node using "Specificity Wins" rule:
+           - Longest name (most detailed)
+           - Most words (more complete)
+           - Relationship count (tiebreaker)
         3. Merge others into primary, keeping primary's properties
         4. Verify embedding exists, regenerate if missing (self-healing)
         5. Preserve oldest created_at_timestamp
@@ -352,7 +392,6 @@ class EntityDeduplicationService:
         WITH node, count(DISTINCT r) AS rel_count, elementId(node) AS elem_id
         RETURN elem_id, node.name AS name, node.embedding AS embedding,
                node.created_at_timestamp AS timestamp, rel_count
-        ORDER BY rel_count DESC, elem_id ASC
         """
 
         nodes_info = list(session.run(check_query, {"elementIds": node_element_ids}))
@@ -361,14 +400,34 @@ class EntityDeduplicationService:
         if len(nodes_info) < 2:
             return {"merged": False}
 
-        # Step 2: Select primary node (most connected = most context)
-        primary = nodes_info[0]
-        duplicates = [n["elem_id"] for n in nodes_info[1:]]
-        duplicate_names = [n["name"] for n in nodes_info[1:]]
+        # Step 2: Select primary node using "Specificity Wins" rule
+        # Research: Dynamic business domain - always keep most detailed/complete name
+        # Examples:
+        #   "Payroll Manager" > "Manager" (longer, more specific)
+        #   "Tony Codet" > "Tony" (full name vs first name)
+        #   "Superior Mold Company" > "Superior Mold" (more complete)
+        primary = max(nodes_info, key=lambda n: (
+            len(n["name"]),              # 1. Longest name = most detailed
+            n["name"].count(' ') + 1,    # 2. More words = more complete
+            n["rel_count"]               # 3. Tiebreaker: most connected
+        ))
+
+        duplicates = [n["elem_id"] for n in nodes_info if n["elem_id"] != primary["elem_id"]]
+        duplicate_names = [n["name"] for n in nodes_info if n["elem_id"] != primary["elem_id"]]
 
         primary_id = primary["elem_id"]
         primary_name = primary["name"]
         primary_embedding = primary["embedding"]
+
+        # Step 2.5: Optional LLM validation before merging
+        # Research: GenAI entity resolution (Neo4j 2024) - LLM validates merge decisions
+        if self.enable_llm_validation and self.llm:
+            should_merge = self._validate_merge_with_llm(primary, nodes_info)
+            if not should_merge:
+                logger.info(f"   🤖 LLM rejected merge: '{primary_name}' ← [{', '.join(duplicate_names)}]")
+                return {"merged": False, "llm_rejected": True}
+            else:
+                logger.debug(f"   ✅ LLM approved merge: '{primary_name}' ← [{', '.join(duplicate_names)}]")
 
         logger.debug(f"Merging cluster: primary='{primary_name}' (rel_count={primary['rel_count']}), duplicates={len(duplicates)}")
 
@@ -518,6 +577,86 @@ class EntityDeduplicationService:
             }
         }
 
+    def _validate_merge_with_llm(self, primary: Dict, all_nodes: List[Dict]) -> bool:
+        """
+        Use LLM to validate whether entities should be merged.
+
+        Research: GenAI entity resolution (Neo4j 2024) - LLMs provide context-aware validation
+        to prevent false positives that slip through similarity matching.
+
+        Args:
+            primary: Primary node info (name, rel_count, etc.)
+            all_nodes: All nodes in cluster including primary
+
+        Returns:
+            True if LLM approves merge, False otherwise
+        """
+        if not self.llm:
+            return True  # If LLM not available, default to approve
+
+        try:
+            # Build entity list for LLM
+            entities_list = "\n".join([
+                f"  - \"{node['name']}\" ({node['rel_count']} relationships)"
+                for node in all_nodes
+            ])
+
+            # Get entity labels (same for all nodes in cluster due to label-aware blocking)
+            # Extract first non-__Entity__ label
+            label_query = f"""
+            MATCH (n) WHERE elementId(n) = $elemId
+            RETURN [l IN labels(n) WHERE l <> '__Entity__'][0] AS label
+            """
+            with self.driver.session(database=self.database) as session:
+                result = session.run(label_query, {"elemId": primary["elem_id"]})
+                record = result.single()
+                entity_type = record["label"] if record and record["label"] else "Unknown"
+
+            prompt = f"""You are an entity resolution expert for a manufacturing business knowledge graph.
+
+TASK: Decide if these entities should be merged into ONE entity or kept SEPARATE.
+
+ENTITIES TO EVALUATE:
+{entities_list}
+
+ENTITY TYPE: {entity_type}
+
+CONTEXT: This is a dynamic business knowledge graph containing:
+- People (employees, contacts, suppliers)
+- Companies (clients, suppliers, vendors)
+- Roles (job titles, positions)
+- Materials (raw materials, parts, components)
+- Deals (orders, quotes, opportunities)
+
+MERGE RULES:
+✅ MERGE if:
+  - Same person with name variations ("Tony Codet" ↔ "Tony")
+  - Same company with legal variations ("LivaNova PLC" ↔ "LivaNova")
+  - Obvious typos ("Debbie Krus" ↔ "Debbie Kruse")
+  - Abbreviations ("SoCal Plastics" ↔ "Southern California Plastics")
+
+❌ KEEP SEPARATE if:
+  - Different people/companies despite similar names
+  - Generic term vs specific ("Manager" vs "Payroll Manager")
+  - Job levels ("Buyer" vs "Buyer II")
+  - Different products ("Parts" vs "Injection Molded Parts")
+  - Numeric suffixes indicate different entities ("PO 235051" vs "PO 234251")
+
+RESPOND WITH ONLY:
+- "MERGE" if they are the same entity
+- "SEPARATE" if they are different entities
+
+Your answer:"""
+
+            response = self.llm.complete(prompt)
+            decision = response.text.strip().upper()
+
+            return "MERGE" in decision
+
+        except Exception as e:
+            logger.warning(f"LLM validation failed: {e}, defaulting to approve merge")
+            return True  # On error, default to approve (fail-safe)
+
     def get_deduplication_stats(self) -> Dict[str, Any]:
         """Get statistics about potential duplicates."""
 
@@ -563,9 +702,10 @@ def run_entity_deduplication(
     neo4j_password: str,
     dry_run: bool = False,
     similarity_threshold: float = 0.92,
-    levenshtein_max_distance: int = 3,
+    levenshtein_max_distance: int = 5,  # Updated default to match research
     hours_lookback: int = 24,
-    openai_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None,
+    enable_llm_validation: bool = False  # NEW: Enable LLM validation
 ) -> Dict[str, Any]:
     """
     Run entity deduplication (for use in scheduled jobs).
@@ -573,11 +713,19 @@ def run_entity_deduplication(
     Args:
         hours_lookback: Only check entities from last N hours (default: 24)
                        Set to None for full scan (slow at 100K+ scale)
-        openai_api_key: OpenAI API key for embedding regeneration (self-healing)
+        openai_api_key: OpenAI API key for embedding regeneration (self-healing) and LLM validation
+        enable_llm_validation: Use GPT-4o-mini to validate merge decisions (gold standard accuracy)
 
     Usage:
         # Incremental (default): only last 24 hours
         results = run_entity_deduplication(NEO4J_URI, NEO4J_PASSWORD, openai_api_key=OPENAI_KEY)
+
+        # With LLM validation (recommended for production)
+        results = run_entity_deduplication(
+            NEO4J_URI, NEO4J_PASSWORD,
+            openai_api_key=OPENAI_KEY,
+            enable_llm_validation=True
+        )
 
         # Full scan (slow at scale, use monthly)
         results = run_entity_deduplication(NEO4J_URI, NEO4J_PASSWORD, hours_lookback=None)
@@ -588,7 +736,8 @@ def run_entity_deduplication(
         neo4j_password=neo4j_password,
         similarity_threshold=similarity_threshold,
         openai_api_key=openai_api_key,
-        levenshtein_max_distance=levenshtein_max_distance
+        levenshtein_max_distance=levenshtein_max_distance,
+        enable_llm_validation=enable_llm_validation
     )
 
     try:
