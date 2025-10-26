@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 http_client: Optional[httpx.AsyncClient] = None
 supabase_client: Optional[Client] = None
 rag_pipeline: Optional[Any] = None  # UniversalIngestionPipeline instance
+query_engine: Optional[Any] = None  # HybridQueryEngine instance
 
 
 # ============================================================================
@@ -55,7 +56,7 @@ async def get_cortex_pipeline():
 
 async def initialize_clients():
     """Initialize all global clients at startup."""
-    global http_client, supabase_client, rag_pipeline
+    global http_client, supabase_client, rag_pipeline, query_engine
 
     # HTTP client
     http_client = httpx.AsyncClient(
@@ -67,8 +68,6 @@ async def initialize_clients():
     supabase_client = create_client(settings.supabase_url, settings.supabase_anon_key)
 
     # RAG Pipeline (lazy import to avoid circular dependencies)
-    # Initialize lazily on first use instead of at startup
-    # This prevents startup failures if Neo4j/Qdrant are temporarily unavailable
     try:
         from app.services.ingestion.llamaindex import UniversalIngestionPipeline
         rag_pipeline = UniversalIngestionPipeline()
@@ -76,8 +75,18 @@ async def initialize_clients():
     except Exception as e:
         logger.warning(f"⚠️  Failed to initialize RAG pipeline: {e}")
         logger.warning(f"   This is OK - pipeline will initialize on first use")
-        logger.warning(f"   Common causes: Neo4j/Qdrant connection issues, missing env vars")
         rag_pipeline = None
+
+    # Query Engine (initialize at startup to avoid first-query stall)
+    # CRITICAL: Pre-loads reranker model (600MB) to prevent 2+ minute delay on first query
+    try:
+        from app.services.ingestion.llamaindex import HybridQueryEngine
+        query_engine = HybridQueryEngine()
+        logger.info("✅ Query engine initialized successfully (reranker model loaded)")
+    except Exception as e:
+        logger.warning(f"⚠️  Failed to initialize query engine: {e}")
+        logger.warning(f"   This is OK - query engine will initialize on first use")
+        query_engine = None
 
 
 async def shutdown_clients():

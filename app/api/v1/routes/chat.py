@@ -9,19 +9,15 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from supabase import Client
 
-from app.services.ingestion.llamaindex import HybridQueryEngine
 from app.core.dependencies import get_supabase
 from app.core.security import get_current_user_id
 from app.middleware.rate_limit import limiter
 from app.core.circuit_breakers import with_openai_retry
+import app.core.dependencies as deps
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
-
-# Global hybrid query engine (lazy initialized)
-query_engine = None
-_initialized = False
 
 
 class ChatMessage(BaseModel):
@@ -54,17 +50,14 @@ class ChatHistoryItem(BaseModel):
     message_count: int
 
 
-async def _initialize_query_engine():
-    """Initialize the hybrid query engine (lazy)"""
-    global query_engine, _initialized
-
-    if not _initialized:
-        logger.info("🚀 Initializing Hybrid Query Engine...")
-        query_engine = HybridQueryEngine()
-        _initialized = True
-        logger.info("✅ Hybrid Query Engine ready with circuit breakers")
-
-    return query_engine
+async def _get_query_engine():
+    """Get the global query engine (initialized at startup)"""
+    if not deps.query_engine:
+        raise HTTPException(
+            status_code=503,
+            detail="Query engine not initialized. Please try again in a moment."
+        )
+    return deps.query_engine
 
 
 @with_openai_retry
@@ -112,8 +105,8 @@ async def chat(
         ChatResponse: Answer + sources
     """
     try:
-        # Initialize query engine (lazy)
-        engine = await _initialize_query_engine()
+        # Get global query engine (initialized at startup)
+        engine = await _get_query_engine()
 
         logger.info(f"💬 Chat query: {message.question}")
 
@@ -453,6 +446,6 @@ async def get_source_document(
 async def chat_health():
     """Check if hybrid query engine is initialized"""
     return {
-        "initialized": _initialized,
-        "engine": "HybridQueryEngine" if query_engine else None
+        "initialized": deps.query_engine is not None,
+        "engine": "HybridQueryEngine" if deps.query_engine else None
     }
