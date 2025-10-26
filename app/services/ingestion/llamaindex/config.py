@@ -46,7 +46,6 @@ QUERY_TEMPERATURE = 0.0  # IMPORTANT: 0 for deterministic Cypher generation (Neo
 
 # Embeddings
 EMBEDDING_MODEL = "text-embedding-3-small"
-EMBEDDING_DIMENSIONS = 1536
 
 # ============================================
 # SCHEMA CONFIGURATION (SchemaLLMPathExtractor)

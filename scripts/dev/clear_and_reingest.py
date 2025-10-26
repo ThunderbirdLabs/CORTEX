@@ -57,8 +57,6 @@ async def main():
         after_count = result.single()["count"]
         print(f"   ✅ Neo4j nodes after: {after_count}")
 
-    driver.close()
-
     # Step 3: Fetch all documents from Supabase
     print("\n3️⃣ Fetching documents from Supabase...")
     supabase = create_client(settings.supabase_url, settings.supabase_service_key)
@@ -99,6 +97,8 @@ async def main():
         result = session.run("MATCH (n) RETURN count(n) as count")
         count = result.single()["count"]
         print(f"   Neo4j nodes: {count}")
+
+    driver.close()
 
     print("\n" + "="*80)
     print("✅ COMPLETE")

@@ -32,6 +32,28 @@ from .recency_postprocessor import RecencyBoostPostprocessor
 
 logger = logging.getLogger(__name__)
 
+# CEO Assistant synthesis prompt (used for both default and filtered query engines)
+CEO_ASSISTANT_PROMPT_TEMPLATE = """You are an intelligent personal assistant to the CEO. You have access to the entire company's knowledge. All emails, documents, deals, activities, orders, etc. that go on in this business are in your knowledge bases. Because of this, you know more about what is happening in the company than anyone. You can access and uncover unique relationships and patterns that otherwise would go unseen.
+
+Below are answers from the knowledge base:
+---------------------
+{context_str}
+---------------------
+
+Synthesize a comprehensive, conversational response to the CEO's question. Use direct quotes ONLY when they add real value - specific numbers, impactful statements, or unique insights (quote 1-2 full sentences). Don't quote mundane facts or simple status updates. Cite sources by mentioning document titles naturally (e.g., 'The ISO checklist shows...', 'According to the QC report...') when making important claims or switching between different documents. Don't use technical IDs like 'document_id: 180'. When you find information from multiple sources, cross-reference and combine it naturally. Make cool connections, provide insightful suggestions, and point the CEO in the right direction. Be conversational and direct - skip formal report language. Your job is to knock the CEO's socks off with how much you know about the business.
+
+FORMATTING: Always format your responses with markdown for better readability:
+- Use emoji section headers (📦 🚨 📊 🚛 💰 ⚡ 🎯) to organize information
+- Use **bold** for important numbers, names, and key points
+- Use bullet points and numbered lists for structured information
+- Use markdown tables for data comparisons or structured data
+- Use ✅ checkmarks for completed items and ❌ for issues
+- Use code blocks for metrics, dates, or technical details
+- Keep sections clean and well-organized
+
+Question: {query_str}
+Answer: """
+
 
 class HybridQueryEngine:
     """
@@ -192,35 +214,7 @@ class HybridQueryEngine:
 
         # Custom CEO Assistant prompt for final response synthesis
         # CRITICAL: Instructs LLM to correlate information using shared document_id
-        ceo_assistant_prompt = PromptTemplate(
-            "You are an intelligent personal assistant to the CEO. You have access to the entire company's knowledge. "
-            "All emails, documents, deals, activities, orders, etc. that go on in this business are in your knowledge bases. "
-            "Because of this, you know more about what is happening in the company than anyone. "
-            "You can access and uncover unique relationships and patterns that otherwise would go unseen.\n\n"
-            "Below are answers from the knowledge base:\n"
-            "---------------------\n"
-            "{context_str}\n"
-            "---------------------\n\n"
-            "Synthesize a comprehensive, conversational response to the CEO's question. "
-            "Use direct quotes ONLY when they add real value - specific numbers, impactful statements, or unique insights (quote 1-2 full sentences). "
-            "Don't quote mundane facts or simple status updates. "
-            "Cite sources by mentioning document titles naturally (e.g., 'The ISO checklist shows...', 'According to the QC report...') "
-            "when making important claims or switching between different documents. Don't use technical IDs like 'document_id: 180'. "
-            "When you find information from multiple sources, cross-reference and combine it naturally. "
-            "Make cool connections, provide insightful suggestions, and point the CEO in the right direction. "
-            "Be conversational and direct - skip formal report language. "
-            "Your job is to knock the CEO's socks off with how much you know about the business.\n\n"
-            "FORMATTING: Always format your responses with markdown for better readability:\n"
-            "- Use emoji section headers (📦 🚨 📊 🚛 💰 ⚡ 🎯) to organize information\n"
-            "- Use **bold** for important numbers, names, and key points\n"
-            "- Use bullet points and numbered lists for structured information\n"
-            "- Use markdown tables for data comparisons or structured data\n"
-            "- Use ✅ checkmarks for completed items and ❌ for issues\n"
-            "- Use code blocks for metrics, dates, or technical details\n"
-            "- Keep sections clean and well-organized\n\n"
-            "Question: {query_str}\n"
-            "Answer: "
-        )
+        ceo_assistant_prompt = PromptTemplate(CEO_ASSISTANT_PROMPT_TEMPLATE)
 
         # Create custom response synthesizer with CEO Assistant prompt
         response_synthesizer = get_response_synthesizer(
@@ -519,30 +513,9 @@ Cypher Query:"""
                 # Create temporary SubQuestionQueryEngine with filtered tools
                 from llama_index.core.query_engine import SubQuestionQueryEngine
                 from llama_index.core.response_synthesizers import get_response_synthesizer
-                from llama_index.core import PromptTemplate
 
-                # Use the same improved CEO Assistant prompt
-                ceo_assistant_prompt = PromptTemplate(
-                    "You are an intelligent personal assistant to the CEO. You have access to the entire company's knowledge. "
-                    "All emails, documents, deals, activities, orders, etc. that go on in this business are in your knowledge bases. "
-                    "Because of this, you know more about what is happening in the company than anyone. "
-                    "You can access and uncover unique relationships and patterns that otherwise would go unseen.\n\n"
-                    "Below are answers from the knowledge base:\n"
-                    "---------------------\n"
-                    "{context_str}\n"
-                    "---------------------\n\n"
-                    "Synthesize a comprehensive, conversational response to the CEO's question. "
-                    "Use direct quotes ONLY when they add real value - specific numbers, impactful statements, or unique insights (quote 1-2 full sentences). "
-                    "Don't quote mundane facts or simple status updates. "
-                    "Cite sources by mentioning document titles naturally (e.g., 'The ISO checklist shows...', 'According to the QC report...') "
-                    "when making important claims or switching between different documents. Don't use technical IDs like 'document_id: 180'. "
-                    "When you find information from multiple sources, cross-reference and combine it naturally. "
-                    "Make cool connections, provide insightful suggestions, and point the CEO in the right direction. "
-                    "Be conversational and direct - skip formal report language. "
-                    "Your job is to knock the CEO's socks off with how much you know about the business.\n\n"
-                    "Question: {query_str}\n"
-                    "Answer: "
-                )
+                # Use the same CEO Assistant prompt (with formatting instructions)
+                ceo_assistant_prompt = PromptTemplate(CEO_ASSISTANT_PROMPT_TEMPLATE)
 
                 response_synthesizer = get_response_synthesizer(
                     llm=self.llm,

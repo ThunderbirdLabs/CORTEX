@@ -22,7 +22,7 @@ import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime, date
 
-from llama_index.core import Document, PromptTemplate
+from llama_index.core import Document
 from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.embeddings.openai import OpenAIEmbedding
@@ -205,7 +205,7 @@ class UniversalIngestionPipeline:
             strict=True  # Enforce schema strictly for production quality
             # NO extract_prompt - use default SchemaLLMPathExtractor prompt (prevents example name hallucinations)
         )
-        logger.info(f"✅ Entity Extractor: SchemaLLMPathExtractor (validated business schema + custom prompt)")
+        logger.info(f"✅ Entity Extractor: SchemaLLMPathExtractor (validated business schema)")
 
         # Production caching setup (optional but recommended)
         cache = None
@@ -799,6 +799,21 @@ class UniversalIngestionPipeline:
                     continue
 
                 # Create Document with stable doc_id for deduplication
+                created_at = doc_row.get("source_created_at") or doc_row.get("received_datetime", "")
+
+                # Convert created_at to Unix timestamp for RecencyBoostPostprocessor
+                created_at_timestamp = None
+                if created_at:
+                    try:
+                        from dateutil import parser
+                        if isinstance(created_at, str):
+                            dt = parser.parse(created_at)
+                        else:
+                            dt = created_at
+                        created_at_timestamp = int(dt.timestamp())
+                    except Exception as e:
+                        logger.warning(f"   ⚠️  Could not parse created_at timestamp for doc {doc_id}: {e}")
+
                 doc_metadata = {
                     "document_id": str(doc_id),
                     "title": title,
@@ -806,7 +821,8 @@ class UniversalIngestionPipeline:
                     "document_type": document_type,
                     "tenant_id": doc_row.get("tenant_id", ""),
                     "source_id": doc_row.get("source_id") or doc_row.get("message_id", str(doc_id)),
-                    "created_at": doc_row.get("source_created_at") or doc_row.get("received_datetime", ""),
+                    "created_at": str(created_at),
+                    "created_at_timestamp": created_at_timestamp,  # CRITICAL: Required for RecencyBoostPostprocessor
                 }
 
                 document = Document(
@@ -1035,10 +1051,11 @@ class UniversalIngestionPipeline:
                     entity_text = f"{entity.label}: {entity.name if hasattr(entity, 'name') else entity.id}"
                     entity.embedding = await self.embed_model.aget_text_embedding(entity_text)
 
-                    # Add timestamp for incremental deduplication
-                    if not hasattr(entity, 'properties') or entity.properties is None:
-                        entity.properties = {}
-                    entity.properties['created_at_timestamp'] = created_at_timestamp
+                    # NOTE: Do NOT add created_at_timestamp to entities!
+                    # Entities are context-free and appear in multiple documents.
+                    # When Neo4j merges the same entity from different documents,
+                    # it would create an array [timestamp1, timestamp2, ...] which breaks schema.
+                    # Timestamps belong on Chunk nodes (document content) not Entity nodes.
 
                 self.graph_store.upsert_nodes(entities)
                 logger.info(f"   ✅ Upserted {len(entities)} entities to Neo4j")
