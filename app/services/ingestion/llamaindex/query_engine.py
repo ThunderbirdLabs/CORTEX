@@ -212,26 +212,29 @@ class HybridQueryEngine:
             "Answer: "
         )
 
-        # Create query engines with custom prompts + recency boost + reranking
-        # Multi-stage retrieval pipeline (research-backed production pattern):
+        # Create query engines with custom prompts + reranking + recency boost
+        # Multi-stage retrieval pipeline (OPTIMAL ORDER - 2025 best practice):
         # 1. Retrieve 20 candidates (SIMILARITY_TOP_K=20)
-        # 2. RecencyBoostPostprocessor: Boost recent documents (soft preference)
-        # 3. SentenceTransformerRerank: Deep relevance scoring with cross-encoder (narrows to top 10)
+        # 2. SentenceTransformerRerank: Deep semantic relevance scoring (ALL 20 analyzed)
         #    - Using ONNX backend for 2-3x faster initialization (production best practice 2024)
+        #    - Keeps all 20, just reorders by true relevance
+        # 3. RecencyBoostPostprocessor: Applies recency boost as secondary signal
+        #    - Recent relevant content ranks highest
+        #    - Old relevant content still considered (not buried before reranker)
         self.vector_query_engine = self.vector_index.as_query_engine(
             similarity_top_k=SIMILARITY_TOP_K,  # Now 20 (cast wider net)
             llm=self.llm,
             text_qa_template=vector_qa_prompt,
             node_postprocessors=[
-                RecencyBoostPostprocessor(decay_days=90),  # Boost recent
                 SentenceTransformerRerank(
                     model="BAAI/bge-reranker-base",
-                    top_n=10,
+                    top_n=20,  # Keep all 20, just reorder by relevance
                     device="cpu",
                     # ONNX backend: 2-3x faster init than PyTorch (sentence-transformers v4.1.0+)
                     # Pass backend via cross_encoder_kwargs (LlamaIndex pattern)
                     cross_encoder_kwargs={"backend": "onnx"}
-                )
+                ),
+                RecencyBoostPostprocessor(decay_days=90),  # Apply recency as secondary boost
             ]
         )
 
@@ -502,25 +505,25 @@ Return ONLY the JSON object, nothing else.
                     "Answer: "
                 )
 
-                # Create filtered vector query engine with recency boost + reranking
-                # Multi-stage pipeline WITH time filtering:
+                # Create filtered vector query engine with reranking + recency boost
+                # Multi-stage pipeline WITH time filtering (OPTIMAL ORDER):
                 # 0. MetadataFilters: Database-level filtering (STRICT - only docs in time range)
                 # 1. Retrieve 20 candidates from filtered set
-                # 2. RecencyBoost: Soft preference for recent within time range
-                # 3. SentenceTransformerRerank: Deep relevance scoring → top 10 (ONNX optimized)
+                # 2. SentenceTransformerRerank: Deep semantic relevance (ALL 20 within time range)
+                # 3. RecencyBoostPostprocessor: Soft preference for recent within time range
                 vector_query_engine = self.vector_index.as_query_engine(
                     similarity_top_k=SIMILARITY_TOP_K,  # 20 candidates
                     llm=self.llm,
                     text_qa_template=vector_qa_prompt_filtered,
                     filters=metadata_filters,  # STRICT: Database-level time filtering
                     node_postprocessors=[
-                        RecencyBoostPostprocessor(decay_days=90),  # Boost recent within filter
                         SentenceTransformerRerank(
                             model="BAAI/bge-reranker-base",
-                            top_n=10,
+                            top_n=20,  # Keep all 20, reorder by relevance
                             device="cpu",
                             cross_encoder_kwargs={"backend": "onnx"}  # 2-3x faster initialization
-                        )
+                        ),
+                        RecencyBoostPostprocessor(decay_days=90),  # Apply recency as secondary boost
                     ]
                 )
 
