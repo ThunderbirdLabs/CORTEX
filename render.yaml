@@ -6,7 +6,7 @@ services:
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
-        value: 3.13.1
+        value: 3.12.8
 
   # Dramatiq worker for background jobs (Gmail/Drive/Outlook sync)
   - type: worker
@@ -16,7 +16,7 @@ services:
     startCommand: dramatiq app.services.background.tasks
     envVars:
       - key: PYTHON_VERSION
-        value: 3.13.1
+        value: 3.12.8
 
   # Entity deduplication cron job (every 15 minutes)
   - type: cron
@@ -27,4 +27,4 @@ services:
     startCommand: python -m app.services.deduplication.run_dedup_cli
     envVars:
       - key: PYTHON_VERSION
-        value: 3.13.1
+        value: 3.12.8
