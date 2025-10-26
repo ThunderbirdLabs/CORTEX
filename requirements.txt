@@ -40,6 +40,9 @@ sentence-transformers>=5.0.0  # Required by sbert-rerank
 torch>=2.0.0  # Required by sentence-transformers (CPU-only build)
 
 # File parsing (lightweight - lazy loaded, no heavy ML at startup)
+# IMPORTANT: pandas pinned for Python 3.13 compatibility (unstructured dependency)
+# Research: pandas 2.2.3 has pre-built wheels for py313, avoids compilation errors
+pandas>=2.2.3,<2.3.0
 unstructured>=0.16.0
 unstructured-inference>=0.7.0
 unstructured-pytesseract>=0.3.12
