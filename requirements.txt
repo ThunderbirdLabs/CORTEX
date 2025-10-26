@@ -22,43 +22,45 @@ python-dotenv==1.0.1
 APScheduler==3.10.4
 
 # Cortex Hybrid RAG dependencies
-openai>=1.0.0
-qdrant-client>=1.6.0
-neo4j>=5.14.0
-nest-asyncio>=1.5.0
-llama-index-core>=0.12.0
-llama-index-embeddings-openai>=0.3.0
-llama-index-llms-openai>=0.3.0
-llama-index-vector-stores-qdrant>=0.4.0
-llama-index-graph-stores-neo4j>=0.4.0
-llama-index-readers-file>=0.4.0
-llama-index-question-gen-openai>=0.2.0
+# CRITICAL: Pinned versions to prevent pip backtracking (45min+ resolver hell)
+# These versions are tested and compatible with Python 3.13 (Jan 2025)
+openai==1.109.0
+qdrant-client==1.12.1
+neo4j==5.28.1
+nest-asyncio==1.6.0
+llama-index-core==0.12.20
+llama-index-embeddings-openai==0.3.3
+llama-index-llms-openai==0.3.6
+llama-index-vector-stores-qdrant==0.4.3
+llama-index-graph-stores-neo4j==0.4.5
+llama-index-readers-file==0.4.10
+llama-index-question-gen-openai==0.2.3
 
 # RAG Enhancements: Multi-stage reranking + conversational chat
-llama-index-postprocessor-sbert-rerank>=0.4.0  # Cross-encoder reranking for relevance
-sentence-transformers>=5.0.0  # Required by sbert-rerank
-torch>=2.0.0  # Required by sentence-transformers (CPU-only build)
+llama-index-postprocessor-sbert-rerank==0.4.0  # Cross-encoder reranking for relevance
+sentence-transformers==5.0.0  # Required by sbert-rerank
+torch==2.6.0  # Required by sentence-transformers (CPU-only build)
 
 # File parsing (lightweight - lazy loaded, no heavy ML at startup)
 # IMPORTANT: pandas pinned for Python 3.13 compatibility (unstructured dependency)
 # Research: pandas 2.2.3 has pre-built wheels for py313, avoids compilation errors
-pandas>=2.2.3,<2.3.0
-unstructured>=0.16.0
-unstructured-inference>=0.7.0
-unstructured-pytesseract>=0.3.12
-python-magic>=0.4.27
-pypdf>=5.0.0
-python-docx>=1.0.0
-python-pptx>=1.0.0
-openpyxl>=3.1.0
-msoffcrypto-tool>=5.0.0
-pdfminer.six>=20221105
-pillow-heif>=0.10.0
-pi-heif>=0.10.0
+pandas==2.2.3
+unstructured==0.16.14
+unstructured-inference==0.7.48
+unstructured-pytesseract==0.3.13
+python-magic==0.4.27
+pypdf==5.8.0
+python-docx==1.1.2
+python-pptx==1.0.2
+openpyxl==3.1.5
+msoffcrypto-tool==5.4.2
+pdfminer.six==20240706
+pillow-heif==0.22.0
+pi-heif==0.22.0
 
 # OCR support for images and scanned PDFs
-google-cloud-vision>=3.7.0  # Google Cloud Vision API for OCR (HIPAA-compliant)
-pdf2image>=1.16.3  # PDF to image conversion
+google-cloud-vision==3.9.1  # Google Cloud Vision API for OCR (HIPAA-compliant)
+pdf2image==1.17.0  # PDF to image conversion
 
 # Background job queue
 dramatiq[redis]==1.17.0
