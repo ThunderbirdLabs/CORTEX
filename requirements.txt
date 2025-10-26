@@ -34,6 +34,11 @@ llama-index-graph-stores-neo4j>=0.4.0
 llama-index-readers-file>=0.4.0
 llama-index-question-gen-openai>=0.2.0
 
+# RAG Enhancements: Multi-stage reranking + conversational chat
+llama-index-postprocessor-sbert-rerank>=0.4.0  # Cross-encoder reranking for relevance
+sentence-transformers>=5.0.0  # Required by sbert-rerank
+torch>=2.0.0  # Required by sentence-transformers (CPU-only build)
+
 # File parsing (lightweight - lazy loaded, no heavy ML at startup)
 unstructured>=0.16.0
 unstructured-inference>=0.7.0

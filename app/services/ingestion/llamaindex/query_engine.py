@@ -242,9 +242,64 @@ class HybridQueryEngine:
         logger.info("✅ SubQuestionQueryEngine ready (vector + graph)")
         logger.info("✅ CEO Assistant prompts applied (sub-queries + final synthesis)")
 
+        # ============================================
+        # CONVERSATIONAL CHAT ENGINE (Production)
+        # ============================================
+        # Uses CondensePlusContextChatEngine for natural conversations:
+        # - Handles greetings/small talk without triggering retrieval
+        # - Maintains conversation memory (token_limit=3900)
+        # - Condenses chat history + new message into standalone questions
+        # - Passes context-aware questions to SubQuestionQueryEngine retriever
+        # - Preserves ALL existing functionality (reranking, time filtering, graph queries)
+
+        from llama_index.core.memory import ChatMemoryBuffer
+        from llama_index.core.chat_engine import CondensePlusContextChatEngine
+
+        logger.info("🗣️  Initializing Conversational Chat Engine...")
+
+        # Chat memory: stores last ~10-15 message pairs (3900 tokens)
+        self.chat_memory = ChatMemoryBuffer.from_defaults(token_limit=3900)
+
+        # Custom condense prompt for business context
+        condense_prompt_template = PromptTemplate(
+            f"Given the conversation history below and a new user message, "
+            f"rephrase the user message as a standalone question that includes all necessary context "
+            f"from the conversation history. If the message is a greeting or casual conversation, "
+            f"respond with the EXACT same message (do not modify it).\n\n"
+            f"Today's date is {current_date} ({current_date_iso}).\n\n"
+            f"Conversation History:\n"
+            f"{{chat_history}}\n\n"
+            f"New User Message: {{question}}\n\n"
+            f"Standalone Question (or original message if greeting):"
+        )
+
+        # Create conversational chat engine
+        # CRITICAL: Uses SubQuestionQueryEngine.as_retriever() to preserve entire pipeline
+        self.chat_engine = CondensePlusContextChatEngine(
+            retriever=self.query_engine.as_retriever(),  # ← Full SubQuestion pipeline as retriever
+            llm=self.llm,
+            memory=self.chat_memory,
+            context_prompt=CEO_ASSISTANT_PROMPT_TEMPLATE,  # Same CEO assistant prompt
+            condense_prompt=condense_prompt_template,
+            node_postprocessors=[
+                RecencyBoostPostprocessor(decay_days=90),  # Recency bias
+                SentenceTransformerRerank(
+                    model="BAAI/bge-reranker-base",
+                    top_n=10  # Final top 10 after reranking
+                )
+            ],
+            verbose=False  # Set to True for debugging
+        )
+
+        logger.info("✅ CondensePlusContextChatEngine ready")
+        logger.info("   Memory: ChatMemoryBuffer (3900 tokens)")
+        logger.info("   Retriever: SubQuestionQueryEngine (vector + graph)")
+        logger.info("   Postprocessors: RecencyBoost + SentenceTransformerRerank")
+
         logger.info("✅ Hybrid Query Engine ready")
-        logger.info("   Architecture: SubQuestionQueryEngine")
+        logger.info("   Architecture: SubQuestionQueryEngine + CondensePlusContextChatEngine")
         logger.info("   Indexes: VectorStoreIndex (Qdrant) + PropertyGraphIndex (Neo4j)")
+        logger.info("   Modes: query() [stateless] | chat() [conversational memory]")
 
     async def _extract_time_filter(self, question: str) -> Optional[Dict[str, Any]]:
         """
@@ -618,6 +673,132 @@ Cypher Query:"""
                 "error": error_msg,
                 "source_nodes": []
             }
+
+    async def chat(
+        self,
+        message: str,
+        chat_history: Optional[List[Dict[str, str]]] = None
+    ) -> Dict[str, Any]:
+        """
+        Conversational interface with memory (Production).
+
+        Handles natural conversations:
+        - Greetings ("hey", "hello") respond directly without retrieval
+        - Business questions use full SubQuestionQueryEngine pipeline
+        - Follow-ups automatically include conversation context
+        - Maintains chat memory across turns
+
+        Architecture:
+        1. CondensePlusContextChatEngine condenses [history + message] → standalone question
+        2. If greeting/small talk → responds directly (no retrieval)
+        3. If business query → SubQuestionQueryEngine retrieves with full context
+        4. Response includes conversation memory
+
+        Args:
+            message: User's message (can be greeting or business question)
+            chat_history: Optional external chat history to restore context
+                         Format: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+
+        Returns:
+            Dict with:
+              - question: User's original message
+              - answer: Conversational response
+              - source_nodes: Retrieved sources (empty for greetings)
+              - metadata: {"is_chat": True, "chat_history_length": N}
+
+        Examples:
+            >>> await engine.chat("hey")
+            {"answer": "Hey! What can I help you with today?", "source_nodes": []}
+
+            >>> await engine.chat("what materials do we use?")
+            {"answer": "We primarily use polycarbonate PC-1000...", "source_nodes": [...]}
+
+            >>> await engine.chat("who supplies it?")  # Automatically knows "it" = PC-1000 from history
+            {"answer": "Acme Plastics supplies polycarbonate PC-1000...", "source_nodes": [...]}
+        """
+        logger.info(f"\n{'='*80}")
+        logger.info(f"💬 CHAT: {message}")
+        logger.info(f"{'='*80}")
+
+        try:
+            # Optional: Restore chat history from external source (e.g., database)
+            if chat_history:
+                from llama_index.core.llms import ChatMessage
+                self.chat_memory.reset()  # Clear existing memory
+                for msg in chat_history:
+                    role = msg.get("role", "user")
+                    content = msg.get("content", "")
+                    self.chat_memory.put(ChatMessage(role=role, content=content))
+                logger.info(f"   📚 Restored {len(chat_history)} messages from chat history")
+
+            # Execute conversational chat
+            # CondensePlusContextChatEngine handles:
+            # - Greeting detection (responds directly, no retrieval)
+            # - Context condensation (history + message → standalone question)
+            # - Retrieval (if needed, via SubQuestionQueryEngine)
+            # - Response synthesis (with CEO Assistant prompt)
+            response = await self.chat_engine.achat(message)
+
+            logger.info(f"✅ CHAT COMPLETE")
+            logger.info(f"{'='*80}")
+            logger.info(f"   Answer length: {len(str(response))} characters")
+            logger.info(f"   Source nodes: {len(response.source_nodes)}")
+            logger.info(f"   Chat memory: {len(self.chat_memory.get_all())} messages")
+
+            return {
+                "question": message,
+                "answer": str(response),
+                "source_nodes": response.source_nodes,
+                "metadata": {
+                    "is_chat": True,
+                    "chat_history_length": len(self.chat_memory.get_all())
+                }
+            }
+
+        except Exception as e:
+            error_msg = f"Chat failed: {str(e)}"
+            logger.error(f"❌ {error_msg}", exc_info=True)
+            return {
+                "question": message,
+                "answer": "",
+                "error": error_msg,
+                "source_nodes": []
+            }
+
+    def reset_chat(self):
+        """
+        Reset conversation memory.
+
+        Use when:
+        - User starts a new conversation
+        - User explicitly requests to clear history
+        - Switching between different chat sessions
+
+        Example:
+            >>> engine.reset_chat()
+            >>> await engine.chat("hey")  # Fresh conversation, no history
+        """
+        self.chat_memory.reset()
+        logger.info("🔄 Chat memory reset")
+
+    def get_chat_history(self) -> List[Dict[str, str]]:
+        """
+        Get current conversation history.
+
+        Returns:
+            List of chat messages in format:
+            [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}, ...]
+
+        Useful for:
+        - Saving chat history to database
+        - Debugging conversation flow
+        - Displaying chat history to user
+        """
+        messages = self.chat_memory.get_all()
+        return [
+            {"role": msg.role, "content": msg.content}
+            for msg in messages
+        ]
 
     async def retrieve_only(
         self,

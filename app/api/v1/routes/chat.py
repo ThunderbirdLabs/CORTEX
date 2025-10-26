@@ -76,6 +76,15 @@ async def _execute_query_with_retry(engine, question: str):
     return await engine.query(question)
 
 
+@with_openai_retry
+async def _execute_chat_with_retry(engine, message: str, chat_history: Optional[List[Dict]] = None):
+    """
+    Execute conversational chat with automatic retry on OpenAI failures.
+    Uses CondensePlusContextChatEngine for natural conversations with memory.
+    """
+    return await engine.chat(message, chat_history=chat_history)
+
+
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")  # 20 chat requests per minute per IP
 async def chat(
@@ -127,6 +136,23 @@ async def chat(
             chat_id = chat_result.data[0]['id']
             logger.info(f"📝 Created new chat: {chat_id} - '{title}'")
 
+        # Get existing chat history from database (for conversation context)
+        chat_history = []
+        if chat_id:
+            # Fetch previous messages for this chat to restore context
+            history_result = supabase.table('chat_messages')\
+                .select('role, content')\
+                .eq('chat_id', chat_id)\
+                .order('created_at', desc=False)\
+                .execute()
+
+            if history_result.data:
+                chat_history = [
+                    {"role": msg['role'], "content": msg['content']}
+                    for msg in history_result.data
+                ]
+                logger.info(f"📚 Loaded {len(chat_history)} previous messages for context")
+
         # Save user message
         supabase.table('chat_messages').insert({
             'chat_id': chat_id,
@@ -134,8 +160,12 @@ async def chat(
             'content': message.question
         }).execute()
 
-        # Execute hybrid query with automatic retry on failures
-        result = await _execute_query_with_retry(engine, message.question)
+        # Execute conversational chat with full history context
+        # Uses CondensePlusContextChatEngine for:
+        # - Natural greeting handling ("hey" → friendly response, no retrieval)
+        # - Context-aware follow-ups ("tell me more" → knows what "more" refers to)
+        # - Full SubQuestionQueryEngine pipeline (vector + graph + reranking)
+        result = await _execute_chat_with_retry(engine, message.question, chat_history=chat_history)
 
         logger.info(f"🔍 Query result keys: {result.keys()}")
         logger.info(f"🔍 Source nodes count: {len(result.get('source_nodes', []))}")
