@@ -36,23 +36,44 @@ from llama_index.postprocessor.sbert_rerank import SentenceTransformerRerank
 logger = logging.getLogger(__name__)
 
 # CEO Assistant synthesis prompt (used for both default and filtered query engines)
-CEO_ASSISTANT_PROMPT_TEMPLATE = """You are an intelligent personal assistant to the CEO. You have access to the entire company's knowledge. All emails, documents, deals, activities, orders, etc. that go on in this business are in your knowledge bases. Because of this, you know more about what is happening in the company than anyone. You can access and uncover unique relationships and patterns that otherwise would go unseen.
+CEO_ASSISTANT_PROMPT_TEMPLATE = """You are synthesizing a final answer for the CEO from sub-question responses.
 
-Below are answers from the knowledge base:
+Below are answers from sub-questions (not raw documents):
 ---------------------
 {context_str}
 ---------------------
 
-Synthesize a comprehensive, conversational response to the CEO's question. Use direct quotes ONLY when they add real value - specific numbers, impactful statements, or unique insights (quote 1-2 full sentences). Don't quote mundane facts or simple status updates. Cite sources by mentioning document titles naturally (e.g., 'The ISO checklist shows...', 'According to the QC report...') when making important claims or switching between different documents. Don't use technical IDs like 'document_id: 180'. When you find information from multiple sources, cross-reference and combine it naturally. Make cool connections, provide insightful suggestions, and point the CEO in the right direction. Be conversational and direct - skip formal report language. Your job is to knock the CEO's socks off with how much you know about the business.
+Given the information above and not prior knowledge, create a comprehensive, conversational response that synthesizes these sub-answers.
 
-FORMATTING: Always format your responses with markdown for better readability:
-- Use emoji section headers (📦 🚨 📊 🚛 💰 ⚡ 🎯) to organize information
-- Use **bold** for important numbers, names, and key points
-- Use bullet points and numbered lists for structured information
-- Use markdown tables for data comparisons or structured data
-- Use ✅ checkmarks for completed items and ❌ for issues
-- Use code blocks for metrics, dates, or technical details
-- Keep sections clean and well-organized
+QUOTING POLICY:
+- Use direct quotes when they add value: specific numbers, impactful statements, unique insights
+- Keep quotes to 1-2 full sentences maximum
+- Don't quote mundane facts or simple status updates
+- The sub-answers already contain quotes - use them when relevant
+
+SOURCING:
+- Cite sources naturally by document title: "The ISO checklist shows..." or "According to the QC report..."
+- Never use technical IDs like "document_id: 180"
+- When combining information from multiple sources, cross-reference naturally
+
+HANDLING GAPS:
+- If sub-answers don't fully address the question, acknowledge what's missing
+- Don't make up information not present in the context
+- If sub-answers conflict, present both perspectives
+
+STYLE:
+- Conversational and direct - skip formal report language
+- Make connections between different pieces of information
+- Provide insights and suggestions
+- Skip greetings and sign-offs
+
+FORMATTING (markdown):
+- Emoji section headers (📦 🚨 📊 🚛 💰 ⚡ 🎯) to organize
+- **Bold** for important numbers, names, key points
+- Bullet points and numbered lists for structure
+- Tables for data comparisons
+- ✅/❌ for status
+- Code blocks for metrics/dates/technical details
 
 Question: {query_str}
 Answer: """
@@ -88,24 +109,14 @@ class HybridQueryEngine:
             system_prompt=(
                 f"You are an intelligent personal assistant to the CEO. Today's date is {current_date} ({current_date_iso}).\n\n"
 
-                "You have access to the entire company's knowledge - "
-                "all emails, documents, deals, activities, orders, and everything that goes on in this business is in your knowledge bases.\n\n"
+                "You have access to the entire company's knowledge - emails, documents, deals, activities, orders, and everything that goes on in this business.\n\n"
 
-                "Because of this, you know more about what is happening in the company than anyone. "
-                "You can access and uncover unique relationships and patterns that would otherwise go unseen.\n\n"
+                "Your role varies depending on the task:\n"
+                "- When answering sub-questions: preserve exact information from context\n"
+                "- When synthesizing final answers: create comprehensive, conversational responses\n\n"
 
-                "Your job is to take all of the information you're given (which comes from a vector store and knowledge graph) "
-                "and formulate highly informative insights for the CEO.\n\n"
-
-                "Whenever you have the chance, make cool connections, provide insightful suggestions, and point the CEO in the right direction. "
-                "Your job is to knock the CEO's socks off with how much you know about the business.\n\n"
-
-                "Use quotes whenever you can to show you truly see what is happening. "
-                "Respond conversationally - skip any letter formatting like greetings, salutations, or sign-offs.\n\n"
-
-                "When referencing information from the knowledge graph, speak naturally about connections and relationships "
-                "without exposing technical details like raw relationship types (say 'created by', not 'CREATED_BY') or data structures. "
-                "Just state the facts as if you naturally know them."
+                "When referencing relationships or entities, speak naturally without exposing technical details "
+                "(say 'created by' not 'CREATED_BY'). Respond conversationally - skip greetings and sign-offs."
             )
         )
 
@@ -149,31 +160,36 @@ class HybridQueryEngine:
         )
         logger.info("✅ PropertyGraphIndex created for graph queries")
 
-        # Custom prompts for sub-question query engines to preserve direct quotes
-        # CRITICAL: Prompts instruct LLM to note document_id for cross-referencing
+        # Sub-question prompts - CRITICAL: Must preserve exact information for final synthesis
+        # The final CEO assistant only sees these sub-answers, not the raw chunks!
         vector_qa_prompt = PromptTemplate(
-            "Context information from documents is below. Each chunk has a 'title' field showing the source document name.\n"
+            "Your answer will be passed to another agent for final synthesis. Preserve exact information.\n\n"
+            "Context from documents:\n"
             "---------------------\n"
             "{context_str}\n"
             "---------------------\n\n"
-            "Given the context information, answer the question. "
-            "IMPORTANT: Use direct quotes ONLY for specific numbers, data points, unique insights, or impactful statements - "
-            "not for mundane phrases or simple facts. Quote 1-2 full sentences when the exact wording matters. "
-            "When referencing information, mention the document title (e.g., 'According to the ISO checklist...' or 'The QC report shows...') "
-            "when switching between different sources or making key claims.\n\n"
+            "Given the context above and not prior knowledge, answer the question. When you include:\n"
+            "- Numbers, dates, metrics, amounts → quote them exactly\n"
+            "- Important statements or findings → quote 1-2 key sentences verbatim\n"
+            "- Regular facts or descriptions → you may paraphrase\n\n"
+            "Use quotation marks for verbatim text. Cite document titles when switching sources.\n"
+            "If the context doesn't contain relevant information, say so clearly.\n\n"
             "Question: {query_str}\n"
             "Answer: "
         )
 
         graph_qa_prompt = PromptTemplate(
-            "Context information from the knowledge graph is below. Entities and relationships extracted from documents.\n"
+            "Your answer will be passed to another agent for final synthesis. Focus on precise entity information.\n\n"
+            "Context from knowledge graph:\n"
             "---------------------\n"
             "{context_str}\n"
             "---------------------\n\n"
-            "Given the context information, answer the question about relationships and entities. "
-            "IMPORTANT: Use specific names and data points from the context. "
-            "Only quote particularly insightful or specific phrases - avoid quoting simple relationship facts. "
-            "When referencing information from specific documents, mention the document title naturally.\n\n"
+            "Given the context above and not prior knowledge, answer the question about entities and relationships:\n"
+            "- Use EXACT names, titles, company names (don't paraphrase proper nouns)\n"
+            "- Describe relationships clearly: who did what, who works where, who sent what\n"
+            "- If context includes quotes or specific statements, preserve them\n"
+            "- Translate technical relationship types to natural language (CREATED_BY → \"created by\")\n\n"
+            "If the context doesn't contain relevant information, say so clearly.\n\n"
             "Question: {query_str}\n"
             "Answer: "
         )
@@ -228,9 +244,11 @@ class HybridQueryEngine:
         # CRITICAL: Instructs LLM to correlate information using shared document_id
         ceo_assistant_prompt = PromptTemplate(CEO_ASSISTANT_PROMPT_TEMPLATE)
 
-        # Create custom response synthesizer with CEO Assistant prompt
+        # Create custom response synthesizer with CEO Assistant prompt (compact mode)
+        # Compact mode: concatenates full chunks for fewer LLM calls while preserving all text
         response_synthesizer = get_response_synthesizer(
             llm=self.llm,
+            response_mode="compact",
             text_qa_template=ceo_assistant_prompt
         )
 
@@ -243,85 +261,10 @@ class HybridQueryEngine:
         logger.info("✅ SubQuestionQueryEngine ready (vector + graph)")
         logger.info("✅ CEO Assistant prompts applied (sub-queries + final synthesis)")
 
-        # ============================================
-        # CONVERSATIONAL CHAT ENGINE (Production)
-        # ============================================
-        # Uses CondensePlusContextChatEngine for natural conversations:
-        # - Handles greetings/small talk without triggering retrieval
-        # - Maintains conversation memory (token_limit=3900)
-        # - Condenses chat history + new message into standalone questions
-        # - Passes context-aware questions to SubQuestionQueryEngine retriever
-        # - Preserves ALL existing functionality (reranking, time filtering, graph queries)
-
-        from llama_index.core.memory import ChatMemoryBuffer
-        from llama_index.core.chat_engine import CondensePlusContextChatEngine
-
-        logger.info("🗣️  Initializing Conversational Chat Engine...")
-
-        # Chat memory: stores last ~10-15 message pairs (3900 tokens)
-        self.chat_memory = ChatMemoryBuffer.from_defaults(token_limit=3900)
-
-        # Custom condense prompt for business context
-        condense_prompt_template = PromptTemplate(
-            f"Given the conversation history below and a new user message, "
-            f"rephrase the user message as a standalone question that includes all necessary context "
-            f"from the conversation history. If the message is a greeting or casual conversation, "
-            f"respond with the EXACT same message (do not modify it).\n\n"
-            f"Today's date is {current_date} ({current_date_iso}).\n\n"
-            f"Conversation History:\n"
-            f"{{chat_history}}\n\n"
-            f"New User Message: {{question}}\n\n"
-            f"Standalone Question (or original message if greeting):"
-        )
-
-        # Create conversational chat engine
-        # ARCHITECTURE: Uses PropertyGraphIndex.as_retriever() for hybrid vector + graph retrieval
-        # This is the STANDARD LlamaIndex pattern for conversational chat with knowledge graphs
-        #
-        # What chat() retrieves from:
-        # ✅ Qdrant (vector search) - semantic similarity matching on document chunks
-        # ✅ Neo4j (graph traversal) - relationship context from entity connections
-        # ✅ RecencyBoostPostprocessor - 90-day exponential decay (applied via node_postprocessors)
-        # ✅ SentenceTransformerRerank - cross-encoder reranking top 20 → top 10 (applied via node_postprocessors)
-        #
-        # Different from query() method:
-        # - query() uses SubQuestionQueryEngine (complex question decomposition for analysis)
-        # - chat() uses PropertyGraphIndex.as_retriever() (simpler hybrid retrieval for conversation)
-        # - SAME postprocessors for consistent quality (RecencyBoost + Reranking)
-        #
-        # Research: CondensePlusContextChatEngine.from_defaults() accepts node_postprocessors parameter
-        # Source: https://github.com/run-llama/llama_index/blob/main/llama-index-core/llama_index/core/chat_engine/condense_plus_context.py
-        self.chat_engine = CondensePlusContextChatEngine.from_defaults(
-            retriever=self.property_graph_index.as_retriever(
-                include_text=True,  # Include source text chunks with graph paths
-                similarity_top_k=SIMILARITY_TOP_K  # Top 20 for reranking → top 10
-            ),
-            llm=self.llm,
-            memory=self.chat_memory,
-            context_prompt=PromptTemplate(CEO_ASSISTANT_PROMPT_TEMPLATE),  # Proper PromptTemplate for variable handling
-            condense_prompt=condense_prompt_template,
-            node_postprocessors=[  # ✅ CRITICAL: Apply same postprocessors as query() method
-                RecencyBoostPostprocessor(decay_days=90),  # Stage 1: Boost recent documents
-                SentenceTransformerRerank(
-                    model="BAAI/bge-reranker-base",  # Production-grade cross-encoder
-                    top_n=10,  # Stage 2: Narrow to top 10 most relevant
-                    device="cpu"  # Required in llama-index 0.3.0
-                )
-            ],
-            verbose=False  # Set to True for debugging
-        )
-
-        logger.info("✅ CondensePlusContextChatEngine ready")
-        logger.info("   Memory: ChatMemoryBuffer (3900 tokens)")
-        logger.info("   Retriever: PropertyGraphIndex.as_retriever() (hybrid vector + graph)")
-        logger.info("   Vector: Qdrant semantic search (top 20)")
-        logger.info("   Graph: Neo4j relationship traversal")
-        logger.info("   Postprocessors: RecencyBoost + SentenceTransformerRerank")
-
         logger.info("✅ Hybrid Query Engine ready")
-        logger.info("   Architecture: SubQuestionQueryEngine + CondensePlusContextChatEngine")
+        logger.info("   Architecture: SubQuestionQueryEngine (used for both query + chat)")
         logger.info("   Indexes: VectorStoreIndex (Qdrant) + PropertyGraphIndex (Neo4j)")
-        logger.info("   Modes: query() [stateless] | chat() [conversational memory]")
+        logger.info("   Chat: Manual history injection into prompts (per LlamaIndex best practice)")
 
     async def _extract_time_filter(self, question: str) -> Optional[Dict[str, Any]]:
         """
@@ -520,6 +463,23 @@ Return ONLY the JSON object, nothing else.
             if metadata_filters:
                 logger.info(f"   🔍 Creating filtered query engines...")
 
+                # Sub-question prompt for filtered vector queries (same as unfiltered)
+                vector_qa_prompt_filtered = PromptTemplate(
+                    "Your answer will be passed to another agent for final synthesis. Preserve exact information.\n\n"
+                    "Context from documents:\n"
+                    "---------------------\n"
+                    "{context_str}\n"
+                    "---------------------\n\n"
+                    "Given the context above and not prior knowledge, answer the question. When you include:\n"
+                    "- Numbers, dates, metrics, amounts → quote them exactly\n"
+                    "- Important statements or findings → quote 1-2 key sentences verbatim\n"
+                    "- Regular facts or descriptions → you may paraphrase\n\n"
+                    "Use quotation marks for verbatim text. Cite document titles when switching sources.\n"
+                    "If the context doesn't contain relevant information, say so clearly.\n\n"
+                    "Question: {query_str}\n"
+                    "Answer: "
+                )
+
                 # Create filtered vector query engine with recency boost + reranking
                 # Multi-stage pipeline WITH time filtering:
                 # 0. MetadataFilters: Database-level filtering (STRICT - only docs in time range)
@@ -529,12 +489,14 @@ Return ONLY the JSON object, nothing else.
                 vector_query_engine = self.vector_index.as_query_engine(
                     similarity_top_k=SIMILARITY_TOP_K,  # 20 candidates
                     llm=self.llm,
+                    text_qa_template=vector_qa_prompt_filtered,
                     filters=metadata_filters,  # STRICT: Database-level time filtering
                     node_postprocessors=[
                         RecencyBoostPostprocessor(decay_days=90),  # Boost recent within filter
                         SentenceTransformerRerank(
                             model="BAAI/bge-reranker-base",
-                            top_n=10  # Final top 10 most relevant
+                            top_n=10,  # Final top 10 most relevant
+                            device="cpu"
                         )
                     ]
                 )
@@ -609,6 +571,23 @@ Note: Only generate Cypher statements. No explanations or apologies.
 Question: {{question}}
 Cypher Query:"""
 
+                # Sub-question prompt for filtered graph queries (same as unfiltered)
+                graph_qa_prompt_filtered = PromptTemplate(
+                    "Your answer will be passed to another agent for final synthesis. Focus on precise entity information.\n\n"
+                    "Context from knowledge graph:\n"
+                    "---------------------\n"
+                    "{context_str}\n"
+                    "---------------------\n\n"
+                    "Given the context above and not prior knowledge, answer the question about entities and relationships:\n"
+                    "- Use EXACT names, titles, company names (don't paraphrase proper nouns)\n"
+                    "- Describe relationships clearly: who did what, who works where, who sent what\n"
+                    "- If context includes quotes or specific statements, preserve them\n"
+                    "- Translate technical relationship types to natural language (CREATED_BY → \"created by\")\n\n"
+                    "If the context doesn't contain relevant information, say so clearly.\n\n"
+                    "Question: {query_str}\n"
+                    "Answer: "
+                )
+
                 # Create TextToCypherRetriever with safeguards
                 cypher_retriever = TextToCypherRetriever(
                     self.property_graph_index.property_graph_store,
@@ -624,6 +603,7 @@ Cypher Query:"""
                 graph_query_engine = self.property_graph_index.as_query_engine(
                     sub_retrievers=[cypher_retriever],  # Use our custom retriever
                     llm=self.llm,
+                    text_qa_template=graph_qa_prompt_filtered,
                     include_text=True
                 )
 
@@ -659,6 +639,7 @@ Cypher Query:"""
 
                 response_synthesizer = get_response_synthesizer(
                     llm=self.llm,
+                    response_mode="compact",
                     text_qa_template=ceo_assistant_prompt
                 )
 
@@ -704,43 +685,34 @@ Cypher Query:"""
         """
         Conversational interface with memory (Production).
 
-        Handles natural conversations:
-        - Greetings ("hey", "hello") respond directly without retrieval
-        - Business questions use full SubQuestionQueryEngine pipeline
-        - Follow-ups automatically include conversation context
-        - Maintains chat memory across turns
+        Handles natural conversations by manually injecting chat history into
+        SubQuestionQueryEngine prompts. This ensures consistent high-quality retrieval
+        with conversational context.
 
-        Architecture:
-        1. CondensePlusContextChatEngine condenses [history + message] → standalone question
-        2. If greeting/small talk → responds directly (no retrieval)
-        3. If business query → SubQuestionQueryEngine retrieves with full context
-        4. Response includes conversation memory
+        Architecture (per LlamaIndex best practice):
+        1. Format chat_history into a string
+        2. Rebuild CEO prompt template with history injected
+        3. Create new response_synthesizer with updated prompt
+        4. Rebuild SubQuestionQueryEngine with new synthesizer
+        5. Query with the same high-quality retrieval as query() method
 
         PRODUCTION: Smart history loading with token limits (3900 max)
-        - Loads newest messages first
-        - Stops at token limit to prevent API errors
-        - Research: "Sliding window + summarization" (2025 best practice)
+        - Truncates to most recent messages that fit
+        - Prevents token overflow and API errors
 
         Args:
-            message: User's message (can be greeting or business question)
-            chat_history: Optional external chat history to restore context
+            message: User's message
+            chat_history: Optional external chat history
                          Format: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
 
         Returns:
-            Dict with:
-              - question: User's original message
-              - answer: Conversational response
-              - source_nodes: Retrieved sources (empty for greetings)
-              - metadata: {"is_chat": True, "chat_history_length": N}
+            Dict with question, answer, source_nodes, metadata
 
         Examples:
-            >>> await engine.chat("hey")
-            {"answer": "Hey! What can I help you with today?", "source_nodes": []}
-
             >>> await engine.chat("what materials do we use?")
             {"answer": "We primarily use polycarbonate PC-1000...", "source_nodes": [...]}
 
-            >>> await engine.chat("who supplies it?")  # Automatically knows "it" = PC-1000 from history
+            >>> await engine.chat("who supplies it?", chat_history=[...])  # Context from history
             {"answer": "Acme Plastics supplies polycarbonate PC-1000...", "source_nodes": [...]}
         """
         logger.info(f"\n{'='*80}")
@@ -748,56 +720,111 @@ Cypher Query:"""
         logger.info(f"{'='*80}")
 
         try:
-            # Optional: Restore chat history from external source (e.g., database)
-            # PRODUCTION FIX: Smart loading with token limit enforcement (prevents API errors)
+            # Step 1: Format chat history into string (if provided)
+            chat_history_str = ""
             if chat_history:
-                from llama_index.core.llms import ChatMessage
-
-                self.chat_memory.reset()  # Clear existing memory
-
-                # Load messages with token limit enforcement (prevents API errors)
-                # Research: "Smart memory systems cut token costs 80-90%" (Mem0, 2025)
-                max_tokens = 3900  # ChatMemoryBuffer default limit
+                # Truncate to token limit (3900 tokens max)
+                max_tokens = 3900
                 total_tokens = 0
-                messages_to_load = []
+                messages_to_include = []
 
-                # Step 1: Scan BACKWARDS (newest first) to find which messages fit in token budget
+                # Scan backwards (newest first) to find messages that fit
                 for msg in reversed(chat_history):
                     content = msg.get("content", "")
-                    msg_tokens = len(content) // 4  # Rough estimation: 1 token ≈ 4 characters
+                    msg_tokens = len(content) // 4  # Rough: 1 token ≈ 4 chars
 
-                    # Stop if adding this message would exceed limit
                     if total_tokens + msg_tokens > max_tokens:
                         break
 
-                    messages_to_load.append(msg)
+                    messages_to_include.append(msg)
                     total_tokens += msg_tokens
 
-                # Step 2: Load messages in CORRECT chronological order (oldest → newest)
-                # CRITICAL: Must preserve conversation flow for context (Q1 → A1 → Q2 → A2)
-                for msg in reversed(messages_to_load):  # Reverse again to restore chronological order
-                    role = msg.get("role", "user")
+                # Build history string in chronological order
+                history_lines = []
+                for msg in reversed(messages_to_include):
+                    role = msg.get("role", "user").capitalize()
                     content = msg.get("content", "")
-                    self.chat_memory.put(ChatMessage(role=role, content=content))
+                    history_lines.append(f"{role}: {content}")
 
-                messages_loaded = len(messages_to_load)
-                logger.info(f"   📚 Loaded {messages_loaded}/{len(chat_history)} messages (~{total_tokens} tokens)")
+                chat_history_str = "\n".join(history_lines)
+
+                messages_loaded = len(messages_to_include)
+                logger.info(f"   📚 Using {messages_loaded}/{len(chat_history)} messages (~{total_tokens} tokens)")
                 if messages_loaded < len(chat_history):
-                    logger.info(f"   ℹ️  Skipped {len(chat_history) - messages_loaded} older messages to stay within token limit")
+                    logger.info(f"   ℹ️  Truncated {len(chat_history) - messages_loaded} older messages")
 
-            # Execute conversational chat
-            # CondensePlusContextChatEngine handles:
-            # - Greeting detection (responds directly, no retrieval)
-            # - Context condensation (history + message → standalone question)
-            # - Retrieval (if needed, via SubQuestionQueryEngine)
-            # - Response synthesis (with CEO Assistant prompt)
-            response = await self.chat_engine.achat(message)
+            # Step 2: Rebuild CEO prompt with chat history injected
+            ceo_prompt_with_history = PromptTemplate(
+                f"You are an intelligent personal assistant to the CEO. You have access to the entire company's knowledge. "
+                f"All emails, documents, deals, activities, orders, etc. that go on in this business are in your knowledge bases. "
+                f"Because of this, you know more about what is happening in the company than anyone. "
+                f"You can access and uncover unique relationships and patterns that otherwise would go unseen.\n\n"
+                + (f"Previous conversation:\n---------------------\n{chat_history_str}\n---------------------\n\n" if chat_history_str else "")
+                + f"Below are answers from the knowledge base:\n"
+                f"---------------------\n"
+                f"{{context_str}}\n"
+                f"---------------------\n\n"
+                f"Synthesize a comprehensive, conversational response to the CEO's question. "
+                f"Use direct quotes ONLY when they add real value - specific numbers, impactful statements, or unique insights (quote 1-2 full sentences). "
+                f"Don't quote mundane facts or simple status updates. "
+                f"Cite sources by mentioning document titles naturally (e.g., 'The ISO checklist shows...', 'According to the QC report...') "
+                f"when making important claims or switching between different documents. Don't use technical IDs like 'document_id: 180'. "
+                f"When you find information from multiple sources, cross-reference and combine it naturally. "
+                f"Make cool connections, provide insightful suggestions, and point the CEO in the right direction. "
+                f"Be conversational and direct - skip formal report language. "
+                f"Your job is to knock the CEO's socks off with how much you know about the business.\n\n"
+                f"FORMATTING: Always format your responses with markdown for better readability:\n"
+                f"- Use emoji section headers (📦 🚨 📊 🚛 💰 ⚡ 🎯) to organize information\n"
+                f"- Use **bold** for important numbers, names, and key points\n"
+                f"- Use bullet points and numbered lists for structured information\n"
+                f"- Use markdown tables for data comparisons or structured data\n"
+                f"- Use ✅ checkmarks for completed items and ❌ for issues\n"
+                f"- Use code blocks for metrics, dates, or technical details\n"
+                f"- Keep sections clean and well-organized\n\n"
+                f"Question: {{query_str}}\n"
+                f"Answer: "
+            )
+
+            # Step 3: Create new response synthesizer with updated prompt (compact mode)
+            response_synthesizer = get_response_synthesizer(
+                llm=self.llm,
+                response_mode="compact",
+                text_qa_template=ceo_prompt_with_history
+            )
+
+            # Step 4: Rebuild SubQuestionQueryEngine with new synthesizer
+            query_engine_with_history = SubQuestionQueryEngine.from_defaults(
+                query_engine_tools=[
+                    QueryEngineTool.from_defaults(
+                        query_engine=self.vector_query_engine,
+                        name="vector_search",
+                        description=(
+                            "Useful for semantic search over document content. "
+                            "Use this for questions about what was said in documents, "
+                            "document content, topics discussed, specific information mentioned."
+                        )
+                    ),
+                    QueryEngineTool.from_defaults(
+                        query_engine=self.graph_query_engine,
+                        name="graph_search",
+                        description=(
+                            "Useful for querying relationships between people, companies, and documents. "
+                            "Use this for questions about who sent what, who works where, "
+                            "connections between people, organizational structure."
+                        )
+                    )
+                ],
+                llm=self.llm,
+                response_synthesizer=response_synthesizer
+            )
+
+            # Step 5: Query with full SubQuestionQueryEngine pipeline
+            response = await query_engine_with_history.aquery(message)
 
             logger.info(f"✅ CHAT COMPLETE")
             logger.info(f"{'='*80}")
             logger.info(f"   Answer length: {len(str(response))} characters")
             logger.info(f"   Source nodes: {len(response.source_nodes)}")
-            logger.info(f"   Chat memory: {len(self.chat_memory.get_all())} messages")
 
             return {
                 "question": message,
@@ -805,7 +832,8 @@ Cypher Query:"""
                 "source_nodes": response.source_nodes,
                 "metadata": {
                     "is_chat": True,
-                    "chat_history_length": len(self.chat_memory.get_all())
+                    "chat_history_provided": bool(chat_history),
+                    "chat_history_length": len(chat_history) if chat_history else 0
                 }
             }
 
@@ -819,40 +847,6 @@ Cypher Query:"""
                 "source_nodes": []
             }
 
-    def reset_chat(self):
-        """
-        Reset conversation memory.
-
-        Use when:
-        - User starts a new conversation
-        - User explicitly requests to clear history
-        - Switching between different chat sessions
-
-        Example:
-            >>> engine.reset_chat()
-            >>> await engine.chat("hey")  # Fresh conversation, no history
-        """
-        self.chat_memory.reset()
-        logger.info("🔄 Chat memory reset")
-
-    def get_chat_history(self) -> List[Dict[str, str]]:
-        """
-        Get current conversation history.
-
-        Returns:
-            List of chat messages in format:
-            [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}, ...]
-
-        Useful for:
-        - Saving chat history to database
-        - Debugging conversation flow
-        - Displaying chat history to user
-        """
-        messages = self.chat_memory.get_all()
-        return [
-            {"role": msg.role, "content": msg.content}
-            for msg in messages
-        ]
 
     async def retrieve_only(
         self,
@@ -923,10 +917,6 @@ Cypher Query:"""
                 self.vector_index = None
                 logger.info("   ✅ Qdrant vector index reference cleared")
 
-            # Clear chat memory
-            if hasattr(self, 'chat_memory'):
-                self.chat_memory.reset()
-                logger.info("   ✅ Chat memory cleared")
 
             logger.info("🧹 All resources cleaned up successfully")
 
