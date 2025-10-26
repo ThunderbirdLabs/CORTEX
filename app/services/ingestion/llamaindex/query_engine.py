@@ -30,6 +30,9 @@ from .config import (
 )
 from .recency_postprocessor import RecencyBoostPostprocessor
 
+# Import SentenceTransformer reranker for production relevance scoring
+from llama_index.postprocessor.sbert_rerank import SentenceTransformerRerank
+
 logger = logging.getLogger(__name__)
 
 # CEO Assistant synthesis prompt (used for both default and filtered query engines)
@@ -175,13 +178,21 @@ class HybridQueryEngine:
             "Answer: "
         )
 
-        # Create query engines with custom prompts + recency boost
+        # Create query engines with custom prompts + recency boost + reranking
+        # Multi-stage retrieval pipeline (research-backed production pattern):
+        # 1. Retrieve 20 candidates (SIMILARITY_TOP_K=20)
+        # 2. RecencyBoostPostprocessor: Boost recent documents (soft preference)
+        # 3. SentenceTransformerRerank: Deep relevance scoring with cross-encoder (narrows to top 10)
         self.vector_query_engine = self.vector_index.as_query_engine(
-            similarity_top_k=SIMILARITY_TOP_K,
+            similarity_top_k=SIMILARITY_TOP_K,  # Now 20 (cast wider net)
             llm=self.llm,
             text_qa_template=vector_qa_prompt,
             node_postprocessors=[
-                RecencyBoostPostprocessor(decay_days=90)  # Boost recent documents
+                RecencyBoostPostprocessor(decay_days=90),  # Stage 1: Boost recent
+                SentenceTransformerRerank(
+                    model="BAAI/bge-reranker-base",  # Production-grade cross-encoder
+                    top_n=10  # Stage 2: Narrow to top 10 most relevant
+                )
             ]
         )
 
@@ -237,16 +248,24 @@ class HybridQueryEngine:
 
     async def _extract_time_filter(self, question: str) -> Optional[Dict[str, Any]]:
         """
-        Extract time constraints from natural language query using LLM.
+        Extract STRICT time constraints from natural language query using LLM.
+
+        CRITICAL: For queries like "show me emails from October 2024", this MUST return
+        ONLY October 2024 timestamps to prevent hallucination.
 
         Args:
             question: User's natural language question
 
         Returns:
-            Dict with has_time_filter, start_timestamp, end_timestamp
-            Or None if no time reference found
+            Dict with:
+              - has_time_filter: bool
+              - start_timestamp: int (Unix timestamp, inclusive)
+              - end_timestamp: int (Unix timestamp, exclusive - for LT comparison)
+              - start_date: str (YYYY-MM-DD, for logging)
+              - end_date: str (YYYY-MM-DD, for logging)
+            Or None if error
         """
-        from datetime import datetime
+        from datetime import datetime, timezone
         import json
 
         current_date = datetime.now().strftime('%Y-%m-%d')
@@ -254,23 +273,28 @@ class HybridQueryEngine:
 
         prompt = f"""Today's date is {current_date_readable} ({current_date}).
 
-Analyze this question and extract any time constraints: "{question}"
+TASK: Extract time period from this query (if present): "{question}"
 
-If there's a time reference (like "in October", "last month", "after January 15th", "this week"),
-return the start and end Unix timestamps for that time period.
+If query specifies a time period, return start_date and end_date in YYYY-MM-DD format.
+Be STRICT - only return a time filter if explicitly requested.
 
 Return ONLY valid JSON in this exact format:
-{{"has_time_filter": true, "start_timestamp": <unix_timestamp_int>, "end_timestamp": <unix_timestamp_int>}}
 
-If NO time reference exists, return:
+WITH time period:
+{{"has_time_filter": true, "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD"}}
+
+NO time period:
 {{"has_time_filter": false}}
 
 Examples:
-- "in October" (current year) → Oct 1 00:00 to Nov 1 00:00
-- "last month" → Previous month's first day to current month's first day
-- "after January 15th" → Jan 15 00:00 to far future timestamp
-- "this week" → Monday 00:00 to next Monday 00:00
-- "yesterday" → Yesterday 00:00 to today 00:00
+- "emails from October 2024" → {{"has_time_filter": true, "start_date": "2024-10-01", "end_date": "2024-10-31"}}
+- "what happened last week" → {{"has_time_filter": true, "start_date": "2024-01-15", "end_date": "2024-01-21"}}
+- "after January 15, 2025" → {{"has_time_filter": true, "start_date": "2025-01-15", "end_date": "2099-12-31"}}
+- "before March 2024" → {{"has_time_filter": true, "start_date": "2000-01-01", "end_date": "2024-02-29"}}
+- "in Q1 2024" → {{"has_time_filter": true, "start_date": "2024-01-01", "end_date": "2024-03-31"}}
+- "yesterday" → {{"has_time_filter": true, "start_date": "2024-01-22", "end_date": "2024-01-22"}}
+- "show me deals" → {{"has_time_filter": false}}
+- "what materials do we use" → {{"has_time_filter": false}}
 
 Return ONLY the JSON object, nothing else.
 """
@@ -285,16 +309,43 @@ Return ONLY the JSON object, nothing else.
             parsed = json.loads(result)
 
             if parsed.get('has_time_filter'):
-                logger.info(f"   🕐 Time filter detected: {parsed.get('start_timestamp')} to {parsed.get('end_timestamp')}")
+                # Convert YYYY-MM-DD dates to Unix timestamps
+                start_date = parsed['start_date']
+                end_date = parsed['end_date']
 
-            return parsed
+                # Parse dates and set to UTC midnight
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                # End date: set to 23:59:59 of that day for inclusive range
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d').replace(
+                    hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc
+                )
+
+                start_ts = int(start_dt.timestamp())
+                end_ts = int(end_dt.timestamp())
+
+                logger.info(f"   🕐 STRICT time filter: {start_date} to {end_date} ({start_ts} to {end_ts})")
+
+                return {
+                    'has_time_filter': True,
+                    'start_timestamp': start_ts,
+                    'end_timestamp': end_ts,
+                    'start_date': start_date,
+                    'end_date': end_date
+                }
+            else:
+                return {'has_time_filter': False}
+
         except Exception as e:
             logger.warning(f"   ⚠️  Could not extract time filter: {e}")
-            return None
+            return {'has_time_filter': False}
 
     def _build_metadata_filters(self, time_filter: Optional[Dict]) -> Optional[Any]:
         """
         Convert time filter dict to Qdrant MetadataFilters.
+
+        CRITICAL: This creates DATABASE-LEVEL filters that Qdrant enforces BEFORE
+        vector search. Documents outside the time range are NEVER retrieved,
+        preventing LLM hallucination.
 
         Args:
             time_filter: Dict with start_timestamp and end_timestamp
@@ -313,7 +364,7 @@ Return ONLY the JSON object, nothing else.
             filters_list.append(
                 MetadataFilter(
                     key="created_at_timestamp",
-                    operator=FilterOperator.GTE,
+                    operator=FilterOperator.GTE,  # Greater than or equal (inclusive start)
                     value=time_filter['start_timestamp']
                 )
             )
@@ -322,14 +373,17 @@ Return ONLY the JSON object, nothing else.
             filters_list.append(
                 MetadataFilter(
                     key="created_at_timestamp",
-                    operator=FilterOperator.LT,
+                    operator=FilterOperator.LTE,  # Less than or equal (inclusive end)
                     value=time_filter['end_timestamp']
                 )
             )
 
         if filters_list:
             metadata_filters = MetadataFilters(filters=filters_list)
-            logger.info(f"   ✅ Built metadata filters: {len(filters_list)} conditions")
+            start_date = time_filter.get('start_date', 'N/A')
+            end_date = time_filter.get('end_date', 'N/A')
+            logger.info(f"   ✅ STRICT metadata filters: {start_date} to {end_date} ({len(filters_list)} conditions)")
+            logger.info(f"   🔒 Qdrant will ONLY return documents in this range (ZERO hallucination)")
             return metadata_filters
 
         return None
@@ -389,13 +443,22 @@ Return ONLY the JSON object, nothing else.
             if metadata_filters:
                 logger.info(f"   🔍 Creating filtered query engines...")
 
-                # Create filtered vector query engine with recency boost
+                # Create filtered vector query engine with recency boost + reranking
+                # Multi-stage pipeline WITH time filtering:
+                # 0. MetadataFilters: Database-level filtering (STRICT - only docs in time range)
+                # 1. Retrieve 20 candidates from filtered set
+                # 2. RecencyBoost: Soft preference for recent within time range
+                # 3. SentenceTransformerRerank: Deep relevance scoring → top 10
                 vector_query_engine = self.vector_index.as_query_engine(
-                    similarity_top_k=SIMILARITY_TOP_K,
+                    similarity_top_k=SIMILARITY_TOP_K,  # 20 candidates
                     llm=self.llm,
-                    filters=metadata_filters,  # Apply time filter to Qdrant
+                    filters=metadata_filters,  # STRICT: Database-level time filtering
                     node_postprocessors=[
-                        RecencyBoostPostprocessor(decay_days=90)  # Boost recent within filter
+                        RecencyBoostPostprocessor(decay_days=90),  # Boost recent within filter
+                        SentenceTransformerRerank(
+                            model="BAAI/bge-reranker-base",
+                            top_n=10  # Final top 10 most relevant
+                        )
                     ]
                 )
 

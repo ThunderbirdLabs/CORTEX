@@ -172,8 +172,9 @@ VALIDATION_SCHEMA = KG_VALIDATION_SCHEMA  # Alias for backward compatibility
 CHUNK_SIZE = 1024
 CHUNK_OVERLAP = 50
 
-# Vector search
-SIMILARITY_TOP_K = 10
+# Vector search - Increased to 20 for better reranking performance
+# Research: Retrieve more candidates (20) → rerank to final 10 for best accuracy
+SIMILARITY_TOP_K = 20
 
 # Progress display
 SHOW_PROGRESS = True
