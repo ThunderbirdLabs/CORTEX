@@ -29,16 +29,16 @@ openai==1.109.0
 qdrant-client==1.12.1
 neo4j==5.28.1
 nest-asyncio==1.6.0
-llama-index-core==0.14.6  # Latest stable (Oct 26, 2025) - Python 3.12 compatible
-llama-index-embeddings-openai==0.6.5  # Compatible with llama-index-core 0.14.6
-llama-index-llms-openai==0.6.5  # Compatible with llama-index-core 0.14.6
-llama-index-vector-stores-qdrant==0.6.0
-llama-index-graph-stores-neo4j==0.6.3  # Upgraded for 0.14.6 compatibility
-llama-index-readers-file==0.6.5  # Upgraded for 0.14.6 compatibility
-llama-index-question-gen-openai==0.4.3  # Upgraded for 0.14.6 compatibility
+llama-index-core==0.13.8  # Latest 0.13.x - compatible with all 0.5.x packages
+llama-index-embeddings-openai==0.5.1  # Requires core >=0.13.0, <0.15
+llama-index-llms-openai==0.5.0  # Requires core >=0.13.0, <0.14
+llama-index-vector-stores-qdrant==0.5.2  # Compatible with core 0.13.x
+llama-index-graph-stores-neo4j==0.5.1  # Compatible with core 0.13.x
+llama-index-readers-file==0.5.4  # Compatible with core 0.13.x
+llama-index-question-gen-openai==0.3.0  # Compatible with core 0.13.x
 
 # RAG Enhancements: Multi-stage reranking + conversational chat
-llama-index-postprocessor-sbert-rerank==0.6.2  # Upgraded for 0.14.6 compatibility
+llama-index-postprocessor-sbert-rerank==0.4.2  # Compatible with core 0.13.x
 sentence-transformers==5.0.0  # Required by sbert-rerank
 torch==2.6.0  # Required by sentence-transformers (CPU-only build)
 
