@@ -204,12 +204,13 @@ class HybridQueryEngine:
             llm=self.llm,
             text_qa_template=vector_qa_prompt,
             node_postprocessors=[
-                RecencyBoostPostprocessor(decay_days=90),  # Stage 1: Boost recent
-                SentenceTransformerRerank(
-                    model="BAAI/bge-reranker-base",  # Production-grade cross-encoder
-                    top_n=10,  # Stage 2: Narrow to top 10 most relevant
-                    device="cpu"  # Required in llama-index 0.3.0
-                )
+                RecencyBoostPostprocessor(decay_days=90),  # Boost recent
+                # Reranker temporarily disabled - causes 2min init stall
+                # SentenceTransformerRerank(
+                #     model="BAAI/bge-reranker-base",
+                #     top_n=10,
+                #     device="cpu"
+                # )
             ]
         )
 
@@ -493,11 +494,11 @@ Return ONLY the JSON object, nothing else.
                     filters=metadata_filters,  # STRICT: Database-level time filtering
                     node_postprocessors=[
                         RecencyBoostPostprocessor(decay_days=90),  # Boost recent within filter
-                        SentenceTransformerRerank(
-                            model="BAAI/bge-reranker-base",
-                            top_n=10,  # Final top 10 most relevant
-                            device="cpu"
-                        )
+                        # SentenceTransformerRerank(
+                        #     model="BAAI/bge-reranker-base",
+                        #     top_n=10,
+                        #     device="cpu"
+                        # )
                     ]
                 )
 
