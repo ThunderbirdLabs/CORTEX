@@ -191,7 +191,8 @@ class HybridQueryEngine:
                 RecencyBoostPostprocessor(decay_days=90),  # Stage 1: Boost recent
                 SentenceTransformerRerank(
                     model="BAAI/bge-reranker-base",  # Production-grade cross-encoder
-                    top_n=10  # Stage 2: Narrow to top 10 most relevant
+                    top_n=10,  # Stage 2: Narrow to top 10 most relevant
+                    device="cpu"  # Required in llama-index 0.3.0
                 )
             ]
         )
@@ -303,7 +304,8 @@ class HybridQueryEngine:
                 RecencyBoostPostprocessor(decay_days=90),  # Stage 1: Boost recent documents
                 SentenceTransformerRerank(
                     model="BAAI/bge-reranker-base",  # Production-grade cross-encoder
-                    top_n=10  # Stage 2: Narrow to top 10 most relevant
+                    top_n=10,  # Stage 2: Narrow to top 10 most relevant
+                    device="cpu"  # Required in llama-index 0.3.0
                 )
             ],
             verbose=False  # Set to True for debugging
