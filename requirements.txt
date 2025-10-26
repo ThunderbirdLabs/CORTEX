@@ -23,19 +23,19 @@ APScheduler==3.10.4
 
 # Cortex Hybrid RAG dependencies
 # CRITICAL: Pinned versions to prevent pip backtracking (45min+ resolver hell)
-# Python 3.12 LTS versions (production-stable, Jan 2025)
+# Python 3.12 LTS versions (production-stable, Oct 2025)
 # NOTE: Using 3.12 instead of 3.13 - most packages lack py313 support
 openai==1.109.0
 qdrant-client==1.12.1
 neo4j==5.28.1
 nest-asyncio==1.6.0
-llama-index-core==0.12.20
-llama-index-embeddings-openai==0.5.1  # Python 3.13 compatible
-llama-index-llms-openai==0.5.0  # Python 3.13 compatible
-llama-index-vector-stores-qdrant==0.6.0  # Python 3.13 compatible
-llama-index-graph-stores-neo4j==0.5.1  # Python 3.13 compatible
-llama-index-readers-file==0.5.4  # Latest py313 version (0.6.0 doesn't exist)
-llama-index-question-gen-openai==0.3.0  # Python 3.13 compatible
+llama-index-core==0.14.6  # Latest stable (Oct 26, 2025) - Python 3.12 compatible
+llama-index-embeddings-openai==0.5.1  # Requires llama-index-core>=0.13.0
+llama-index-llms-openai==0.5.0
+llama-index-vector-stores-qdrant==0.6.0
+llama-index-graph-stores-neo4j==0.5.1
+llama-index-readers-file==0.5.4
+llama-index-question-gen-openai==0.3.0
 
 # RAG Enhancements: Multi-stage reranking + conversational chat
 llama-index-postprocessor-sbert-rerank==0.4.2  # Latest available (0.5.x doesn't exist)
