@@ -229,7 +229,8 @@ class HybridQueryEngine:
                     top_n=10,
                     device="cpu",
                     # ONNX backend: 2-3x faster init than PyTorch (sentence-transformers v4.1.0+)
-                    backend="onnx"
+                    # Pass backend via cross_encoder_kwargs (LlamaIndex pattern)
+                    cross_encoder_kwargs={"backend": "onnx"}
                 )
             ]
         )
@@ -518,7 +519,7 @@ Return ONLY the JSON object, nothing else.
                             model="BAAI/bge-reranker-base",
                             top_n=10,
                             device="cpu",
-                            backend="onnx"  # 2-3x faster initialization
+                            cross_encoder_kwargs={"backend": "onnx"}  # 2-3x faster initialization
                         )
                     ]
                 )
