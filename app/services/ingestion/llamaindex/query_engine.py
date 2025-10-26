@@ -9,7 +9,7 @@ Architecture:
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from llama_index.core import VectorStoreIndex, PromptTemplate
 from llama_index.core.query_engine import SubQuestionQueryEngine
@@ -280,25 +280,32 @@ class HybridQueryEngine:
         # What chat() retrieves from:
         # ✅ Qdrant (vector search) - semantic similarity matching on document chunks
         # ✅ Neo4j (graph traversal) - relationship context from entity connections
-        # ✅ RecencyBoostPostprocessor - 90-day exponential decay (from PropertyGraphIndex)
-        # ✅ SentenceTransformerRerank - cross-encoder reranking top 20 → top 10 (from PropertyGraphIndex)
+        # ✅ RecencyBoostPostprocessor - 90-day exponential decay (applied via node_postprocessors)
+        # ✅ SentenceTransformerRerank - cross-encoder reranking top 20 → top 10 (applied via node_postprocessors)
         #
         # Different from query() method:
         # - query() uses SubQuestionQueryEngine (complex question decomposition for analysis)
         # - chat() uses PropertyGraphIndex.as_retriever() (simpler hybrid retrieval for conversation)
+        # - SAME postprocessors for consistent quality (RecencyBoost + Reranking)
         #
-        # Research: This is the industry-standard pattern from Neo4j/LlamaIndex docs (2025)
-        # https://docs.llamaindex.ai/en/stable/examples/property_graph/property_graph_neo4j/
-        self.chat_engine = CondensePlusContextChatEngine(
+        # Research: CondensePlusContextChatEngine.from_defaults() accepts node_postprocessors parameter
+        # Source: https://github.com/run-llama/llama_index/blob/main/llama-index-core/llama_index/core/chat_engine/condense_plus_context.py
+        self.chat_engine = CondensePlusContextChatEngine.from_defaults(
             retriever=self.property_graph_index.as_retriever(
                 include_text=True,  # Include source text chunks with graph paths
                 similarity_top_k=SIMILARITY_TOP_K  # Top 20 for reranking → top 10
             ),
             llm=self.llm,
             memory=self.chat_memory,
-            context_prompt=CEO_ASSISTANT_PROMPT_TEMPLATE,  # Same CEO assistant prompt
+            context_prompt=PromptTemplate(CEO_ASSISTANT_PROMPT_TEMPLATE),  # Proper PromptTemplate for variable handling
             condense_prompt=condense_prompt_template,
-            # ✅ NO node_postprocessors here - they're already in PropertyGraphIndex!
+            node_postprocessors=[  # ✅ CRITICAL: Apply same postprocessors as query() method
+                RecencyBoostPostprocessor(decay_days=90),  # Stage 1: Boost recent documents
+                SentenceTransformerRerank(
+                    model="BAAI/bge-reranker-base",  # Production-grade cross-encoder
+                    top_n=10  # Stage 2: Narrow to top 10 most relevant
+                )
+            ],
             verbose=False  # Set to True for debugging
         )
 
@@ -766,7 +773,6 @@ Cypher Query:"""
 
                 # Step 2: Load messages in CORRECT chronological order (oldest → newest)
                 # CRITICAL: Must preserve conversation flow for context (Q1 → A1 → Q2 → A2)
-                from llama_index.core.llms import ChatMessage
                 for msg in reversed(messages_to_load):  # Reverse again to restore chronological order
                     role = msg.get("role", "user")
                     content = msg.get("content", "")
