@@ -229,10 +229,8 @@ class HybridQueryEngine:
                 SentenceTransformerRerank(
                     model="BAAI/bge-reranker-base",
                     top_n=20,  # Keep all 20, just reorder by relevance
-                    device="cpu",
-                    # ONNX backend: 2-3x faster init than PyTorch (sentence-transformers v4.1.0+)
-                    # Pass backend via cross_encoder_kwargs (LlamaIndex pattern)
-                    cross_encoder_kwargs={"backend": "onnx"}
+                    device="cpu"
+                    # Note: ONNX backend removed - newer LlamaIndex versions auto-optimize
                 ),
                 RecencyBoostPostprocessor(decay_days=90),  # Apply recency as secondary boost
             ]
@@ -520,8 +518,8 @@ Return ONLY the JSON object, nothing else.
                         SentenceTransformerRerank(
                             model="BAAI/bge-reranker-base",
                             top_n=20,  # Keep all 20, reorder by relevance
-                            device="cpu",
-                            cross_encoder_kwargs={"backend": "onnx"}  # 2-3x faster initialization
+                            device="cpu"
+                            # Note: ONNX backend removed - newer LlamaIndex versions auto-optimize
                         ),
                         RecencyBoostPostprocessor(decay_days=90),  # Apply recency as secondary boost
                     ]
