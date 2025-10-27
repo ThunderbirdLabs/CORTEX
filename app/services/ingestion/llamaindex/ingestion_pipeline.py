@@ -550,6 +550,9 @@ Now extract entities and relationships from the following text:
                     else:
                         doc_metadata[key] = value
 
+            # Determine node label early (used in return statement at end)
+            node_label = document_type.upper() if document_type else "DOCUMENT"
+
             # For emails: preserve email-specific fields
             if document_type == "email":
                 # CRITICAL: Convert to_addresses to JSON string to prevent Neo4j LongArray error
@@ -1004,9 +1007,7 @@ Now extract entities and relationships from the following text:
             except Exception as e:
                 logger.warning(f"   ⚠️  Could not parse created_at timestamp: {e}")
 
-        # Create Document node in Neo4j
-        node_label = document_type.upper() if document_type else "DOCUMENT"
-
+        # Create Document node in Neo4j (node_label already set at top of function)
         node_properties = {
             "document_id": str(doc_id),
             "title": title,
