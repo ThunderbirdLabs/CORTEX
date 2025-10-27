@@ -168,7 +168,12 @@ logger.info("✅ Rate limiting enabled")
 # MIDDLEWARE
 # ============================================================================
 
-# CORS (must be first)
+# Security headers (must be first to apply to all responses)
+from app.middleware.security_headers import SecurityHeadersMiddleware
+app.add_middleware(SecurityHeadersMiddleware)
+logger.info("✅ Security headers enabled")
+
+# CORS (after security headers)
 cors_middleware, cors_config = get_cors_middleware()
 app.add_middleware(cors_middleware, **cors_config)
 
@@ -193,17 +198,25 @@ app.include_router(chat_router)
 app.include_router(deduplication_router)
 
 # ============================================================================
-# SENTRY DEBUG ENDPOINT
+# SENTRY DEBUG ENDPOINT (DEV/STAGING ONLY)
 # ============================================================================
 
-@app.get("/sentry-debug")
-async def trigger_sentry_error():
-    """
-    Test endpoint to verify Sentry error tracking is working.
-    Triggers a division by zero error that gets captured by Sentry.
-    """
-    division_by_zero = 1 / 0
-    return {"should": "never reach here"}
+# SECURITY: Only expose debug endpoint in non-production environments
+if settings.environment != "production":
+    @app.get("/sentry-debug")
+    async def trigger_sentry_error():
+        """
+        Test endpoint to verify Sentry error tracking is working.
+        Triggers a division by zero error that gets captured by Sentry.
+
+        SECURITY: Only available in dev/staging (disabled in production)
+        """
+        division_by_zero = 1 / 0
+        return {"should": "never reach here"}
+
+    logger.info("⚠️  DEV MODE: Sentry debug endpoint enabled at /sentry-debug")
+else:
+    logger.info("✅ PRODUCTION: Sentry debug endpoint disabled")
 
 # ============================================================================
 # MAIN

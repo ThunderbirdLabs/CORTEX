@@ -1,16 +1,21 @@
 """
 OAuth Routes
 Handles OAuth flow initiation and callbacks via Nango
+
+SECURITY:
+- Rate limited to prevent OAuth abuse
+- User authentication required
 """
 import logging
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.core.config import settings
 from app.core.security import get_current_user_id
 from app.core.dependencies import get_http_client
 from app.models.schemas import NangoOAuthCallback
 from app.services.nango import save_connection, get_connection
+from app.middleware.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +23,9 @@ router = APIRouter(prefix="", tags=["oauth"])
 
 
 @router.get("/connect/start")
+@limiter.limit("20/hour")  # SECURITY: Prevent OAuth abuse (20 attempts per hour)
 async def connect_start(
+    request: Request,  # Required for rate limiting
     provider: str = Query(..., description="Provider name (microsoft | gmail | google-drive | quickbooks)"),
     user_id: str = Depends(get_current_user_id),
     http_client: httpx.AsyncClient = Depends(get_http_client)

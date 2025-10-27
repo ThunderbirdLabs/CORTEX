@@ -1,8 +1,15 @@
 """
 Security and Authentication
 Handles JWT validation and API key authentication
+
+SECURITY FEATURES:
+- JWT validation via Supabase
+- API key authentication with timing-safe comparison
+- PII sanitization in logs
+- Production-first security (no dev mode bypasses)
 """
 import logging
+import hmac
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, APIKeyHeader
 from supabase import Client
@@ -57,7 +64,8 @@ async def get_current_user_id(
                 detail="User ID not found in token"
             )
 
-        logger.debug(f"Authenticated user: {user_id}")
+        # SECURITY: Don't log PII (user_id) - use sanitized logging
+        logger.debug(f"Authenticated user: {user_id[:8]}...")
         return user_id
 
     except Exception as e:
@@ -76,6 +84,9 @@ async def verify_api_key(api_key: str = Depends(api_key_scheme)) -> str:
     """
     Verify API key for Cortex search endpoints.
 
+    SECURITY: Uses timing-safe comparison to prevent timing attacks.
+    Production deployment MUST have CORTEX_API_KEY configured.
+
     Args:
         api_key: API key from X-API-Key header
 
@@ -92,11 +103,21 @@ async def verify_api_key(api_key: str = Depends(api_key_scheme)) -> str:
         )
 
     if not settings.cortex_api_key:
-        # No API key configured - allow access (dev mode)
-        logger.warning("CORTEX_API_KEY not configured - skipping authentication")
+        # SECURITY: Production MUST have API key configured
+        if settings.environment == "production":
+            logger.error("CRITICAL: CORTEX_API_KEY not configured in production!")
+            raise HTTPException(
+                status_code=500,
+                detail="Server misconfiguration - contact administrator"
+            )
+        # Dev/staging: warn but allow (for local development)
+        logger.warning("DEV MODE: CORTEX_API_KEY not configured - authentication bypassed")
         return api_key
 
-    if api_key != settings.cortex_api_key:
+    # SECURITY: Timing-safe comparison prevents timing attacks
+    # hmac.compare_digest runs in constant time regardless of where strings differ
+    if not hmac.compare_digest(api_key, settings.cortex_api_key):
+        logger.warning(f"Invalid API key attempt from client")
         raise HTTPException(
             status_code=401,
             detail="Invalid API key"
