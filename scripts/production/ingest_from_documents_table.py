@@ -46,18 +46,26 @@ async def main():
     pipeline = UniversalIngestionPipeline()
     print("   ✅ Pipeline ready")
 
-    # Step 3: Batch ingest
+    # Step 3: Single-document ingestion (fallback from broken batch method)
     print(f"\n3️⃣ Ingesting {len(documents)} documents...")
     print("   This will:")
     print("   - Chunk text and create embeddings → Qdrant")
     print("   - Extract entities and relationships → Neo4j")
     print()
 
-    results = await pipeline.ingest_documents_batch(
-        document_rows=documents,
-        extract_entities=True,
-        num_workers=4
-    )
+    results = []
+    for i, doc in enumerate(documents, 1):
+        print(f"   [{i}/{len(documents)}] {doc.get('title', '(No title)')[:50]}...")
+        try:
+            await pipeline.ingest_document(
+                document_row=doc,
+                extract_entities=True
+            )
+            results.append({'status': 'success', 'title': doc.get('title')})
+            print(f"      ✅ Success")
+        except Exception as e:
+            results.append({'status': 'error', 'title': doc.get('title'), 'error': str(e)})
+            print(f"      ❌ Error: {e}")
 
     # Step 4: Show results
     success_count = sum(1 for r in results if r['status'] == 'success')

@@ -43,7 +43,7 @@ sentence-transformers==5.0.0  # Required by sbert-rerank (v5.0+ supports ONNX ba
 torch==2.6.0  # Required by sentence-transformers (CPU-only build)
 # ONNX Runtime for 2-3x faster reranker initialization (production optimization)
 onnxruntime==1.21.1  # CPU-only ONNX runtime for sentence-transformers backend
-optimum[onnxruntime]==1.24.3  # HuggingFace Optimum for ONNX model export/optimization
+optimum[onnxruntime]==1.27.0  # HuggingFace Optimum for ONNX model export/optimization
 
 # File parsing (lightweight - lazy loaded, no heavy ML at startup)
 # IMPORTANT: pandas pinned for Python 3.13 compatibility (unstructured dependency)
