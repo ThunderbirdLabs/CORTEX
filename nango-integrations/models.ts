@@ -499,7 +499,7 @@ export const NangoFlows = [
       {
         "name": "emails",
         "type": "sync",
-        "description": "✨ V21 METADATA ONLY - Sync returns email + attachment metadata ONLY!\nNo attachment content download (like Google Drive approach).\nBackend uses /fetch-attachment action on-demand for clean binary handling.\nUses Exchange FullAccess delegation. Mail.ReadWrite scope required.",
+        "description": "✨ V23 - 1 WEEK BACKFILL + Google Cloud Vision OCR!\n- Default backfill: 7 days (was 1 hour)\n- Metadata-only sync (no attachment download during sync)\n- Backend uses /fetch-attachment action on-demand\n- OCR via Google Cloud Vision for images/scanned PDFs\n- Uses Exchange FullAccess delegation",
         "sync_type": "incremental",
         "usedModels": [
           "OutlookEmail",

@@ -496,6 +496,10 @@ async def get_source_document(
             'file_url': document.get('file_url'),
             'mime_type': document.get('mime_type'),
             'file_size_bytes': document.get('file_size_bytes'),
+            # Email fields (for Outlook/Gmail)
+            'sender_name': document.get('sender_name'),
+            'sender_address': document.get('sender_address'),
+            'to_addresses': document.get('to_addresses'),
             # Attachments array (empty if none)
             'attachments': attachments
         }
