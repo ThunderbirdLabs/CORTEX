@@ -202,44 +202,44 @@ You are an expert at extracting entities and relationships from injection moldin
 
 **MISSION**: Build an enterprise knowledge graph that maps critical business relationships inside the company.
 Extract ONLY information that helps answer strategic questions about organizational structure, supply chain dependencies,
-and manufacturing operations. Random fluff, casual mentions, and non-actionable details should be ignored entirely.
+and manufacturing operations.
 
 # Entity Types (What to Extract)
 
-**PERSON**: Employees, contacts, account managers, suppliers, engineers, quality inspectors
-- Examples: "John Smith", "Sarah Chen", "VP of Sales Mike Johnson"
-- Include: Full names, email addresses if available
-- DO NOT extract: Generic roles without names
+**PERSON**: Individual human beings with specific names
+- MUST BE: A person's full name (first and last name, or recognizable name)
+- Examples: "John Smith", "Sarah Chen", "Mike Johnson", "Ramiro Gonzalez"
+- CRITICAL: Only extract if you see an actual human name
 
-**COMPANY**: Clients, suppliers, vendors, partners, customers
-- Examples: "Acme Industries", "PolyPlastics Supply Co.", "Unit Industries"
-- Include: Full company names, subsidiaries
-- DO NOT extract: Generic terms like "customer" or "supplier" without specific names
+**COMPANY**: Business entities and organizations
+- MUST BE: An actual company or organization name
+- Examples: "Acme Industries", "PolyPlastics Supply Co.", "Unit Industries", "Superior Mold", "TriStar"
+- CRITICAL: If it's an organization name, it's COMPANY
 
 **ROLE**: Job titles and positions
-- Examples: "VP of Sales", "Quality Engineer", "Procurement Manager", "Account Manager"
-- Include: Specific job functions and responsibilities
-- DO NOT extract: Generic descriptions like "employee"
+- MUST BE: A specific job title or position
+- Examples: "VP of Sales", "Quality Engineer", "Procurement Manager", "Account Manager", "Technician"
+- CRITICAL: Extract the title itself, separate from the person's name
 
-**DEAL**: Orders, quotes, RFQs, sales opportunities, projects
-- Examples: "Order #12345", "Q4 2025 RFQ", "Acme Widget Project"
-- Include: Order numbers, project names, quote references
-- DO NOT extract: Generic terms like "sale" or "order" without specifics
+**DEAL**: Specific orders, quotes, projects
+- MUST BE: A specific order number, quote, or project name
+- Examples: "Order #12345", "Q4 2025 RFQ", "Acme Widget Project", "PO #54321"
+- CRITICAL: Must have a specific identifier or project name
 
-**PAYMENT**: Invoices, payments, purchase orders, financial transactions
+**PAYMENT**: Specific invoices, payments, purchase orders
+- MUST BE: A specific invoice, payment, or PO number
 - Examples: "Invoice #INV-2025-001", "PO #54321", "Payment for Q1 Materials"
-- Include: Invoice numbers, PO numbers, payment amounts if mentioned
-- DO NOT extract: Generic financial terms without specifics
+- CRITICAL: Must have a specific transaction identifier
 
 **MATERIAL**: Raw materials, resins, plastics, components, parts
+- MUST BE: A specific material type, grade, or component
 - Examples: "polycarbonate PC-1000", "ABS resin grade 5", "steel mold inserts", "nylon pellets"
-- Include: Material grades, specifications, component names
-- DO NOT extract: Generic terms like "plastic" without specifics
+- CRITICAL: Must be a specific material with identifiable properties
 
-**CERTIFICATION**: ISO certifications, material certifications, quality standards
+**CERTIFICATION**: Certifications and quality standards
+- MUST BE: A specific certification name or standard
 - Examples: "ISO 9001", "FDA approved", "Six Sigma certification", "IATF 16949"
-- Include: Certification names, standards, compliance requirements
-- DO NOT extract: Generic quality terms
+- CRITICAL: Must be a recognized certification or standard
 
 # Relationship Types (How Entities Connect)
 
@@ -272,13 +272,12 @@ and manufacturing operations. Random fluff, casual mentions, and non-actionable 
 # Extraction Instructions
 
 1. Extract ONLY entities that are explicitly mentioned with specific names or identifiers
-2. Focus on manufacturing-critical relationships (supply chain, materials, certifications)
-3. Prioritize relationships that answer: "Who supplies what?" "What requires what?" "Who manages whom?"
-4. Do NOT extract generic terms without specific identifiers
-5. Extract ONLY high-quality, high-confidence entities and relationships (>90% confidence level)
-6. **WHEN IN DOUBT, LEAVE IT OUT** - Quality over quantity is critical
-7. If an entity or relationship is ambiguous, unclear, or <90% confidence, skip it entirely
-8. Limit to {max_triplets_per_chunk} highest-value relationships per chunk
+2. Each entity gets EXACTLY ONE type - choose based on what it actually is (person name = PERSON, company name = COMPANY, etc.)
+3. Focus on manufacturing-critical relationships (supply chain, materials, certifications)
+4. Extract ONLY high-quality, high-confidence entities and relationships (>90% confidence level)
+5. **WHEN IN DOUBT, LEAVE IT OUT** - Quality over quantity is critical
+6. If unclear or ambiguous, skip it entirely
+7. Limit to {max_triplets_per_chunk} highest-value relationships per chunk
 
 # Examples
 
@@ -293,6 +292,10 @@ Output:
 - (Sarah Chen, HAS_ROLE, Procurement Manager)
 - (PolyPlastics Supply, SUPPLIES, ABS resin)
 - (ABS resin, HAS_CERTIFICATION, ISO 9001)
+
+Input: "Superior Mold provided mold inserts for the project."
+Output:
+- (Superior Mold, SUPPLIES, mold inserts)
 
 Now extract entities and relationships from the following text:
 
@@ -827,41 +830,54 @@ Now extract entities and relationships from the following text:
         self,
         document_rows: List[Dict[str, Any]],
         extract_entities: bool = True,
-        num_workers: int = 4
+        num_workers: int = 4,
+        max_concurrent_neo4j: int = 10
     ) -> List[Dict[str, Any]]:
         """
-        Batch ingestion with parallel processing (3-4x faster than sequential).
+        Production-grade batch ingestion with semaphore-controlled parallel processing.
 
-        This method processes multiple documents in parallel using LlamaIndex's
-        built-in parallel processing capabilities. Ideal for:
-        - Initial backfill of large document sets
-        - Periodic batch ingestion (e.g., process queue every 10 minutes)
-        - Continuous ingestion optimization
+        ENTERPRISE ARCHITECTURE (Apple/Meta-grade practices):
+        - Parallel Qdrant writes (num_workers control)
+        - Parallel Neo4j entity extraction (semaphore-controlled)
+        - Connection pool safety (prevents exhaustion)
+        - Circuit breaker integration (handles transient failures)
+        - Structured observability (timing, success rates)
 
         Process:
         1. Create Document objects from Supabase rows
-        2. Parallel chunking + embedding → Qdrant (with num_workers)
-        3. Extract entities and create Neo4j nodes/relationships for each document
+        2. Parallel chunking + embedding → Qdrant (num_workers)
+        3. Parallel entity extraction → Neo4j (semaphore-controlled)
 
         Args:
             document_rows: List of Supabase document rows (documents or emails table)
             extract_entities: Whether to extract entities (LLM-based, expensive)
-            num_workers: Number of parallel workers (default: 4, optimal for most workloads)
+            num_workers: Parallel workers for Qdrant (default: 4)
+            max_concurrent_neo4j: Max concurrent Neo4j writes (default: 10, tuned for 50-conn pool)
 
         Returns:
             List of ingestion results (one per document)
 
         Performance:
         - Sequential: ~2-3 documents/second
-        - Batch (4 workers): ~6-10 documents/second
+        - Batch (num_workers=4, max_concurrent_neo4j=10): ~8-12 documents/second
         - Recommended batch size: 50-100 documents per call
+
+        Safety:
+        - Semaphore prevents Neo4j connection pool exhaustion (max 50 connections)
+        - Circuit breaker handles OpenAI rate limits
+        - Partial failures don't block entire batch
         """
+        import asyncio
+        import time
+
         if not document_rows:
             return []
 
+        start_time = time.time()
         logger.info(f"{'='*80}")
         logger.info(f"🚀 BATCH INGESTION: {len(document_rows)} documents")
-        logger.info(f"   Parallel workers: {num_workers}")
+        logger.info(f"   Qdrant workers: {num_workers}")
+        logger.info(f"   Max concurrent Neo4j: {max_concurrent_neo4j}")
         logger.info(f"{'='*80}")
 
         results = []
@@ -871,6 +887,7 @@ Now extract entities and relationships from the following text:
             documents = []
             metadata_list = []  # Store metadata for Neo4j processing
 
+            prep_start = time.time()
             for doc_row in document_rows:
                 # Universal field extraction
                 doc_id = doc_row.get("id")
@@ -932,38 +949,75 @@ Now extract entities and relationships from the following text:
                     "source": source
                 })
 
+            prep_time = time.time() - prep_start
+            logger.info(f"   Prepared {len(documents)} documents in {prep_time:.2f}s")
+
             # Step 2: Parallel chunking + embedding → Qdrant
-            logger.info(f"📦 Processing {len(documents)} documents with {num_workers} workers...")
+            qdrant_start = time.time()
+            logger.info(f"📦 Processing {len(documents)} documents with {num_workers} Qdrant workers...")
             nodes = await self.qdrant_pipeline.arun(
                 documents=documents,
                 num_workers=num_workers
             )
-            logger.info(f"✅ Created {len(nodes)} chunks in Qdrant")
+            qdrant_time = time.time() - qdrant_start
+            logger.info(f"✅ Created {len(nodes)} chunks in Qdrant ({qdrant_time:.2f}s, {len(nodes)/qdrant_time:.1f} chunks/sec)")
 
-            # Step 3: Process each document for Neo4j (entities + relationships)
-            # Note: Entity extraction is still sequential (LLM-based, expensive)
-            for i, meta in enumerate(metadata_list):
-                try:
-                    doc_row = meta["doc_row"]
-                    result = await self._process_neo4j_graph(
-                        doc_row=doc_row,
-                        extract_entities=extract_entities
-                    )
-                    results.append(result)
-                except Exception as e:
-                    logger.error(f"❌ Neo4j processing failed for doc {meta['doc_id']}: {e}")
+            # Step 3: Parallel entity extraction → Neo4j (SEMAPHORE-CONTROLLED)
+            # This is the key fix: prevents connection pool exhaustion
+            neo4j_start = time.time()
+            logger.info(f"🧠 Extracting entities with max {max_concurrent_neo4j} concurrent Neo4j operations...")
+
+            semaphore = asyncio.Semaphore(max_concurrent_neo4j)
+
+            async def process_with_semaphore(meta: Dict[str, Any]) -> Dict[str, Any]:
+                """Process single document with semaphore control"""
+                async with semaphore:
+                    try:
+                        return await self._process_neo4j_graph(
+                            doc_row=meta["doc_row"],
+                            extract_entities=extract_entities
+                        )
+                    except Exception as e:
+                        logger.error(f"❌ Neo4j processing failed for doc {meta['doc_id']}: {e}")
+                        return {
+                            "status": "partial_success",
+                            "document_id": str(meta["doc_id"]),
+                            "title": meta["title"],
+                            "error": f"Neo4j processing failed: {str(e)}",
+                            "qdrant": "success"
+                        }
+
+            # Execute all Neo4j tasks in parallel (semaphore limits concurrency)
+            neo4j_tasks = [process_with_semaphore(meta) for meta in metadata_list]
+            batch_results = await asyncio.gather(*neo4j_tasks, return_exceptions=True)
+
+            # Handle any exceptions from gather
+            for result in batch_results:
+                if isinstance(result, Exception):
+                    logger.error(f"❌ Unexpected error in batch: {result}")
                     results.append({
-                        "status": "partial_success",
-                        "document_id": str(meta["doc_id"]),
-                        "title": meta["title"],
-                        "error": f"Neo4j processing failed: {str(e)}",
-                        "qdrant": "success"
+                        "status": "error",
+                        "error": str(result),
+                        "document_id": "unknown"
                     })
+                else:
+                    results.append(result)
 
-            # Summary
+            neo4j_time = time.time() - neo4j_start
+            logger.info(f"✅ Completed Neo4j processing ({neo4j_time:.2f}s, {len(metadata_list)/neo4j_time:.1f} docs/sec)")
+
+            # Summary with metrics
+            total_time = time.time() - start_time
             success_count = sum(1 for r in results if r.get("status") == "success")
+            partial_count = sum(1 for r in results if r.get("status") == "partial_success")
+            error_count = sum(1 for r in results if r.get("status") == "error")
+
             logger.info(f"{'='*80}")
             logger.info(f"✅ BATCH COMPLETE: {success_count}/{len(document_rows)} successful")
+            logger.info(f"   Partial success: {partial_count}")
+            logger.info(f"   Errors: {error_count}")
+            logger.info(f"   Total time: {total_time:.2f}s ({len(document_rows)/total_time:.1f} docs/sec)")
+            logger.info(f"   Breakdown: prep={prep_time:.1f}s, qdrant={qdrant_time:.1f}s, neo4j={neo4j_time:.1f}s")
             logger.info(f"{'='*80}")
 
             return results

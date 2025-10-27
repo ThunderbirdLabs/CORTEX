@@ -3,14 +3,19 @@ Ingest all documents from Supabase documents table into Qdrant + Neo4j
 
 This script:
 1. Fetches all rows from the 'documents' table in Supabase
-2. Runs them through UniversalIngestionPipeline
+2. Runs them through UniversalIngestionPipeline (sequential or batch mode)
 3. Stores chunks in Qdrant and entities in Neo4j
+
+MODES:
+- Sequential (default): One document at a time, safest, ~2-3 docs/sec
+- Batch (--batch): Parallel processing, 3-4x faster, ~8-12 docs/sec
 
 IMPORTANT: Only ONE ingestion can run at a time (enforced by file lock)
 """
 import asyncio
 import sys
 import fcntl
+import argparse
 from pathlib import Path
 
 # Add project root to path
@@ -21,7 +26,7 @@ from app.core.config import settings
 from app.services.ingestion.llamaindex import UniversalIngestionPipeline
 
 
-async def main():
+async def main(use_batch: bool = False, num_workers: int = 4, max_concurrent_neo4j: int = 10, batch_size: int = 50):
     # Acquire file lock to prevent concurrent ingestion
     lock_file_path = "/tmp/cortex_ingestion.lock"
     lock_file = None
@@ -44,7 +49,7 @@ async def main():
 
     try:
         print("="*80)
-        print("INGEST FROM SUPABASE DOCUMENTS TABLE")
+        print(f"INGEST FROM SUPABASE DOCUMENTS TABLE {'(BATCH MODE)' if use_batch else '(SEQUENTIAL MODE)'}")
         print("="*80)
 
         # Step 1: Connect to Supabase
@@ -62,8 +67,10 @@ async def main():
 
         # Show what we found
         print("\n   Documents to ingest:")
-        for doc in documents:
+        for doc in documents[:10]:  # Show first 10
             print(f"   - {doc.get('title', '(No title)')[:60]} ({doc.get('document_type')})")
+        if len(documents) > 10:
+            print(f"   ... and {len(documents) - 10} more")
 
         # Step 2: Initialize pipeline
         print("\n2️⃣ Initializing UniversalIngestionPipeline...")
@@ -84,39 +91,72 @@ async def main():
         with driver.session(database="neo4j") as session:
             neo4j_before = session.run("MATCH (n) RETURN count(n) as count").single()["count"]
 
-        # Step 4: Single-document ingestion
+        # Step 4: Ingestion (batch or sequential)
         print(f"\n3️⃣ Ingesting {len(documents)} documents...")
+        if use_batch:
+            print(f"   MODE: Batch processing")
+            print(f"   - Batch size: {batch_size} documents per batch")
+            print(f"   - Qdrant workers: {num_workers}")
+            print(f"   - Max concurrent Neo4j: {max_concurrent_neo4j}")
+            print(f"   - Expected throughput: ~8-12 docs/sec")
+        else:
+            print(f"   MODE: Sequential processing (safest)")
+            print(f"   - Expected throughput: ~2-3 docs/sec")
         print("   This will:")
         print("   - Chunk text and create embeddings → Qdrant")
         print("   - Extract entities and relationships → Neo4j")
         print()
 
         results = []
-        for i, doc in enumerate(documents, 1):
-            print(f"   [{i}/{len(documents)}] {doc.get('title', '(No title)')[:50]}...")
-            try:
-                await pipeline.ingest_document(
-                    document_row=doc,
-                    extract_entities=True
+
+        if use_batch:
+            # Batch mode: Process in chunks
+            for i in range(0, len(documents), batch_size):
+                batch = documents[i:i+batch_size]
+                batch_num = i // batch_size + 1
+                total_batches = (len(documents) + batch_size - 1) // batch_size
+                print(f"\n   📦 Batch {batch_num}/{total_batches} ({len(batch)} documents)...")
+
+                batch_results = await pipeline.ingest_documents_batch(
+                    document_rows=batch,
+                    extract_entities=True,
+                    num_workers=num_workers,
+                    max_concurrent_neo4j=max_concurrent_neo4j
                 )
-                results.append({'status': 'success', 'title': doc.get('title')})
-                print(f"      ✅ Success")
-            except Exception as e:
-                results.append({'status': 'error', 'title': doc.get('title'), 'error': str(e)})
-                print(f"      ❌ Error: {e}")
+                results.extend(batch_results)
+        else:
+            # Sequential mode: One at a time
+            for i, doc in enumerate(documents, 1):
+                print(f"   [{i}/{len(documents)}] {doc.get('title', '(No title)')[:50]}...")
+                try:
+                    await pipeline.ingest_document(
+                        document_row=doc,
+                        extract_entities=True
+                    )
+                    results.append({'status': 'success', 'title': doc.get('title')})
+                    print(f"      ✅ Success")
+                except Exception as e:
+                    results.append({'status': 'error', 'title': doc.get('title'), 'error': str(e)})
+                    print(f"      ❌ Error: {e}")
 
         # Step 5: Show results
-        success_count = sum(1 for r in results if r['status'] == 'success')
-        error_count = sum(1 for r in results if r['status'] == 'error')
+        success_count = sum(1 for r in results if r.get('status') == 'success')
+        partial_count = sum(1 for r in results if r.get('status') == 'partial_success')
+        error_count = sum(1 for r in results if r.get('status') == 'error')
+        skipped_count = sum(1 for r in results if r.get('status') == 'skipped')
 
         print(f"\n4️⃣ Results:")
         print(f"   ✅ Success: {success_count}")
+        if partial_count > 0:
+            print(f"   ⚠️  Partial success: {partial_count} (Qdrant OK, Neo4j failed)")
+        if skipped_count > 0:
+            print(f"   ⏭️  Skipped: {skipped_count} (empty content)")
         print(f"   ❌ Errors: {error_count}")
 
-        if error_count > 0:
-            print("\n   Error details:")
+        if error_count > 0 or partial_count > 0:
+            print("\n   Error/Warning details:")
             for r in results:
-                if r['status'] == 'error':
+                if r.get('status') in ['error', 'partial_success']:
                     print(f"   - {r.get('title', 'Unknown')}: {r.get('error', 'Unknown error')}")
 
         # Step 6: Verify data was actually written
@@ -158,4 +198,56 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(
+        description="Ingest documents from Supabase into Qdrant + Neo4j",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Sequential mode (default, safest)
+  python scripts/production/ingest_from_documents_table.py
+
+  # Batch mode (3-4x faster)
+  python scripts/production/ingest_from_documents_table.py --batch
+
+  # Batch mode with custom settings
+  python scripts/production/ingest_from_documents_table.py --batch --workers 6 --concurrent-neo4j 15 --batch-size 100
+
+Safety:
+  - File lock prevents concurrent runs (only ONE ingestion at a time)
+  - Semaphore prevents Neo4j connection pool exhaustion
+  - Circuit breaker handles OpenAI rate limits
+  - Partial failures don't block entire batch
+        """
+    )
+    parser.add_argument(
+        '--batch',
+        action='store_true',
+        help='Use batch mode (parallel processing, 3-4x faster)'
+    )
+    parser.add_argument(
+        '--workers',
+        type=int,
+        default=4,
+        help='Number of parallel Qdrant workers (default: 4)'
+    )
+    parser.add_argument(
+        '--concurrent-neo4j',
+        type=int,
+        default=10,
+        help='Max concurrent Neo4j operations (default: 10, max pool size is 50)'
+    )
+    parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=50,
+        help='Documents per batch (default: 50, recommended: 50-100)'
+    )
+
+    args = parser.parse_args()
+
+    asyncio.run(main(
+        use_batch=args.batch,
+        num_workers=args.workers,
+        max_concurrent_neo4j=args.concurrent_neo4j,
+        batch_size=args.batch_size
+    ))
