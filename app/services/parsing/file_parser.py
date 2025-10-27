@@ -1,13 +1,13 @@
 """
-Universal File Parser using Unstructured + LlamaIndex + Google Cloud Vision OCR
-Extracts plain text from ANY file type (PDF, Word, Excel, Images, etc.)
+Universal File Parser using Unstructured + LlamaIndex + GPT-4o Vision
+Extracts plain text AND rich context from ANY file type (PDF, Word, Excel, Images, etc.)
 
 Strategy:
-1. PDFs: Fast mode first, then Cloud Vision OCR for scanned PDFs (< 100 chars)
-2. Images: Google Cloud Vision (HIPAA-compliant, accurate OCR)
+1. PDFs: Fast mode first, then GPT-4o Vision for scanned PDFs (< 100 chars)
+2. Images: GPT-4o Vision (rich context extraction, not just OCR)
 3. Office files: Unstructured parsing (lightweight)
 4. Lazy loading: Heavy ML models only loaded when needed
-5. OCR: Google Cloud Vision - HIPAA/SOC2 compliant, pay-per-use
+5. Vision: GPT-4o with detail=high - extracts text + context + entities
 """
 import logging
 import tempfile
@@ -25,71 +25,127 @@ logger = logging.getLogger(__name__)
 
 def extract_with_vision(file_path: str, file_type: str) -> Tuple[str, Dict]:
     """
-    Extract text from images using Google Cloud Vision API (HIPAA-compliant OCR).
-    Fast, accurate, pay-per-use.
+    Extract text AND rich context from images/documents using GPT-4o Vision.
+
+    Unlike traditional OCR, this extracts:
+    - All text content (OCR)
+    - Context and meaning (what the document is about)
+    - Key entities (people, companies, materials, amounts, dates)
+    - Document structure (invoices, receipts, forms, diagrams)
 
     Args:
-        file_path: Path to image file
+        file_path: Path to image/PDF file
         file_type: MIME type
 
     Returns:
-        Tuple of (extracted_text, metadata)
+        Tuple of (extracted_text_with_context, metadata)
     """
-    from google.cloud import vision
-    from google.api_core.exceptions import GoogleAPIError
-    import json
+    from openai import OpenAI
 
     try:
-        # Handle GOOGLE_APPLICATION_CREDENTIALS env var
-        # If it's JSON content (not a path), write it to temp file
-        creds_env = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
-        if creds_env and creds_env.strip().startswith('{'):
-            # It's JSON content, write to temp file
-            logger.info("   🔑 Creating temp credentials file from JSON env var")
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_creds:
-                tmp_creds.write(creds_env)
-                tmp_creds_path = tmp_creds.name
-
-            # Set env var to point to temp file
-            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = tmp_creds_path
-            logger.info(f"   ✅ Credentials written to {tmp_creds_path}")
-
-        # Initialize Vision client
-        client = vision.ImageAnnotatorClient()
-
-        # Read image file
+        # Read and encode image as base64
         with open(file_path, 'rb') as image_file:
-            content = image_file.read()
+            image_bytes = image_file.read()
 
-        image = vision.Image(content=content)
+        base64_image = base64.b64encode(image_bytes).decode('utf-8')
 
-        # Perform text detection
-        response = client.text_detection(image=image)
+        # Determine image format for data URL
+        if file_type == 'image/png':
+            data_url = f"data:image/png;base64,{base64_image}"
+        elif file_type in ['image/jpeg', 'image/jpg']:
+            data_url = f"data:image/jpeg;base64,{base64_image}"
+        else:
+            data_url = f"data:image/png;base64,{base64_image}"  # Default to PNG
 
-        if response.error.message:
-            raise GoogleAPIError(response.error.message)
+        # Initialize OpenAI client
+        client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
-        texts = response.text_annotations
+        # CONTEXT-RICH PROMPT - extracts more than just OCR
+        prompt = """Analyze this document/image and provide a comprehensive extraction:
 
-        # First annotation contains full text
-        text = texts[0].description if texts else ""
+1. **Full Text Transcription**: Extract ALL text visible in the image (OCR)
+2. **Document Type**: What kind of document is this? (invoice, receipt, email, form, diagram, contract, etc.)
+3. **Key Information**: Extract important details:
+   - Companies/Organizations mentioned
+   - People (names, roles, emails)
+   - Monetary amounts and currencies
+   - Dates and deadlines
+   - Materials, products, or items
+   - Order numbers, invoice numbers, PO numbers
+   - Certifications or standards mentioned
+4. **Context**: What is this document about? What's the main purpose or subject?
+
+Format your response as:
+
+=== FULL TEXT ===
+[Complete transcription of all visible text]
+
+=== DOCUMENT TYPE ===
+[Type of document]
+
+=== KEY ENTITIES ===
+- Companies: [list]
+- People: [list]
+- Amounts: [list]
+- Dates: [list]
+- Materials/Products: [list]
+- Reference Numbers: [list]
+
+=== CONTEXT ===
+[Brief description of what this document is about and its purpose]
+
+Be thorough and extract EVERYTHING visible, including:
+- Handwritten text
+- Text in tables, forms, and diagrams
+- Watermarks and stamps
+- Header/footer information
+- Small print and fine details"""
+
+        # Call GPT-4o Vision with detail=high for best OCR quality
+        response = client.chat.completions.create(
+            model="gpt-4o",  # GPT-4o has vision capabilities
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": data_url,
+                                "detail": "high"  # High detail for better OCR
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=4096,  # Allow long responses for detailed documents
+            temperature=0  # Deterministic for OCR
+        )
+
+        # Extract the rich text response
+        text = response.choices[0].message.content
 
         metadata = {
-            "parser": "google_cloud_vision",
+            "parser": "gpt4o_vision",
             "file_type": file_type,
             "file_name": Path(file_path).name,
             "file_size": os.path.getsize(file_path),
             "characters": len(text),
             "ocr_enabled": True,
-            "ocr_method": "google_cloud_vision_hipaa_compliant",
-            "annotations_detected": len(texts)
+            "ocr_method": "gpt4o_vision_context_aware",
+            "model": "gpt-4o",
+            "prompt_tokens": response.usage.prompt_tokens,
+            "completion_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens
         }
 
-        logger.info(f"   ✅ Google Cloud Vision extracted {len(text)} characters")
+        logger.info(f"   ✅ GPT-4o Vision extracted {len(text)} characters with context")
+        logger.info(f"   📊 Token usage: {response.usage.total_tokens} tokens")
         return text, metadata
 
     except Exception as e:
-        logger.error(f"   ❌ Google Cloud Vision failed: {e}")
+        logger.error(f"   ❌ GPT-4o Vision failed: {e}")
 
         # Fallback: Save file without OCR
         text = ""
@@ -101,7 +157,7 @@ def extract_with_vision(file_path: str, file_type: str) -> Tuple[str, Dict]:
             "characters": 0,
             "ocr_enabled": False,
             "ocr_error": str(e),
-            "note": "Google Cloud Vision failed - original file stored"
+            "note": "GPT-4o Vision failed - original file stored"
         }
 
         return text, metadata
@@ -183,9 +239,9 @@ def extract_text_from_file(
                 )
                 text = "\n\n".join([str(el) for el in elements])
                 
-                # Step 2: If we got barely any text, it's probably scanned - use Cloud Vision OCR!
+                # Step 2: If we got barely any text, it's probably scanned - use GPT-4o Vision OCR!
                 if len(text.strip()) < 100:
-                    logger.warning(f"   ⚠️  Only {len(text)} chars extracted - PDF might be scanned, trying Cloud Vision OCR...")
+                    logger.warning(f"   ⚠️  Only {len(text)} chars extracted - PDF might be scanned, trying GPT-4o Vision OCR...")
                     try:
                         # Convert PDF to images and OCR each page
                         from pdf2image import convert_from_path
@@ -194,7 +250,7 @@ def extract_text_from_file(
                         images = convert_from_path(file_path, dpi=200)
                         logger.info(f"   📄 Converted PDF to {len(images)} images for OCR")
 
-                        # OCR each page with Cloud Vision
+                        # OCR each page with GPT-4o Vision
                         page_texts = []
                         for i, image in enumerate(images):
                             # Save image to temp file
@@ -202,16 +258,16 @@ def extract_text_from_file(
                                 image.save(tmp.name, 'PNG')
                                 tmp_path = tmp.name
 
-                            # OCR the page image with Cloud Vision
+                            # OCR the page image with GPT-4o Vision
                             try:
                                 page_text, _ = extract_with_vision(tmp_path, 'image/png')
                                 page_texts.append(page_text)
-                                logger.info(f"   ✅ Page {i+1}: {len(page_text)} chars extracted")
+                                logger.info(f"   ✅ Page {i+1}: {len(page_text)} chars extracted with context")
                             finally:
                                 os.unlink(tmp_path)
 
                         text = "\n\n".join(page_texts)
-                        logger.info(f"   ✅ Cloud Vision OCR extracted {len(text)} chars from scanned PDF")
+                        logger.info(f"   ✅ GPT-4o Vision OCR extracted {len(text)} chars from scanned PDF with rich context")
                     except Exception as ocr_err:
                         logger.warning(f"   ⚠️  PDF OCR failed: {ocr_err}, using fast extraction result")
                 
@@ -229,9 +285,9 @@ def extract_text_from_file(
                 # Fall back to generic parser
                 text, metadata = extract_with_generic_parser(file_path, file_type)
         
-        # Special handling for images (OCR with Google Cloud Vision - HIPAA compliant)
+        # Special handling for images (OCR with GPT-4o Vision - context-aware)
         elif file_type in ['image/png', 'image/jpeg', 'image/jpg', 'image/tiff', 'image/bmp']:
-            logger.info(f"   🔍 Running OCR on image (Google Cloud Vision - HIPAA compliant)...")
+            logger.info(f"   🔍 Running context-aware OCR on image (GPT-4o Vision)...")
             text, metadata = extract_with_vision(file_path, file_type)
             # Note: extract_with_vision already handles errors gracefully
         
@@ -243,14 +299,14 @@ def extract_text_from_file(
         return text, metadata
 
     except Exception as e:
-        # FALLBACK: Try Google Cloud Vision OCR as last resort for ANY file
+        # FALLBACK: Try GPT-4o Vision OCR as last resort for ANY file
         logger.warning(f"⚠️  Standard parsing failed: {e}")
-        logger.info(f"   🔄 Attempting Google Cloud Vision OCR fallback...")
+        logger.info(f"   🔄 Attempting GPT-4o Vision OCR fallback...")
 
         try:
             text, metadata = extract_with_vision(file_path, file_type)
-            logger.info(f"✅ Vision OCR fallback succeeded: {len(text)} chars extracted")
-            metadata['fallback_method'] = 'google_cloud_vision_ocr'
+            logger.info(f"✅ Vision OCR fallback succeeded: {len(text)} chars extracted with context")
+            metadata['fallback_method'] = 'gpt4o_vision_ocr'
             metadata['original_error'] = str(e)
             return text, metadata
         except Exception as vision_error:
