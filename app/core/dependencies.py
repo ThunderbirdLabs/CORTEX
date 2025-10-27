@@ -67,6 +67,15 @@ async def initialize_clients():
     # Supabase client
     supabase_client = create_client(settings.supabase_url, settings.supabase_anon_key)
 
+    # Neo4j Indexes (ensure indexes exist before querying)
+    try:
+        from app.services.ingestion.llamaindex.index_manager import ensure_neo4j_indexes
+        logger.info("🔍 Ensuring Neo4j indexes exist...")
+        await ensure_neo4j_indexes()
+    except Exception as e:
+        logger.warning(f"⚠️  Failed to create Neo4j indexes: {e}")
+        logger.warning("   Queries may be slow without indexes!")
+
     # RAG Pipeline (lazy import to avoid circular dependencies)
     try:
         from app.services.ingestion.llamaindex import UniversalIngestionPipeline

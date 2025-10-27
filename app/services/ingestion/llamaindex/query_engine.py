@@ -584,9 +584,9 @@ WHERE chunk.created_at_timestamp >= 1688169600  # July 1, 2024
 RETURN deal, chunk.text
 LIMIT 10
 
-# Example 4: "Who worked on Project X after January 2025?"
+# Example 4: "Who manages Acme Corp after January 2025?"
 # Entities + time filtering via Chunk provenance
-MATCH (p:PERSON)-[r:WORKS_ON]->(proj:PROJECT {{name: "Project X"}})
+MATCH (p:PERSON)-[r:MANAGES]->(c:COMPANY {{name: "Acme Corp"}})
 MATCH (p)<-[:MENTIONS]-(chunk:Chunk)
 WHERE chunk.created_at_timestamp >= 1704067200  # January 1, 2025
 RETURN p.name, chunk.title, chunk.created_at

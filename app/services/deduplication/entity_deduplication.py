@@ -456,13 +456,14 @@ class EntityDeduplicationService:
         WITH collect(n) AS reboundNodes
         WHERE size(reboundNodes) >= 2
 
-        // Merge: keep primary's properties (first node in list), discard duplicates
+        // Merge: keep primary's properties but combine email addresses
         CALL apoc.refactor.mergeNodes(reboundNodes, {
           properties: {
             id: 'discard',
             name: 'discard',
             embedding: 'discard',
             created_at_timestamp: 'discard',
+            email: 'combine',  // Preserve email from any node (critical for deduplication accuracy)
             `.*`: 'overwrite'  // Keep first node's properties (primary)
           },
           mergeRels: true

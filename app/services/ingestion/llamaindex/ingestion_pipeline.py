@@ -31,6 +31,7 @@ from llama_index.graph_stores.neo4j import Neo4jPropertyGraphStore
 from llama_index.core.indices.property_graph import SchemaLLMPathExtractor
 from llama_index.llms.openai import OpenAI
 from llama_index.core.graph_stores.types import EntityNode, Relation
+from llama_index.core.prompts import PromptTemplate
 from qdrant_client import QdrantClient, AsyncQdrantClient
 
 # Import retry decorators for production resilience
@@ -191,9 +192,113 @@ class UniversalIngestionPipeline:
         )
 
         # Entity extractor (for Person/Company/Deal/etc.)
-        # Using SchemaLLMPathExtractor with NO custom prompt to prevent hallucinations
-        # Let pydantic schema validation do the work (LlamaIndex best practice)
+        # Using SchemaLLMPathExtractor with manufacturing-specific prompt
         from .config import ENTITIES, RELATIONS
+
+        # Manufacturing-specific extraction prompt
+        extraction_prompt = PromptTemplate(
+            template="""
+You are an expert at extracting entities and relationships from injection molding manufacturing documents.
+
+**MISSION**: Build an enterprise knowledge graph that maps critical business relationships inside the company.
+Extract ONLY information that helps answer strategic questions about organizational structure, supply chain dependencies,
+and manufacturing operations. Random fluff, casual mentions, and non-actionable details should be ignored entirely.
+
+# Entity Types (What to Extract)
+
+**PERSON**: Employees, contacts, account managers, suppliers, engineers, quality inspectors
+- Examples: "John Smith", "Sarah Chen", "VP of Sales Mike Johnson"
+- Include: Full names, email addresses if available
+- DO NOT extract: Generic roles without names
+
+**COMPANY**: Clients, suppliers, vendors, partners, customers
+- Examples: "Acme Industries", "PolyPlastics Supply Co.", "Unit Industries"
+- Include: Full company names, subsidiaries
+- DO NOT extract: Generic terms like "customer" or "supplier" without specific names
+
+**ROLE**: Job titles and positions
+- Examples: "VP of Sales", "Quality Engineer", "Procurement Manager", "Account Manager"
+- Include: Specific job functions and responsibilities
+- DO NOT extract: Generic descriptions like "employee"
+
+**DEAL**: Orders, quotes, RFQs, sales opportunities, projects
+- Examples: "Order #12345", "Q4 2025 RFQ", "Acme Widget Project"
+- Include: Order numbers, project names, quote references
+- DO NOT extract: Generic terms like "sale" or "order" without specifics
+
+**PAYMENT**: Invoices, payments, purchase orders, financial transactions
+- Examples: "Invoice #INV-2025-001", "PO #54321", "Payment for Q1 Materials"
+- Include: Invoice numbers, PO numbers, payment amounts if mentioned
+- DO NOT extract: Generic financial terms without specifics
+
+**MATERIAL**: Raw materials, resins, plastics, components, parts
+- Examples: "polycarbonate PC-1000", "ABS resin grade 5", "steel mold inserts", "nylon pellets"
+- Include: Material grades, specifications, component names
+- DO NOT extract: Generic terms like "plastic" without specifics
+
+**CERTIFICATION**: ISO certifications, material certifications, quality standards
+- Examples: "ISO 9001", "FDA approved", "Six Sigma certification", "IATF 16949"
+- Include: Certification names, standards, compliance requirements
+- DO NOT extract: Generic quality terms
+
+# Relationship Types (How Entities Connect)
+
+**Organizational:**
+- WORKS_FOR: Person works for Company
+- REPORTS_TO: Person reports to Person
+- HAS_ROLE: Person has Role
+
+**Business Relationships:**
+- CLIENT_OF: Company is client of Company
+- VENDOR_OF: Company is vendor of Company
+- SUPPLIES: Company supplies Material
+- MANAGES: Person manages Company/Material
+
+**Work & Assignments:**
+- ASSIGNED_TO: Deal assigned to Person
+- CONTACT_FOR: Person is contact for Company/Deal
+
+**Manufacturing Dependencies:**
+- REQUIRES: Deal requires Material/Certification
+- USED_IN: Material used in Deal
+
+**Certifications:**
+- HAS_CERTIFICATION: Company/Material/Person has Certification
+
+**Financial:**
+- PAID_BY: Payment paid by Company
+- PAID_TO: Payment paid to Company
+
+# Extraction Instructions
+
+1. Extract ONLY entities that are explicitly mentioned with specific names or identifiers
+2. Focus on manufacturing-critical relationships (supply chain, materials, certifications)
+3. Prioritize relationships that answer: "Who supplies what?" "What requires what?" "Who manages whom?"
+4. Do NOT extract generic terms without specific identifiers
+5. Extract ONLY high-quality, high-confidence entities and relationships (>90% confidence level)
+6. **WHEN IN DOUBT, LEAVE IT OUT** - Quality over quantity is critical
+7. If an entity or relationship is ambiguous, unclear, or <90% confidence, skip it entirely
+8. Limit to {max_triplets_per_chunk} highest-value relationships per chunk
+
+# Examples
+
+Input: "John Smith from Acme Industries ordered polycarbonate PC-1000 for the Q4 widget project."
+Output:
+- (John Smith, WORKS_FOR, Acme Industries)
+- (John Smith, CONTACT_FOR, Q4 widget project)
+- (Q4 widget project, REQUIRES, polycarbonate PC-1000)
+
+Input: "Sarah Chen, our Procurement Manager, confirmed that PolyPlastics Supply will provide ISO 9001 certified ABS resin."
+Output:
+- (Sarah Chen, HAS_ROLE, Procurement Manager)
+- (PolyPlastics Supply, SUPPLIES, ABS resin)
+- (ABS resin, HAS_CERTIFICATION, ISO 9001)
+
+Now extract entities and relationships from the following text:
+
+{text}
+""".strip()
+        )
 
         self.entity_extractor = SchemaLLMPathExtractor(
             llm=self.extraction_llm,
@@ -202,8 +307,8 @@ class UniversalIngestionPipeline:
             possible_entities=ENTITIES,  # Use Literal type for pydantic validation
             possible_relations=RELATIONS,  # Use Literal type for pydantic validation
             kg_validation_schema=KG_VALIDATION_SCHEMA,
-            strict=True  # Enforce schema strictly for production quality
-            # NO extract_prompt - use default SchemaLLMPathExtractor prompt (prevents example name hallucinations)
+            strict=True,  # Enforce schema strictly for production quality
+            extract_prompt=extraction_prompt  # Manufacturing-specific extraction guidance
         )
         logger.info(f"✅ Entity Extractor: SchemaLLMPathExtractor (validated business schema)")
 
@@ -471,70 +576,36 @@ class UniversalIngestionPipeline:
             )
             logger.info("   ✅ Stored chunks in Qdrant")
 
-            # Step 3: Create Document node in Neo4j
-            logger.info(f"   → Creating {document_type.upper()} node in Neo4j...")
+            # Step 3: SKIPPED - No EMAIL/ATTACHMENT document nodes
+            # Rationale: Redundant with Qdrant chunks and Supabase source data
+            # We only create Chunks (already done) + extracted entities (next step)
 
-            # Determine node label based on document type
-            node_label = document_type.upper() if document_type else "DOCUMENT"
+            # Step 4: For emails - extract sender/recipient PERSON nodes from metadata
+            # These will be connected to Chunks via SENT/RECEIVED relationships
+            email_sender_person = None
+            email_recipient_persons = []
 
-            # Build node properties (include all metadata)
-            node_properties = {
-                "document_id": str(doc_id),
-                "source_id": source_id,
-                "title": title,
-                "content": content,  # Store full text in Neo4j
-                "source": source,
-                "document_type": document_type,
-                "tenant_id": tenant_id,
-                "created_at": str(created_at),
-            }
+            if document_type == "email":
+                # Extract sender from structured metadata
+                sender_name = document_row.get("sender_name")
+                sender_address = document_row.get("sender_address")
 
-            # Add any extra metadata (production-grade sanitization for Neo4j constraints)
-            for key, value in doc_metadata.items():
-                node_properties[key] = sanitize_neo4j_properties(value)
+                if sender_name and sender_address:
+                    email_sender_person = EntityNode(
+                        label="PERSON",
+                        name=sender_name,
+                        properties={
+                            "name": sender_name,
+                            "email": sender_address
+                        }
+                    )
+                    # Generate embedding for deduplication
+                    sender_text = f"PERSON: {sender_name}"
+                    email_sender_person.embedding = await self.embed_model.aget_text_embedding(sender_text)
+                    self._upsert_nodes_with_retry([email_sender_person])
+                    logger.info(f"   ✅ Created sender PERSON: {sender_name}")
 
-            # CRITICAL: Use unique ID to prevent merging documents with same title
-            # EntityNode uses 'name' as the node ID, so we must make it unique
-            unique_name = f"{title}|{doc_id}"
-
-            document_node = EntityNode(
-                label=node_label,
-                name=unique_name,
-                properties=node_properties
-            )
-
-            self._upsert_nodes_with_retry([document_node])
-            logger.info(f"   ✅ {node_label} node created: {document_node.id}")
-
-            # Step 4: For emails only - create sender/recipient Person nodes
-            email_relationships = []
-            if document_type == "email" and "sender_name" in document_row:
-                sender_name = document_row.get("sender_name", "Unknown")
-                sender_address = document_row.get("sender_address", "")
-
-                sender_person = EntityNode(
-                    label="PERSON",
-                    name=sender_name,
-                    properties={
-                        "name": sender_name,
-                        "email": sender_address
-                    }
-                )
-                # CRITICAL: Generate embedding for deduplication (same as LLM entities)
-                sender_text = f"PERSON: {sender_name}"
-                sender_person.embedding = await self.embed_model.aget_text_embedding(sender_text)
-                self._upsert_nodes_with_retry([sender_person])
-
-                sent_by_rel = Relation(
-                    label="SENT_BY",
-                    source_id=document_node.id,
-                    target_id=sender_person.id
-                )
-                self._upsert_relations_with_retry([sent_by_rel])
-                email_relationships.append("SENT_BY")
-                logger.info(f"   ✅ Created: {node_label} -[SENT_BY]-> {sender_name}")
-
-                # Recipients
+                # Extract recipients from structured metadata
                 to_addresses_str = document_row.get("to_addresses", "[]")
                 try:
                     to_addresses = json.loads(to_addresses_str) if isinstance(to_addresses_str, str) else to_addresses_str
@@ -542,27 +613,20 @@ class UniversalIngestionPipeline:
                     to_addresses = []
 
                 for recipient_email in to_addresses:
-                    recipient_name = recipient_email.split('@')[0].replace('.', ' ').title()
-                    recipient_person = EntityNode(
-                        label="PERSON",
-                        name=recipient_name,
-                        properties={"name": recipient_name, "email": recipient_email}
-                    )
-                    # CRITICAL: Generate embedding for deduplication (same as LLM entities)
-                    recipient_text = f"PERSON: {recipient_name}"
-                    recipient_person.embedding = await self.embed_model.aget_text_embedding(recipient_text)
-                    self._upsert_nodes_with_retry([recipient_person])
+                    if recipient_email:
+                        recipient_name = recipient_email.split('@')[0].replace('.', ' ').title()
+                        recipient_person = EntityNode(
+                            label="PERSON",
+                            name=recipient_name,
+                            properties={"name": recipient_name, "email": recipient_email}
+                        )
+                        recipient_text = f"PERSON: {recipient_name}"
+                        recipient_person.embedding = await self.embed_model.aget_text_embedding(recipient_text)
+                        self._upsert_nodes_with_retry([recipient_person])
+                        email_recipient_persons.append(recipient_person)
 
-                    sent_to_rel = Relation(
-                        label="SENT_TO",
-                        source_id=document_node.id,
-                        target_id=recipient_person.id
-                    )
-                    self._upsert_relations_with_retry([sent_to_rel])
-                    email_relationships.append("SENT_TO")
-
-                if len(to_addresses) > 0:
-                    logger.info(f"   ✅ Created {len(to_addresses)} SENT_TO relationships")
+                if len(email_recipient_persons) > 0:
+                    logger.info(f"   ✅ Created {len(email_recipient_persons)} recipient PERSON nodes")
 
             # Step 5: Extract entities from document content (universal)
             if extract_entities and content:
@@ -636,6 +700,23 @@ class UniversalIngestionPipeline:
                         chunk_node.embedding = await self.embed_model.aget_text_embedding(llama_node.text)
                         self._upsert_nodes_with_retry([chunk_node])
                         total_chunks += 1
+
+                        # Create SENT/RECEIVED relationships from email sender/recipients to chunk
+                        if email_sender_person:
+                            sent_rel = Relation(
+                                label="SENT",
+                                source_id=email_sender_person.id,
+                                target_id=chunk_node.id
+                            )
+                            self._upsert_relations_with_retry([sent_rel])
+
+                        for recipient_person in email_recipient_persons:
+                            received_rel = Relation(
+                                label="RECEIVED",
+                                source_id=recipient_person.id,
+                                target_id=chunk_node.id
+                            )
+                            self._upsert_relations_with_retry([received_rel])
 
                         if entities:
                             # Embed and upsert entities for graph retrieval

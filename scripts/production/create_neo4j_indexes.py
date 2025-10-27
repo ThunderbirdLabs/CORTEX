@@ -14,7 +14,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 
 from neo4j import GraphDatabase
 from app.services.ingestion.llamaindex.config import (
-    NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE
+    NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE,
+    POSSIBLE_ENTITIES
 )
 
 
@@ -32,10 +33,12 @@ def create_indexes():
         indexes_skipped = []
 
         # 1. Entity name indexes (for fast entity lookups)
-        entity_types = ['PERSON', 'COMPANY', 'TEAM', 'PRODUCT', 'TOPIC', 'LOCATION', 'EVENT']
+        # Import from config.py to stay in sync with schema
+        entity_types = POSSIBLE_ENTITIES
 
         print("1. Creating entity name indexes...")
         print("-"*80)
+        print(f"   Schema-aware: Using {len(entity_types)} entity types from config.py")
         for entity_type in entity_types:
             index_name = f"idx_{entity_type.lower()}_name"
             try:

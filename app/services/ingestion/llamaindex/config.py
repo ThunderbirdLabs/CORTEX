@@ -58,12 +58,9 @@ POSSIBLE_ENTITIES = [
     "COMPANY",        # Clients, suppliers, vendors, partners
     "ROLE",           # Job titles: VP Sales, Quality Engineer, Procurement Manager, Account Manager
     "DEAL",           # Orders, quotes, RFQs, sales opportunities
-    "TASK",           # Action items, production tasks, follow-ups
-    "MEETING",        # Calls, meetings, appointments, conferences
     "PAYMENT",        # Invoices, payments, purchase orders
     "MATERIAL",       # Raw materials: polycarbonate, resins, steel, pellets, components
     "CERTIFICATION",  # ISO certs, material certifications, quality certifications
-    "PROJECT"         # Named programs/initiatives: ISO 9001 Audit, Tesla Model Y Program (proper names only)
 ]
 
 # Relationship Types - Manufacturing-Critical Only
@@ -74,9 +71,9 @@ POSSIBLE_RELATIONS = [
     # Business relationships (supply chain critical)
     "CLIENT_OF", "VENDOR_OF", "SUPPLIES", "MANAGES",
     # Work assignments
-    "ASSIGNED_TO", "ATTENDED_BY", "WORKS_ON",
+    "ASSIGNED_TO",
     # Manufacturing dependencies (CRITICAL)
-    "REQUIRES", "USED_IN", "PART_OF",
+    "REQUIRES", "USED_IN",
     # Certifications
     "HAS_CERTIFICATION",
     # Financial
@@ -115,20 +112,13 @@ KG_VALIDATION_SCHEMA = [
     # WORK ASSIGNMENTS (Who does what)
     # ============================================
     ("DEAL", "ASSIGNED_TO", "PERSON"),           # Deal ASSIGNED_TO sales rep
-    ("TASK", "ASSIGNED_TO", "PERSON"),           # Task ASSIGNED_TO engineer
-    ("MEETING", "ATTENDED_BY", "PERSON"),        # Meeting ATTENDED_BY attendees
-    ("PERSON", "WORKS_ON", "PROJECT"),           # Person WORKS_ON ISO 9001 Project
 
     # ============================================
     # MANUFACTURING DEPENDENCIES (What requires what)
     # ============================================
     ("DEAL", "REQUIRES", "MATERIAL"),            # Order REQUIRES Polycarbonate
     ("DEAL", "REQUIRES", "CERTIFICATION"),       # Order REQUIRES ISO 9001 cert
-    ("TASK", "REQUIRES", "MATERIAL"),            # Production task REQUIRES steel
     ("MATERIAL", "USED_IN", "DEAL"),             # Polycarbonate USED_IN Deal #123
-    ("MATERIAL", "USED_IN", "PROJECT"),          # Steel USED_IN Tesla Model Y
-    ("DEAL", "PART_OF", "PROJECT"),              # Deal PART_OF customer program
-    ("TASK", "PART_OF", "PROJECT"),              # Task PART_OF quality initiative
 
     # ============================================
     # CERTIFICATIONS (Compliance tracking)
@@ -142,20 +132,19 @@ KG_VALIDATION_SCHEMA = [
     # ============================================
     ("PAYMENT", "PAID_BY", "COMPANY"),           # Payment PAID_BY Unit Industries
     ("PAYMENT", "PAID_TO", "COMPANY"),           # Payment PAID_TO Supplier
-    ("PAYMENT", "PART_OF", "DEAL"),              # Payment PART_OF Deal #123
 ]
 
 # Legacy Literal types (for backward compatibility)
 ENTITIES = Literal[
-    "PERSON", "COMPANY", "ROLE", "DEAL", "TASK",
-    "MEETING", "PAYMENT", "MATERIAL", "CERTIFICATION", "PROJECT"
+    "PERSON", "COMPANY", "ROLE", "DEAL",
+    "PAYMENT", "MATERIAL", "CERTIFICATION"
 ]
 
 RELATIONS = Literal[
     "WORKS_FOR", "REPORTS_TO", "HAS_ROLE",
     "CLIENT_OF", "VENDOR_OF", "SUPPLIES", "MANAGES",
-    "ASSIGNED_TO", "ATTENDED_BY", "WORKS_ON",
-    "REQUIRES", "USED_IN", "PART_OF",
+    "ASSIGNED_TO",
+    "REQUIRES", "USED_IN",
     "HAS_CERTIFICATION",
     "PAID_BY", "PAID_TO",
     "CONTACT_FOR"
