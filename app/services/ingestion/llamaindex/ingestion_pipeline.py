@@ -522,6 +522,11 @@ Now extract entities and relationships from the following text:
             if document_row.get("mime_type"):
                 doc_metadata["mime_type"] = document_row["mime_type"]
 
+            # CRITICAL: Add parent_document_id for attachment grouping
+            # This allows chat.py to group attachments with parent email
+            if document_row.get("parent_document_id"):
+                doc_metadata["parent_document_id"] = str(document_row["parent_document_id"])
+
             # Merge in any additional metadata from the row (TRUNCATE to prevent metadata > chunk_size error)
             if "metadata" in document_row and document_row["metadata"]:
                 additional_meta = {}
@@ -783,7 +788,9 @@ Now extract entities and relationships from the following text:
                 "title": title,
                 "source": source,
                 "document_type": document_type,
-                "nodes_created": [node_label] + email_relationships,
+                "chunks": total_chunks,
+                "entities": total_entities,
+                "relationships": total_relations,
                 "characters": len(content)
             }
 

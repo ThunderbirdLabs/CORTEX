@@ -203,15 +203,27 @@ async def chat(
                 logger.debug(f"   ⏭️  Skipping node without document metadata")
                 continue
 
-            # DEDUPLICATE: Create unique key for this document
+            # DEDUPLICATE: Group by parent email (for attachments)
+            # If this is an attachment (has parent_document_id), use parent ID as unique key
+            # This ensures email + all attachments show as ONE source bubble
+            parent_doc_id = metadata.get('parent_document_id')
             doc_name = metadata.get('title', metadata.get('document_name', 'Untitled'))
-            unique_key = str(document_id) if document_id else f"{source_system}:{doc_name}"
-            
+
+            if parent_doc_id:
+                # This is an attachment - group by parent email
+                unique_key = f"parent:{parent_doc_id}"
+                # Use parent document as the source (not the attachment)
+                document_id = parent_doc_id
+                logger.debug(f"   📎 Attachment detected, grouping under parent {parent_doc_id}")
+            else:
+                # This is a standalone document
+                unique_key = str(document_id) if document_id else f"{source_system}:{doc_name}"
+
             # Skip if we've already seen this document
             if unique_key in seen_documents:
                 logger.debug(f"   🔄 Skipping duplicate document: {doc_name}")
                 continue
-                
+
             seen_documents.add(unique_key)
 
             # This is a valid, unique document source
@@ -407,11 +419,16 @@ async def get_source_document(
     Get full document details for a source.
     Used when user clicks on a source bubble to see the original content.
 
+    SMART GROUPING:
+    - If document is an attachment, returns parent email + all attachments
+    - If document is an email with attachments, returns email + all attachments
+    - If document is standalone (PDF, doc, etc.), returns just that document
+
     Returns:
-        Full document with content, metadata, and context
+        Full document with content, metadata, file_url, and attachments array
     """
     try:
-        # Fetch document from Supabase
+        # Fetch the requested document
         result = supabase.table('documents')\
             .select('*')\
             .eq('id', document_id)\
@@ -423,6 +440,48 @@ async def get_source_document(
 
         document = result.data[0]
 
+        # Determine if we need to fetch parent email + attachments
+        parent_id = document.get('parent_document_id')
+        is_attachment = parent_id is not None
+
+        # CASE 1: Document is an attachment → fetch parent email instead
+        if is_attachment:
+            logger.info(f"   📎 Document {document_id} is an attachment, fetching parent email {parent_id}")
+            parent_result = supabase.table('documents')\
+                .select('*')\
+                .eq('id', parent_id)\
+                .eq('tenant_id', user_id)\
+                .execute()
+
+            if parent_result.data and len(parent_result.data) > 0:
+                # Use parent email as primary document
+                document = parent_result.data[0]
+                document_id = parent_id  # Switch to parent ID for attachment fetching below
+            else:
+                logger.warning(f"   ⚠️  Parent document {parent_id} not found, showing attachment standalone")
+
+        # CASE 2 & 3: Fetch all attachments for this document (if any)
+        attachments_result = supabase.table('documents')\
+            .select('*')\
+            .eq('parent_document_id', document_id)\
+            .eq('tenant_id', user_id)\
+            .execute()
+
+        attachments = []
+        if attachments_result.data:
+            for att in attachments_result.data:
+                attachments.append({
+                    'id': att['id'],
+                    'title': att['title'],
+                    'file_url': att.get('file_url'),
+                    'mime_type': att.get('mime_type'),
+                    'file_size_bytes': att.get('file_size_bytes'),
+                    'document_type': att.get('document_type', 'attachment'),
+                    'content': att.get('content', ''),  # Extracted text (for fallback)
+                })
+
+        logger.info(f"   📧 Returning document {document_id} with {len(attachments)} attachments")
+
         return {
             'id': document['id'],
             'title': document['title'],
@@ -432,7 +491,13 @@ async def get_source_document(
             'source_id': document['source_id'],
             'created_at': document.get('source_created_at', document.get('ingested_at')),
             'metadata': document.get('metadata', {}),
-            'raw_data': document.get('raw_data', {})
+            'raw_data': document.get('raw_data', {}),
+            # File storage fields (for PDFs, images, etc.)
+            'file_url': document.get('file_url'),
+            'mime_type': document.get('mime_type'),
+            'file_size_bytes': document.get('file_size_bytes'),
+            # Attachments array (empty if none)
+            'attachments': attachments
         }
 
     except HTTPException:
