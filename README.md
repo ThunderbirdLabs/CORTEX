@@ -443,7 +443,13 @@ Automatically extracts and connects:
 │         ├─ created_at_timestamp >= Oct 1, 2024                              │
 │         ├─ created_at_timestamp <= Dec 31, 2024                             │
 │         └─ tenant_id = current_user                                         │
-│      4. Return top 20 chunks with scores                                    │
+│      4. Return top 20 chunks with scores (similarity_top_k=20)              │
+│                                                                              │
+│      WHY 20 CHUNKS? Cast a wide net to ensure high recall                   │
+│      - Embedding similarity is FAST but can miss paraphrases                │
+│      - Better to retrieve more and rerank later (next step)                 │
+│      - "tooling vendor issues" might score low for "Superior Mold"          │
+│        but will be caught by reranker                                       │
 │                                                                              │
 │      Results (example):                                                     │
 │      [                                                                       │
@@ -490,6 +496,92 @@ Automatically extracts and connects:
 │        (ABS resin grade 5:MATERIAL) ← (PO-2024-201:DEAL),                   │
 │        (Steel molds:MATERIAL) ← (Invoice #892:PAYMENT)                      │
 │      ]                                                                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 3.5: INTELLIGENT RERANKING + RECENCY BOOST                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  🎯 THREE-STAGE RANKING (Similarity → Rerank → Recency)                     │
+│                                                                              │
+│  STAGE 1: Initial Retrieval (Embedding Similarity)                          │
+│  ────────────────────────────────────────────────────                       │
+│  Retrieved 20 chunks based on vector similarity:                            │
+│                                                                              │
+│  Position  Score  Document                                                  │
+│  ────────  ─────  ──────────────────────────────────────                   │
+│  1         0.89   "PO-2024-183: Ordered polycarbonate..."                   │
+│  2         0.85   "Invoice #892 for steel molds..."                         │
+│  3         0.78   "Supplier meeting notes..."                               │
+│  ...                                                                         │
+│  12        0.61   "Re: Quality issues with tooling vendor" ← LOW SCORE!    │
+│  ...                                                                         │
+│  18        0.54   "Follow-up on mold defects" ← ALSO LOW!                  │
+│                                                                              │
+│  PROBLEM: Paraphrases score low!                                            │
+│  - "tooling vendor" doesn't match "Superior Mold" in embedding space        │
+│  - But it's HIGHLY relevant based on context!                               │
+│                                                                              │
+│  STAGE 2: Cross-Encoder Reranking (Deep Understanding)                      │
+│  ────────────────────────────────────────────────────────                   │
+│  SentenceTransformerRerank reads query + chunk TOGETHER:                    │
+│  Model: BAAI/bge-reranker-base (cross-encoder)                              │
+│                                                                              │
+│  For each chunk:                                                             │
+│  1. Concatenate: "[QUERY] What did we discuss with Superior Mold? [SEP]    │
+│                   [CHUNK] Re: Quality issues with tooling vendor..."        │
+│  2. Cross-encoder scores relevance (0-1)                                    │
+│  3. Reorder all 20 chunks by NEW scores                                     │
+│                                                                              │
+│  After Reranking:                                                            │
+│  Position  Score  Document                              Change              │
+│  ────────  ─────  ──────────────────────────────────── ──────              │
+│  1         0.92   "Re: Quality issues with tooling..." ↑ FROM 12!          │
+│  2         0.89   "Superior Mold meeting notes..."     ↑ FROM 3            │
+│  3         0.85   "Supplier review: Superior Mold..."  ↑ FROM 15           │
+│  4         0.78   "Follow-up on mold defects"          ↑ FROM 18!          │
+│  5         0.71   "PO-2024-183: Ordered..."            ↓ FROM 1            │
+│                                                                              │
+│  MAGIC: Cross-encoder understands:                                          │
+│  - "tooling vendor" = "Superior Mold" (from context)                        │
+│  - "quality issues" + "mold defects" = related topics                       │
+│  - True semantic relevance, not just keyword matching                       │
+│                                                                              │
+│  STAGE 3: Recency Boost (Time-Aware Ranking)                                │
+│  ────────────────────────────────────────────────────────                   │
+│  RecencyBoostPostprocessor applies 90-day decay:                            │
+│                                                                              │
+│  Formula: final_score = rerank_score * (1 + recency_weight * decay_factor) │
+│                                                                              │
+│  Where:                                                                      │
+│  - recency_weight = 0.3 (30% boost for recent items)                        │
+│  - decay_factor = e^(-days_old / 90)                                        │
+│    → 1.0 for today                                                           │
+│    → 0.5 for 45 days old                                                     │
+│    → 0.1 for 90+ days old                                                    │
+│                                                                              │
+│  Final Ranking (Query: "What did we discuss last month?"):                  │
+│  Position  Score  Document                     Date        Boost            │
+│  ────────  ─────  ───────────────────────────  ──────────  ─────           │
+│  1         1.19   "Re: Quality issues..."      Oct 28      ✅ 0.92 → 1.19  │
+│  2         1.15   "Superior Mold meeting..."   Oct 15      ✅ 0.89 → 1.15  │
+│  3         1.01   "Follow-up on defects"       Oct 22      ✅ 0.78 → 1.01  │
+│  4         0.85   "Supplier review..."         June 3      ⏸️  No boost     │
+│                   ↑ Still included! Important historical context            │
+│                                                                              │
+│  KEY INSIGHT: Recent + relevant items rise to top,                          │
+│               but older relevant context stays available!                   │
+│                                                                              │
+│  WHY NOT FILTER BY DATE FIRST?                                              │
+│  ──────────────────────────────────                                         │
+│  ❌ Would lose historical context (June supplier review)                    │
+│  ❌ Can't use reranker effectively (smaller pool)                           │
+│  ❌ User doesn't always know what time range they need                      │
+│  ❌ Misses paraphrases outside time window                                  │
+│                                                                              │
+│  ✅ Our approach: Retrieve broadly, rerank deeply, boost recent             │
+│     Result: Best of both worlds - recency + completeness                    │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       ↓
