@@ -135,100 +135,595 @@ Automatically extracts and connects:
 
 ### Document Ingestion (What Happens When You Sync)
 
-```
-1. 📥 CONNECT & FETCH
-   - OAuth authentication (secure, no password storage)
-   - Fetch emails from Gmail/Outlook or files from Google Drive
-   - Download attachments (PDFs, images, Office files)
-
-2. 🧹 FILTER & CLEAN
-   - AI-powered spam detection (filters out newsletters, marketing)
-   - Remove duplicates (SHA-256 content hashing)
-   - OCR for scanned PDFs and images (Google Cloud Vision)
-
-3. 💾 STORE ORIGINALS
-   - Save to PostgreSQL (Supabase) - your source of truth
-   - Store files in secure cloud storage
-   - Track metadata (sender, date, file type, etc.)
-
-4. 🤖 AI PROCESSING
-
-   A. TEXT CHUNKING
-      - Break documents into ~1000 character chunks
-      - Maintain context with 200 character overlap
-
-   B. VECTOR EMBEDDINGS
-      - Convert chunks to AI-searchable vectors (OpenAI)
-      - Store in Qdrant for semantic search
-
-   C. ENTITY EXTRACTION (Manufacturing-Focused)
-      - AI identifies: People, Companies, Roles, Deals, Payments, Materials, Certifications
-      - Example: "Sarah Chen (Quality Engineer at Acme Corp) approved the ISO 9001 cert"
-         → Extracts: PERSON (Sarah Chen), COMPANY (Acme Corp), ROLE (Quality Engineer),
-                      CERTIFICATION (ISO 9001)
-
-   D. RELATIONSHIP MAPPING
-      - Connect entities: Sarah WORKS_FOR Acme Corp
-      - Track supply chain: Precision Plastics SUPPLIES polycarbonate TO Acme Corp
-      - Link deals: Quote #4892 ASSIGNED_TO Sarah Chen
-      - Store in Neo4j knowledge graph
-
-5. ♻️ DEDUPLICATION (Hourly)
-   - Find similar entities (e.g., "Acme Corp" vs "Acme Corporation")
-   - Merge duplicates automatically (vector similarity + text matching)
-   - Maintain data quality over time
-
-6. ✅ READY TO SEARCH
-   - Semantic search: "Find emails about quality issues"
-   - Graph queries: "Show all suppliers of polycarbonate"
-   - Hybrid search: "What did Sarah say about Acme Corp's order?"
-```
-
-### AI Search (What Happens When You Ask a Question)
+**COMPLETE FLOW - Every Step from Source to Searchable**
 
 ```
-1. 💬 USER ASKS QUESTION
-   Example: "What materials did we order from Precision Plastics last quarter?"
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 1: CONNECT & FETCH                                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  📧 EMAIL SOURCES (Gmail/Outlook via Nango OAuth)                           │
+│      ├─ Fetch emails from last 30 days (incremental sync)                  │
+│      ├─ Extract: Subject, Body, Sender, Recipients, Date                    │
+│      ├─ Download ALL attachments (PDFs, images, Office docs, etc.)         │
+│      └─ Track parent-child relationship (email → attachments)               │
+│                                                                              │
+│  ☁️  CLOUD STORAGE (Google Drive via OAuth)                                 │
+│      ├─ User selects folders to sync                                        │
+│      ├─ Fetch: PDFs, Word docs, Excel sheets, PowerPoint, images           │
+│      ├─ Download file + metadata (name, size, MIME type, modified date)    │
+│      └─ Store file URL for direct access later                              │
+│                                                                              │
+│  📤 FILE UPLOADS (User-uploaded files)                                      │
+│      ├─ Upload via web interface                                            │
+│      ├─ Accept: PDF, DOCX, XLSX, PPTX, PNG, JPG, TXT                       │
+│      └─ Store in Supabase Storage bucket                                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 2: INTELLIGENT FILTERING                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  🤖 AI SPAM DETECTION (OpenAI GPT-4o-mini)                                  │
+│      ├─ Batch classify emails: HAM vs SPAM                                  │
+│      ├─ Filter out: Newsletters, marketing, promotions, auto-replies        │
+│      ├─ Keep: Business emails, invoices, quotes, customer communication     │
+│      └─ Logs: "🚫 Filtered spam email: 'Webinar: ...' from marketing@..."  │
+│                                                                              │
+│  🔒 DEDUPLICATION (SHA-256 Content Hashing)                                 │
+│      ├─ Hash email body + subject + sender + date                           │
+│      ├─ Check if hash exists in database (UNIQUE constraint)                │
+│      ├─ Skip if duplicate: "⏭️  Skipping duplicate email"                   │
+│      └─ Prevents re-processing same content on every sync                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 3: TEXT EXTRACTION & OCR                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  📧 EMAILS → Direct text extraction (HTML → plain text)                     │
+│                                                                              │
+│  📄 NATIVE TEXT FILES (PDF, DOCX, TXT, etc.)                                │
+│      ├─ Parse with PyMuPDF (PDFs) or python-docx (Word)                    │
+│      ├─ Extract plain text content                                          │
+│      └─ Preserve formatting where possible                                  │
+│                                                                              │
+│  🖼️  SCANNED DOCUMENTS & IMAGES (Google Cloud Vision OCR)                  │
+│      ├─ Detect if PDF is scanned (no text layer)                            │
+│      ├─ Upload image/PDF to Google Cloud Vision API                         │
+│      ├─ OCR extracts text with 95%+ accuracy                                │
+│      ├─ Handles: Invoices, receipts, handwritten notes, diagrams            │
+│      └─ Metadata: ocr_enabled = true                                        │
+│                                                                              │
+│  ⚠️  FALLBACK STRATEGY                                                      │
+│      ├─ If OCR fails → Store file URL for manual viewing                    │
+│      ├─ If no text extracted → Still ingest with minimal metadata           │
+│      └─ User can still view original file via file_url                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 4: STORE IN SUPABASE (Source of Truth)                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  PostgreSQL `documents` table:                                              │
+│      {                                                                       │
+│        id: 12345,                          ← Auto-increment primary key     │
+│        tenant_id: "user-uuid",             ← Multi-tenant isolation         │
+│        source: "gmail",                    ← gmail, outlook, gdrive, upload │
+│        source_id: "message-id-xyz",        ← External ID from source system │
+│        document_type: "email",             ← email, pdf, doc, attachment    │
+│        title: "RE: Q4 Order Status",      ← Subject or filename             │
+│        content: "Full email text...",     ← Extracted plain text (OCR'd)   │
+│        raw_data: {...},                    ← Original JSON from API         │
+│        file_url: "https://storage...",     ← Link to original file          │
+│        mime_type: "application/pdf",       ← File type                      │
+│        file_size_bytes: 2048576,           ← File size                      │
+│        parent_document_id: NULL,           ← For attachments: parent email  │
+│        metadata: {...},                    ← Sender, recipients, dates      │
+│        source_created_at: "2025-10-15",   ← When created in source          │
+│        ingested_at: "2025-10-27 20:00"    ← When CORTEX ingested it        │
+│      }                                                                       │
+│                                                                              │
+│  📎 ATTACHMENT LINKING (Parent-Child Relationships)                         │
+│      Email with 2 attachments stored as 3 rows:                             │
+│                                                                              │
+│      Row 1: Email (id=100, parent_document_id=NULL)                         │
+│      Row 2: Attachment PDF (id=101, parent_document_id=100)  ← Links to email
+│      Row 3: Attachment Image (id=102, parent_document_id=100) ← Links to email
+│                                                                              │
+│      This enables smart grouping when showing sources to users!             │
+│                                                                              │
+│  ☁️  FILE STORAGE (Supabase Storage Bucket)                                │
+│      ├─ Uploads: PDFs, images, Office files                                 │
+│      ├─ Generates signed URL: https://storage.supabase.co/...               │
+│      ├─ Stored in `file_url` column for direct access                       │
+│      └─ Enables native file viewers (PDF.js, image preview, etc.)           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 5: AI PROCESSING PIPELINE                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  A. TEXT CHUNKING (Semantic Chunking)                                       │
+│      ├─ Split documents into ~1000 character chunks                         │
+│      ├─ 200 character overlap to maintain context                           │
+│      ├─ Preserve sentence boundaries (don't cut mid-sentence)               │
+│      └─ Each chunk stores: text + metadata (document_id, parent_id, etc.)   │
+│                                                                              │
+│  B. VECTOR EMBEDDINGS (OpenAI text-embedding-3-small)                       │
+│      ├─ Convert each chunk to 1536-dimension vector                         │
+│      ├─ Vectors capture semantic meaning (not just keywords)                │
+│      ├─ Example: "order" and "purchase" have similar vectors                │
+│      └─ Store in Qdrant Cloud for fast similarity search                    │
+│                                                                              │
+│  C. QDRANT STORAGE (Vector Database)                                        │
+│      Collection: cortex_documents                                           │
+│      Points: [                                                               │
+│        {                                                                     │
+│          id: "uuid",                                                         │
+│          vector: [0.234, -0.567, ...],    ← 1536 dimensions                 │
+│          payload: {                                                          │
+│            document_id: "12345",          ← Links back to Supabase          │
+│            parent_document_id: "100",     ← For attachment grouping         │
+│            title: "Q4 Order Status",                                         │
+│            source: "gmail",                                                  │
+│            document_type: "email",                                           │
+│            created_at_timestamp: 1729800000,  ← Unix timestamp for filtering│
+│            text: "Full chunk text...",                                       │
+│            file_url: "https://...",       ← Direct link to file             │
+│            mime_type: "application/pdf"                                      │
+│          }                                                                   │
+│        }                                                                     │
+│      ]                                                                       │
+│                                                                              │
+│  D. ENTITY EXTRACTION (OpenAI GPT-4o-mini + LlamaIndex)                     │
+│      Manufacturing-focused schema extracts:                                 │
+│                                                                              │
+│      👤 PERSON: "Sarah Chen", "John Martinez"                               │
+│         ├─ Properties: name, email, phone                                   │
+│         └─ Context: Extracted from email signatures, content                │
+│                                                                              │
+│      🏢 COMPANY: "Acme Corp", "Precision Plastics"                          │
+│         ├─ Properties: name, industry                                       │
+│         └─ Disambiguates: "Acme Corp" = "Acme Corporation"                  │
+│                                                                              │
+│      💼 ROLE: "Quality Engineer", "VP Operations"                           │
+│         └─ Links people to job functions                                    │
+│                                                                              │
+│      📊 DEAL: "PO-2024-183", "Quote #4892"                                  │
+│         ├─ Properties: deal_id, amount, status                              │
+│         └─ Tracks orders, quotes, RFQs                                      │
+│                                                                              │
+│      💰 PAYMENT: "Invoice #INV-2025-001"                                    │
+│         └─ Properties: invoice_id, amount, due_date                         │
+│                                                                              │
+│      📦 MATERIAL: "polycarbonate PC-1000", "ABS resin grade 5"              │
+│         ├─ Properties: material_name, grade, quantity                       │
+│         └─ Critical for supply chain tracking                               │
+│                                                                              │
+│      🎓 CERTIFICATION: "ISO 9001", "Material cert batch #XYZ"               │
+│         └─ Properties: cert_name, issued_date, expires_date                 │
+│                                                                              │
+│  E. RELATIONSHIP MAPPING (Neo4j Knowledge Graph)                            │
+│      Create relationships between entities:                                 │
+│                                                                              │
+│      (Sarah Chen)-[WORKS_FOR]->(Acme Corp)                                  │
+│      (Sarah Chen)-[HAS_ROLE]->(Quality Engineer)                            │
+│      (Acme Corp)-[PLACED]->(PO-2024-183)                                    │
+│      (PO-2024-183)-[INCLUDES]->(Polycarbonate PC-1000)                      │
+│      (Precision Plastics)-[SUPPLIES]->(Polycarbonate PC-1000)               │
+│      (Invoice #892)-[PAID_BY]->(Acme Corp)                                  │
+│      (ISO 9001)-[CERTIFIED_TO]->(Acme Corp)                                 │
+│                                                                              │
+│      Each relationship stores:                                              │
+│        ├─ Source node ID                                                    │
+│        ├─ Target node ID                                                    │
+│        ├─ Relationship type (WORKS_FOR, SUPPLIES, etc.)                     │
+│        └─ Properties (date, amount, etc.)                                   │
+│                                                                              │
+│  F. NEO4J GRAPH STORAGE                                                     │
+│      Example graph structure:                                               │
+│                                                                              │
+│           (Sarah Chen:PERSON)                                               │
+│                 │                                                            │
+│            WORKS_FOR                                                         │
+│                 │                                                            │
+│                 ▼                                                            │
+│          (Acme Corp:COMPANY)────PLACED────>(PO-2024-183:DEAL)               │
+│                 │                                  │                         │
+│            CERTIFIED_TO                      INCLUDES                        │
+│                 │                                  │                         │
+│                 ▼                                  ▼                         │
+│          (ISO 9001:CERT)           (Polycarbonate:MATERIAL)                 │
+│                                                    ▲                         │
+│                                                    │                         │
+│                                                 SUPPLIES                     │
+│                                                    │                         │
+│                                      (Precision Plastics:COMPANY)            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 6: DEDUPLICATION & MERGING (Hourly Cron Job)                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  🔍 FIND DUPLICATES (Vector Similarity + Text Matching)                     │
+│      ├─ "Acme Corp" vs "Acme Corporation" → 95% similarity                  │
+│      ├─ "Sarah Chen" vs "S. Chen" → Same email address                      │
+│      └─ "polycarbonate PC-1000" vs "PC1000 resin" → Context matching        │
+│                                                                              │
+│  🔗 MERGE ENTITIES (Neo4j MERGE operation)                                  │
+│      ├─ Combine duplicate nodes into single canonical entity                │
+│      ├─ Preserve all relationships from both nodes                          │
+│      ├─ Update properties (keep most recent/complete data)                  │
+│      └─ Log merge: "Merged 2 duplicate COMPANY nodes: Acme Corp"            │
+│                                                                              │
+│  ✅ RESULT: Clean, deduplicated knowledge graph                             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 7: READY FOR SEARCH 🎉                                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ✅ Your data is now:                                                       │
+│      ├─ Stored safely in PostgreSQL (originals + metadata)                 │
+│      ├─ Searchable via vectors in Qdrant (semantic search)                 │
+│      ├─ Mapped in Neo4j knowledge graph (relationship queries)              │
+│      ├─ Linked: Attachments → Parent emails                                 │
+│      └─ Accessible: Original files via signed URLs                          │
+│                                                                              │
+│  🔍 Users can now ask questions like:                                       │
+│      • "What materials did we order last month?"                            │
+│      • "Who is our contact at Precision Plastics?"                          │
+│      • "Show me all ISO certifications"                                     │
+│      • "Find emails about the Acme Corp deal"                               │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-2. 🧠 QUERY UNDERSTANDING
-   - Rewrite query with conversation context
-   - Identify entities: "Precision Plastics" (COMPANY), "materials" (MATERIAL type)
-   - Detect time filter: "last quarter" → Oct 1 - Dec 31, 2024
+### AI Search & Source Viewing (What Happens When You Ask a Question)
 
-3. 🔀 INTELLIGENT ROUTING (Parallel Search)
+**COMPLETE FLOW - From Question to Viewing Original Documents**
 
-   A. SEMANTIC SEARCH (Qdrant)
-      - Find chunks mentioning "Precision Plastics" + "order" + "materials"
-      - Rank by relevance (AI reranker)
-      - Filter by date range (Oct-Dec 2024)
-
-   B. GRAPH SEARCH (Neo4j)
-      - Find COMPANY node: "Precision Plastics"
-      - Follow relationships: SUPPLIES → MATERIAL nodes
-      - Find connected DEAL and PAYMENT nodes
-      - Filter by date range
-
-4. 📝 ANSWER SYNTHESIS
-   - Combine results from semantic + graph search
-   - AI generates comprehensive answer (GPT-4o-mini)
-   - Cites original sources (emails, documents, dates)
-   - Shows confidence scores
-
-5. ✅ DELIVER RESPONSE
-   {
-     "answer": "Precision Plastics supplied 3 materials last quarter:
-                - Polycarbonate resin (20 tons, PO-2024-183, Nov 2024)
-                - ABS pellets (5 tons, PO-2024-201, Dec 2024)
-                - Steel molds (2 units, Invoice #892, Oct 2024)
-
-                Total value: $47,500. Contact: John Martinez (VP Operations).",
-
-     "sources": [
-       {"title": "PO-2024-183", "date": "Nov 15, 2024", "type": "email"},
-       {"title": "Invoice #892", "date": "Oct 8, 2024", "type": "pdf"},
-       {"title": "Supplier Meeting Notes", "date": "Dec 1, 2024", "type": "doc"}
-     ]
-   }
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 1: USER ASKS QUESTION                                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  💬 Example: "What materials did we order from Precision Plastics last Q?"  │
+│                                                                              │
+│  Chat interface captures:                                                   │
+│      ├─ Current question                                                    │
+│      ├─ Conversation history (previous 5 messages)                          │
+│      └─ User context (tenant_id for multi-tenant isolation)                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 2: QUERY UNDERSTANDING & PLANNING                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  🧠 QUERY REWRITING (With Conversation Context)                             │
+│      Original: "What materials did we order from Precision Plastics last Q?"│
+│      Context: Previous message mentioned "Q4 2024"                           │
+│      Rewritten: "What materials did we order from Precision Plastics in     │
+│                  Q4 2024 (October-December 2024)?"                           │
+│                                                                              │
+│  🔍 ENTITY IDENTIFICATION                                                    │
+│      ├─ COMPANY: "Precision Plastics"                                       │
+│      ├─ ENTITY_TYPE: MATERIAL (looking for materials)                       │
+│      ├─ ACTION: "order" (purchase/procurement)                              │
+│      └─ TIME_RANGE: "last Q" → Oct 1 - Dec 31, 2024                         │
+│                                                                              │
+│  📊 QUERY ROUTING DECISION                                                  │
+│      This query needs:                                                      │
+│      ✅ Semantic search (find documents mentioning orders)                  │
+│      ✅ Graph search (find COMPANY → SUPPLIES → MATERIAL relationships)     │
+│      → Use HYBRID search mode                                               │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 3: PARALLEL HYBRID SEARCH (Semantic + Graph)                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  🔀 RUNS IN PARALLEL:                                                        │
+│                                                                              │
+│  A. SEMANTIC SEARCH (Qdrant Vector Database)                                │
+│      Query: Find similar vectors to "order materials Precision Plastics"    │
+│                                                                              │
+│      1. Convert query to embedding (1536-dim vector)                        │
+│      2. Search Qdrant collection for similar chunks                         │
+│      3. Apply filters:                                                       │
+│         ├─ created_at_timestamp >= Oct 1, 2024                              │
+│         ├─ created_at_timestamp <= Dec 31, 2024                             │
+│         └─ tenant_id = current_user                                         │
+│      4. Return top 20 chunks with scores                                    │
+│                                                                              │
+│      Results (example):                                                     │
+│      [                                                                       │
+│        {                                                                     │
+│          score: 0.89,                                                        │
+│          text: "PO-2024-183: Ordered 20 tons polycarbonate from             │
+│                 Precision Plastics, delivery Nov 15...",                    │
+│          metadata: {                                                         │
+│            document_id: "12345",                                             │
+│            parent_document_id: NULL,  ← Standalone email                    │
+│            title: "PO-2024-183 Confirmation",                               │
+│            source: "gmail",                                                  │
+│            file_url: null                                                    │
+│          }                                                                   │
+│        },                                                                    │
+│        {                                                                     │
+│          score: 0.85,                                                        │
+│          text: "Invoice #892 for steel molds...",                           │
+│          metadata: {                                                         │
+│            document_id: "12347",                                             │
+│            parent_document_id: "12346",  ← This is an attachment!           │
+│            title: "Invoice_892.pdf",                                         │
+│            source: "gmail",                                                  │
+│            file_url: "https://storage.supabase.co/invoices/892.pdf",        │
+│            mime_type: "application/pdf"                                      │
+│          }                                                                   │
+│        }                                                                     │
+│      ]                                                                       │
+│                                                                              │
+│  B. GRAPH SEARCH (Neo4j Knowledge Graph)                                    │
+│      Cypher Query:                                                           │
+│      ```                                                                     │
+│      MATCH (company:COMPANY {name: "Precision Plastics"})                   │
+│            -[:SUPPLIES]->(material:MATERIAL)                                 │
+│            <-[:INCLUDES]-(deal:DEAL)                                         │
+│      WHERE deal.created_at >= "2024-10-01"                                  │
+│        AND deal.created_at <= "2024-12-31"                                  │
+│      RETURN material, deal                                                   │
+│      ```                                                                     │
+│                                                                              │
+│      Results (example):                                                     │
+│      [                                                                       │
+│        (Polycarbonate PC-1000:MATERIAL) ← (PO-2024-183:DEAL),               │
+│        (ABS resin grade 5:MATERIAL) ← (PO-2024-201:DEAL),                   │
+│        (Steel molds:MATERIAL) ← (Invoice #892:PAYMENT)                      │
+│      ]                                                                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 4: SOURCE DEDUPLICATION & GROUPING                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  🔄 SMART DEDUPLICATION (Group by Parent Email)                             │
+│                                                                              │
+│  Raw results from search (20 chunks):                                       │
+│      Chunk 1: document_id=12345, parent_document_id=NULL                    │
+│      Chunk 2: document_id=12347, parent_document_id=12346  ← Attachment     │
+│      Chunk 3: document_id=12348, parent_document_id=12346  ← Another attach │
+│      Chunk 4: document_id=12345, parent_document_id=NULL   ← Duplicate!     │
+│      Chunk 5: document_id=12349, parent_document_id=NULL                    │
+│                                                                              │
+│  Deduplication logic:                                                       │
+│      ├─ If parent_document_id exists → Use parent as unique key             │
+│      │   Example: Chunks 2 & 3 both have parent=12346                       │
+│      │   → Group as ONE source: document_id=12346 (the parent email)        │
+│      │                                                                       │
+│      ├─ If parent_document_id is NULL → Use document_id as unique key       │
+│      │   Example: Chunk 1 → source: document_id=12345                       │
+│      │                                                                       │
+│      └─ Skip duplicates (same unique key seen twice)                        │
+│          Example: Chunk 4 → Already saw document_id=12345, skip it          │
+│                                                                              │
+│  Final deduplicated sources (3 unique documents):                           │
+│      [                                                                       │
+│        {                                                                     │
+│          index: 1,                                                           │
+│          document_id: "12345",                                               │
+│          document_name: "PO-2024-183 Confirmation",                         │
+│          source: "gmail",                                                    │
+│          document_type: "email",                                             │
+│          timestamp: "2024-11-15",                                            │
+│          text_preview: "PO-2024-183: Ordered 20 tons polycarbonate..."      │
+│        },                                                                    │
+│        {                                                                     │
+│          index: 2,                                                           │
+│          document_id: "12346",  ← Parent email (not attachment 12347)       │
+│          document_name: "Invoice #892 Email",                               │
+│          source: "gmail",                                                    │
+│          document_type: "email",                                             │
+│          timestamp: "2024-10-08",                                            │
+│          text_preview: "Please find attached invoice for steel molds..."    │
+│        },                                                                    │
+│        {                                                                     │
+│          index: 3,                                                           │
+│          document_id: "12349",                                               │
+│          document_name: "Supplier Meeting Notes",                           │
+│          source: "gdrive",                                                   │
+│          document_type: "doc",                                               │
+│          timestamp: "2024-12-01",                                            │
+│          text_preview: "Meeting with Precision Plastics to discuss..."      │
+│        }                                                                     │
+│      ]                                                                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 5: AI ANSWER SYNTHESIS                                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  🤖 COMBINE RESULTS (Semantic + Graph)                                      │
+│      ├─ Merge chunks from Qdrant with entities from Neo4j                   │
+│      ├─ Rank by relevance (reranker model)                                  │
+│      └─ Send to GPT-4o-mini with context                                    │
+│                                                                              │
+│  ✍️  GENERATE COMPREHENSIVE ANSWER                                          │
+│      Prompt: "Based on the following sources, answer the user's question:   │
+│               'What materials did we order from Precision Plastics Q4 2024?'│
+│                                                                              │
+│               Sources: [20 chunks of text + entity relationships]           │
+│                                                                              │
+│               Provide a comprehensive answer with specific details."        │
+│                                                                              │
+│  📋 CITE SOURCES                                                             │
+│      ├─ Extract source metadata (title, date, type)                         │
+│      ├─ Link to original documents (document_id)                            │
+│      └─ Include confidence scores                                           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 6: DELIVER RESPONSE TO USER                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Frontend displays:                                                         │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────┐      │
+│  │ 🤖 CORTEX AI                                                      │      │
+│  │                                                                    │      │
+│  │ Precision Plastics supplied 3 materials in Q4 2024:              │      │
+│  │                                                                    │      │
+│  │ • Polycarbonate resin (20 tons, PO-2024-183, Nov 2024)           │      │
+│  │ • ABS pellets (5 tons, PO-2024-201, Dec 2024)                    │      │
+│  │ • Steel molds (2 units, Invoice #892, Oct 2024)                  │      │
+│  │                                                                    │      │
+│  │ Total value: $47,500                                              │      │
+│  │ Contact: John Martinez (VP Operations)                            │      │
+│  │                                                                    │      │
+│  │ Sources (3):                                                       │      │
+│  │                                                                    │      │
+│  │ [📧 gmail] PO-2024-183 Confirmation         Nov 15, 2024          │      │
+│  │ [📧 gmail] Invoice #892 Email                Oct 8, 2024          │      │
+│  │ [📄 gdrive] Supplier Meeting Notes           Dec 1, 2024          │      │
+│  │                                                                    │      │
+│  └──────────────────────────────────────────────────────────────────┘      │
+│                                                                              │
+│  💾 SAVE TO DATABASE                                                        │
+│      Insert into chat_messages table:                                       │
+│      {                                                                       │
+│        chat_id: "uuid",                                                      │
+│        role: "assistant",                                                    │
+│        content: "Precision Plastics supplied 3 materials...",               │
+│        sources: [array of 3 source objects]  ← Saved for retrieval         │
+│      }                                                                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 7: USER CLICKS SOURCE TO VIEW DOCUMENT                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  👆 User clicks: "Invoice #892 Email"                                       │
+│      document_id: "12346" (the parent email)                                │
+│                                                                              │
+│  🔍 BACKEND FETCHES DOCUMENT + ATTACHMENTS                                  │
+│      GET /api/v1/sources/12346                                              │
+│                                                                              │
+│      1. Fetch document from Supabase:                                       │
+│         SELECT * FROM documents WHERE id = 12346 AND tenant_id = user       │
+│                                                                              │
+│      2. Check if this is an attachment (has parent_document_id):            │
+│         parent_document_id: NULL  ← Not an attachment, it's a parent email  │
+│                                                                              │
+│      3. Fetch ALL attachments for this email:                               │
+│         SELECT * FROM documents                                             │
+│         WHERE parent_document_id = 12346 AND tenant_id = user               │
+│                                                                              │
+│         Results (2 attachments):                                            │
+│         [                                                                    │
+│           {                                                                  │
+│             id: 12347,                                                       │
+│             title: "Invoice_892.pdf",                                        │
+│             file_url: "https://storage.supabase.co/invoices/892.pdf",       │
+│             mime_type: "application/pdf",                                    │
+│             file_size_bytes: 2048576,                                        │
+│             content: "INVOICE\nPrecision Plastics...[OCR'd text]"           │
+│           },                                                                 │
+│           {                                                                  │
+│             id: 12348,                                                       │
+│             title: "Delivery_Schedule.xlsx",                                 │
+│             file_url: "https://storage.supabase.co/schedules/oct.xlsx",     │
+│             mime_type: "application/vnd.ms-excel",                           │
+│             file_size_bytes: 512000,                                         │
+│             content: "[Extracted spreadsheet data]"                          │
+│           }                                                                  │
+│         ]                                                                    │
+│                                                                              │
+│      4. Return response:                                                    │
+│         {                                                                    │
+│           id: "12346",                                                       │
+│           title: "Invoice #892 Email",                                      │
+│           content: "Hi Team,\n\nPlease find attached invoice for steel      │
+│                     molds ordered in October. Total: $12,500.\n\nBest,\n    │
+│                     John Martinez\nPrecision Plastics",                     │
+│           source: "gmail",                                                   │
+│           document_type: "email",                                            │
+│           created_at: "2024-10-08T14:30:00Z",                               │
+│           metadata: {                                                        │
+│             sender_name: "John Martinez",                                    │
+│             sender_address: "john@precisionplastics.com",                   │
+│             to_addresses: ["you@company.com"]                               │
+│           },                                                                 │
+│           file_url: null,  ← Email has no file, but attachments do          │
+│           attachments: [                                                     │
+│             {id: 12347, title: "Invoice_892.pdf", ...},                     │
+│             {id: 12348, title: "Delivery_Schedule.xlsx", ...}               │
+│           ]                                                                  │
+│         }                                                                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 8: FRONTEND DISPLAYS DOCUMENT MODAL                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  🖼️  BEAUTIFUL MODAL WITH:                                                 │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────┐      │
+│  │ 📧 Invoice #892 Email                             [X Close]       │      │
+│  │ gmail • email • Oct 8, 2024                                       │      │
+│  ├──────────────────────────────────────────────────────────────────┤      │
+│  │                                                                    │      │
+│  │ Attachments (2)                                                   │      │
+│  │                                                                    │      │
+│  │ ┌────────────────────────────────────────────────────────┐       │      │
+│  │ │ 📄 Invoice_892.pdf                      [Open ↗]       │       │      │
+│  │ │ application/pdf • 2.0 MB                                │       │      │
+│  │ └────────────────────────────────────────────────────────┘       │      │
+│  │                                                                    │      │
+│  │ ┌────────────────────────────────────────────────────────┐       │      │
+│  │ │ 📊 Delivery_Schedule.xlsx               [Open ↗]       │       │      │
+│  │ │ application/vnd.ms-excel • 500.0 KB                     │       │      │
+│  │ └────────────────────────────────────────────────────────┘       │      │
+│  │                                                                    │      │
+│  │ Extracted Text                                                    │      │
+│  │ ┌────────────────────────────────────────────────────────┐       │      │
+│  │ │ Hi Team,                                                │       │      │
+│  │ │                                                          │       │      │
+│  │ │ Please find attached invoice for steel molds ordered    │       │      │
+│  │ │ in October. Total: $12,500.                             │       │      │
+│  │ │                                                          │       │      │
+│  │ │ Best,                                                    │       │      │
+│  │ │ John Martinez                                            │       │      │
+│  │ │ Precision Plastics                                       │       │      │
+│  │ └────────────────────────────────────────────────────────┘       │      │
+│  │                                                                    │      │
+│  └──────────────────────────────────────────────────────────────────┘      │
+│                                                                              │
+│  👆 USER CLICKS "Invoice_892.pdf [Open ↗]"                                  │
+│      → Opens PDF in new tab with native PDF viewer                          │
+│      → Shows original invoice with full formatting, images, tables          │
+│                                                                              │
+│  🎯 KEY BENEFITS:                                                           │
+│      ✅ Email + attachments shown together (not separate sources)           │
+│      ✅ Click attachment → view original file (PDF viewer, Excel, image)    │
+│      ✅ OCR'd text available for searching, even if file can't parse        │
+│      ✅ All file metadata visible (size, type, date)                        │
+│      ✅ Parent-child linking works perfectly                                │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
