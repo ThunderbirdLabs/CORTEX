@@ -154,10 +154,7 @@ class HybridQueryEngine:
         qdrant_aclient = AsyncQdrantClient(
             url=QDRANT_URL,
             api_key=QDRANT_API_KEY,
-            timeout=60.0,  # 60s timeout (increased from 30s)
-            # Retry on connection failures
-            max_retries=3,
-            retry_on_failures=True
+            timeout=60.0  # 60s timeout (increased from 30s)
         )
         vector_store = QdrantVectorStore(
             client=qdrant_client,
