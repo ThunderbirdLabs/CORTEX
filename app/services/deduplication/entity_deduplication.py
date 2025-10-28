@@ -627,7 +627,8 @@ CONTEXT: This is a dynamic business knowledge graph containing:
 - Companies (clients, suppliers, vendors)
 - Roles (job titles, positions)
 - Materials (raw materials, parts, components)
-- Deals (orders, quotes, opportunities)
+- Purchase Orders (POs, invoices, order numbers)
+- Certifications (ISO certifications, quality standards)
 
 MERGE RULES:
 ✅ MERGE if:

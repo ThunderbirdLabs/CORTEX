@@ -17,8 +17,8 @@ ARCHITECTURE:
 ============
 Schema is defined in ONE place: app/services/ingestion/llamaindex/config.py
 
-    POSSIBLE_ENTITIES = ["PERSON", "COMPANY", "ROLE", "DEAL", ...]
-    POSSIBLE_RELATIONS = ["WORKS_FOR", "REPORTS_TO", ...]
+    POSSIBLE_ENTITIES = ["PERSON", "COMPANY", "ROLE", ...]
+    POSSIBLE_RELATIONS = ["WORKS_FOR", "WORKS_WITH", "HAS_ROLE", ...]
     KG_VALIDATION_SCHEMA = [("PERSON", "WORKS_FOR", "COMPANY"), ...]
 
 This module reads that schema and creates indexes automatically.
@@ -33,7 +33,7 @@ WORKFLOW:
 WHAT GETS INDEXED:
 =================
 1. Entity name indexes: Fast lookups for all POSSIBLE_ENTITIES
-   - PERSON.name, COMPANY.name, ROLE.name, DEAL.name, PAYMENT.name, MATERIAL.name, CERTIFICATION.name
+   - PERSON.name, COMPANY.name, ROLE.name, PURCHASE_ORDER.name, MATERIAL.name, CERTIFICATION.name
 
 2. Document indexes: Deduplication + tenant isolation
    - EMAIL.email_id, EMAIL.tenant_id, EMAIL.sender_address

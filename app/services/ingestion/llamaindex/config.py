@@ -57,29 +57,30 @@ POSSIBLE_ENTITIES = [
     "PERSON",         # Employees, contacts, account managers, suppliers
     "COMPANY",        # Clients, suppliers, vendors, partners
     "ROLE",           # Job titles: VP Sales, Quality Engineer, Procurement Manager, Account Manager
-    "DEAL",           # Orders, quotes, RFQs, sales opportunities
-    "PAYMENT",        # Invoices, payments, purchase orders
+    "PURCHASE_ORDER", # Purchase orders, invoices, PO numbers
     "MATERIAL",       # Raw materials: polycarbonate, resins, steel, pellets, components
     "CERTIFICATION",  # ISO certs, material certifications, quality certifications
 ]
 
-# Relationship Types - Manufacturing-Critical Only
-# These are the ONLY relationship types that will be extracted
+# Relationship Types - Strict, False-Relationship Proof
+# Design: Only extract relationships with EXPLICIT evidence, no inference
 POSSIBLE_RELATIONS = [
-    # Organizational structure
-    "WORKS_FOR", "REPORTS_TO", "HAS_ROLE",
-    # Business relationships (supply chain critical)
-    "CLIENT_OF", "VENDOR_OF", "SUPPLIES", "MANAGES",
-    # Work assignments
-    "ASSIGNED_TO",
-    # Manufacturing dependencies (CRITICAL)
-    "REQUIRES", "USED_IN",
+    # People relationships
+    "WORKS_FOR",          # PERSON → COMPANY (employment)
+    "WORKS_WITH",         # PERSON → PERSON/COMPANY (collaboration, contact)
+    "HAS_ROLE",           # PERSON → ROLE (job title)
+    "WORKS_ON",           # PERSON → PURCHASE_ORDER (who handles what)
+
+    # Business relationships
+    "SUPPLIES_TO",        # COMPANY → COMPANY (supplier relationship)
+    "SUPPLIES",           # COMPANY → MATERIAL (what company supplies)
+
+    # Materials & orders
+    "CONTAINS",           # PURCHASE_ORDER → MATERIAL (what materials in order)
+    "SENT_TO",            # PURCHASE_ORDER → PERSON/COMPANY (who receives PO)
+
     # Certifications
-    "HAS_CERTIFICATION",
-    # Financial
-    "PAID_BY", "PAID_TO",
-    # Contact relationships
-    "CONTACT_FOR"
+    "HAS_CERTIFICATION",  # COMPANY → CERTIFICATION
 ]
 
 # Validation Schema - Manufacturing-Critical Relationships Only
@@ -87,67 +88,45 @@ POSSIBLE_RELATIONS = [
 # Format: (HEAD_ENTITY, RELATIONSHIP, TAIL_ENTITY)
 KG_VALIDATION_SCHEMA = [
     # ============================================
-    # ORGANIZATIONAL STRUCTURE (Who works where)
+    # PEOPLE RELATIONSHIPS
     # ============================================
-    ("PERSON", "WORKS_FOR", "COMPANY"),
-    ("PERSON", "REPORTS_TO", "PERSON"),
-    ("PERSON", "HAS_ROLE", "ROLE"),              # John Smith HAS_ROLE VP of Sales
+    ("PERSON", "WORKS_FOR", "COMPANY"),          # "John works for Acme"
+    ("PERSON", "WORKS_WITH", "PERSON"),          # "John works with Sarah"
+    ("PERSON", "WORKS_WITH", "COMPANY"),         # "John works with Acme" (contact/collaboration)
+    ("PERSON", "HAS_ROLE", "ROLE"),              # "John has role VP of Sales"
+    ("PERSON", "WORKS_ON", "PURCHASE_ORDER"),    # "Sarah works on PO #54321"
 
     # ============================================
-    # BUSINESS RELATIONSHIPS (Supply chain critical)
+    # BUSINESS RELATIONSHIPS
     # ============================================
-    ("COMPANY", "CLIENT_OF", "COMPANY"),         # Acme CLIENT_OF Unit Industries
-    ("COMPANY", "VENDOR_OF", "COMPANY"),         # Supplier VENDOR_OF Unit Industries
-    ("COMPANY", "SUPPLIES", "MATERIAL"),         # Supplier SUPPLIES Polycarbonate PC-1000
-    ("PERSON", "MANAGES", "COMPANY"),            # John MANAGES Acme (account manager)
-    ("PERSON", "MANAGES", "MATERIAL"),           # Sarah MANAGES Polycarbonate (procurement)
+    ("COMPANY", "SUPPLIES_TO", "COMPANY"),       # "Superior Mold supplies to Unit Industries"
+    ("COMPANY", "WORKS_WITH", "COMPANY"),        # "Acme works with PolyPlastics"
+    ("COMPANY", "SUPPLIES", "MATERIAL"),         # "Acme supplies polycarbonate"
 
     # ============================================
-    # CONTACT RELATIONSHIPS (Who to reach)
+    # MATERIALS & ORDERS
     # ============================================
-    ("PERSON", "CONTACT_FOR", "COMPANY"),        # John CONTACT_FOR Acme Corp (main contact)
-    ("PERSON", "CONTACT_FOR", "DEAL"),           # Sarah CONTACT_FOR Deal #12345 (point person)
+    ("PURCHASE_ORDER", "CONTAINS", "MATERIAL"),  # "PO #54321 contains polycarbonate"
+    ("PURCHASE_ORDER", "SENT_TO", "PERSON"),     # "PO #54321 sent to John"
+    ("PURCHASE_ORDER", "SENT_TO", "COMPANY"),    # "PO #54321 sent to Acme"
 
     # ============================================
-    # WORK ASSIGNMENTS (Who does what)
+    # CERTIFICATIONS
     # ============================================
-    ("DEAL", "ASSIGNED_TO", "PERSON"),           # Deal ASSIGNED_TO sales rep
-
-    # ============================================
-    # MANUFACTURING DEPENDENCIES (What requires what)
-    # ============================================
-    ("DEAL", "REQUIRES", "MATERIAL"),            # Order REQUIRES Polycarbonate
-    ("DEAL", "REQUIRES", "CERTIFICATION"),       # Order REQUIRES ISO 9001 cert
-    ("MATERIAL", "USED_IN", "DEAL"),             # Polycarbonate USED_IN Deal #123
-
-    # ============================================
-    # CERTIFICATIONS (Compliance tracking)
-    # ============================================
-    ("COMPANY", "HAS_CERTIFICATION", "CERTIFICATION"),    # Supplier HAS_CERTIFICATION ISO 9001
-    ("MATERIAL", "HAS_CERTIFICATION", "CERTIFICATION"),   # Material HAS_CERTIFICATION FDA approved
-    ("PERSON", "HAS_CERTIFICATION", "CERTIFICATION"),     # Engineer HAS_CERTIFICATION Six Sigma
-
-    # ============================================
-    # FINANCIAL (Payments)
-    # ============================================
-    ("PAYMENT", "PAID_BY", "COMPANY"),           # Payment PAID_BY Unit Industries
-    ("PAYMENT", "PAID_TO", "COMPANY"),           # Payment PAID_TO Supplier
+    ("COMPANY", "HAS_CERTIFICATION", "CERTIFICATION"),
 ]
 
 # Legacy Literal types (for backward compatibility)
 ENTITIES = Literal[
-    "PERSON", "COMPANY", "ROLE", "DEAL",
-    "PAYMENT", "MATERIAL", "CERTIFICATION"
+    "PERSON", "COMPANY", "ROLE",
+    "PURCHASE_ORDER", "MATERIAL", "CERTIFICATION"
 ]
 
 RELATIONS = Literal[
-    "WORKS_FOR", "REPORTS_TO", "HAS_ROLE",
-    "CLIENT_OF", "VENDOR_OF", "SUPPLIES", "MANAGES",
-    "ASSIGNED_TO",
-    "REQUIRES", "USED_IN",
-    "HAS_CERTIFICATION",
-    "PAID_BY", "PAID_TO",
-    "CONTACT_FOR"
+    "WORKS_FOR", "WORKS_WITH", "HAS_ROLE", "WORKS_ON",
+    "SUPPLIES_TO", "SUPPLIES",
+    "CONTAINS", "SENT_TO",
+    "HAS_CERTIFICATION"
 ]
 
 VALIDATION_SCHEMA = KG_VALIDATION_SCHEMA  # Alias for backward compatibility

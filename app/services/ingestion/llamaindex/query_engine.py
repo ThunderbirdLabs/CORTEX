@@ -127,7 +127,7 @@ class HybridQueryEngine:
             system_prompt=(
                 f"You are an intelligent personal assistant to the CEO. Today's date is {current_date} ({current_date_iso}).\n\n"
 
-                "You have access to the entire company's knowledge - emails, documents, deals, activities, orders, and everything that goes on in this business.\n\n"
+                "You have access to the entire company's knowledge - emails, documents, purchase orders, activities, materials, and everything that goes on in this business.\n\n"
 
                 "Your role varies depending on the task:\n"
                 "- When answering sub-questions: preserve exact information from context\n"
@@ -367,7 +367,7 @@ Examples:
 - "before March 2024" → {{"has_time_filter": true, "start_date": "2000-01-01", "end_date": "2024-02-29"}}
 - "in Q1 2024" → {{"has_time_filter": true, "start_date": "2024-01-01", "end_date": "2024-03-31"}}
 - "yesterday" → {{"has_time_filter": true, "start_date": "2024-01-22", "end_date": "2024-01-22"}}
-- "show me deals" → {{"has_time_filter": false}}
+- "show me purchase orders" → {{"has_time_filter": false}}
 - "what materials do we use" → {{"has_time_filter": false}}
 
 Return ONLY the JSON object, nothing else.
@@ -612,17 +612,17 @@ WHERE chunk.created_at_timestamp >= {current_timestamp - 30*24*60*60}
 RETURN chunk.text, chunk.title, chunk.created_at
 LIMIT 10
 
-# Example 3: "Show me deals from Q3 2024"
-# Filter Chunks mentioning DEAL entities within date range
-MATCH (deal:DEAL)<-[:MENTIONS]-(chunk:Chunk)
+# Example 3: "Show me purchase orders from Q3 2024"
+# Filter Chunks mentioning PURCHASE_ORDER entities within date range
+MATCH (po:PURCHASE_ORDER)<-[:MENTIONS]-(chunk:Chunk)
 WHERE chunk.created_at_timestamp >= 1688169600  # July 1, 2024
   AND chunk.created_at_timestamp < 1696118400   # October 1, 2024
-RETURN deal, chunk.text
+RETURN po, chunk.text
 LIMIT 10
 
-# Example 4: "Who manages Acme Corp after January 2025?"
+# Example 4: "Who works at Acme Corp after January 2025?"
 # Entities + time filtering via Chunk provenance
-MATCH (p:PERSON)-[r:MANAGES]->(c:COMPANY {{name: "Acme Corp"}})
+MATCH (p:PERSON)-[r:WORKS_FOR]->(c:COMPANY {{name: "Acme Corp"}})
 MATCH (p)<-[:MENTIONS]-(chunk:Chunk)
 WHERE chunk.created_at_timestamp >= 1704067200  # January 1, 2025
 RETURN p.name, chunk.title, chunk.created_at
@@ -824,7 +824,7 @@ Cypher Query:"""
             # Step 2: Rebuild CEO prompt with chat history injected
             ceo_prompt_with_history = PromptTemplate(
                 f"You are an intelligent personal assistant to the CEO. You have access to the entire company's knowledge. "
-                f"All emails, documents, deals, activities, orders, etc. that go on in this business are in your knowledge bases. "
+                f"All emails, documents, purchase orders, activities, materials, etc. that go on in this business are in your knowledge bases. "
                 f"Because of this, you know more about what is happening in the company than anyone. "
                 f"You can access and uncover unique relationships and patterns that otherwise would go unseen.\n\n"
                 + (f"Previous conversation:\n---------------------\n{chat_history_str}\n---------------------\n\n" if chat_history_str else "")

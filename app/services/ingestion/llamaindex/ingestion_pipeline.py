@@ -212,29 +212,24 @@ and manufacturing operations.
 - CRITICAL: Only extract if you see an actual human name
 
 **COMPANY**: Business entities and organizations
-- MUST BE: An actual company or organization name
+- MUST BE: The name of a business you could send an invoice to or receive a shipment from
 - Examples: "Acme Industries", "PolyPlastics Supply Co.", "Unit Industries", "Superior Mold", "TriStar"
-- CRITICAL: If it's an organization name, it's COMPANY
+- CRITICAL: Must be an entity that has employees, sells/buys products, or provides services
 
-**ROLE**: Job titles and positions
-- MUST BE: A specific job title or position
+**ROLE**: Job titles and positions held by people
+- MUST BE: A professional job title that describes what a person does
 - Examples: "VP of Sales", "Quality Engineer", "Procurement Manager", "Account Manager", "Technician"
-- CRITICAL: Extract the title itself, separate from the person's name
+- CRITICAL: Must be a title a person holds in an organization (not generic words like "customer" or "room")
 
-**DEAL**: Specific orders, quotes, projects
-- MUST BE: A specific order number, quote, or project name
-- Examples: "Order #12345", "Q4 2025 RFQ", "Acme Widget Project", "PO #54321"
-- CRITICAL: Must have a specific identifier or project name
+**PURCHASE_ORDER**: Specific purchase orders and invoices
+- MUST BE: A specific PO number or invoice identifier
+- Examples: "PO #54321", "Invoice #INV-2025-001", "PO9764F", "Purchase Order 12345"
+- CRITICAL: Must have a specific transaction or order number
 
-**PAYMENT**: Specific invoices, payments, purchase orders
-- MUST BE: A specific invoice, payment, or PO number
-- Examples: "Invoice #INV-2025-001", "PO #54321", "Payment for Q1 Materials"
-- CRITICAL: Must have a specific transaction identifier
-
-**MATERIAL**: Raw materials, resins, plastics, components, parts
-- MUST BE: A specific material type, grade, or component
-- Examples: "polycarbonate PC-1000", "ABS resin grade 5", "steel mold inserts", "nylon pellets"
-- CRITICAL: Must be a specific material with identifiable properties
+**MATERIAL**: Physical substances, resins, plastics, and manufactured components used in production
+- MUST BE: A tangible material or component with physical properties used in manufacturing
+- Examples: "polycarbonate PC-1000", "ABS resin grade 5", "steel mold inserts", "nylon pellets", "aluminum housing"
+- CRITICAL: Must be a physical substance or part used to make products (not organizational departments, documents, or abstract concepts)
 
 **CERTIFICATION**: Certifications and quality standards
 - MUST BE: A specific certification name or standard
@@ -245,29 +240,23 @@ and manufacturing operations.
 
 **Organizational:**
 - WORKS_FOR: Person works for Company
-- REPORTS_TO: Person reports to Person
 - HAS_ROLE: Person has Role
 
+**People Relationships:**
+- WORKS_WITH: Person works with Person/Company (collaboration, contact)
+- WORKS_ON: Person works on Purchase Order (who handles what)
+
 **Business Relationships:**
-- CLIENT_OF: Company is client of Company
-- VENDOR_OF: Company is vendor of Company
-- SUPPLIES: Company supplies Material
-- MANAGES: Person manages Company/Material
+- SUPPLIES_TO: Company supplies to Company (supplier relationship)
+- WORKS_WITH: Company works with Company (business collaboration)
+- SUPPLIES: Company supplies Material (what company provides)
 
-**Work & Assignments:**
-- ASSIGNED_TO: Deal assigned to Person
-- CONTACT_FOR: Person is contact for Company/Deal
-
-**Manufacturing Dependencies:**
-- REQUIRES: Deal requires Material/Certification
-- USED_IN: Material used in Deal
+**Materials & Orders:**
+- CONTAINS: Purchase Order contains Material (what materials in order)
+- SENT_TO: Purchase Order sent to Person/Company (recipient)
 
 **Certifications:**
-- HAS_CERTIFICATION: Company/Material/Person has Certification
-
-**Financial:**
-- PAID_BY: Payment paid by Company
-- PAID_TO: Payment paid to Company
+- HAS_CERTIFICATION: Company has Certification
 
 # Extraction Instructions
 
@@ -279,23 +268,86 @@ and manufacturing operations.
 6. If unclear or ambiguous, skip it entirely
 7. Limit to {max_triplets_per_chunk} highest-value relationships per chunk
 
+# Relationship Extraction Guidelines
+
+**WORKS_FOR (Person → Company):**
+- Extract when there's clear evidence of employment or official affiliation
+- Context clues: job title, employee ID, "our team", organizational hierarchy, benefits/payroll mentions
+- Examples that qualify: "John Smith, VP of Sales at Acme", "our engineer Sarah", "employee ID #4521"
+- DO NOT extract from: "John from Acme emailed us" (this is WORKS_WITH, not employment)
+
+**WORKS_WITH (Person → Person/Company):**
+- Extract for professional collaboration, business contacts, or regular interaction
+- Context clues: "contact at", "working with", "coordinates with", email exchanges, project collaboration
+- Examples that qualify: "reach out to John at Acme", "Sarah from PolyPlastics handles our orders"
+- Broader than WORKS_FOR - indicates business relationship without employment
+
+**HAS_ROLE (Person → Role):**
+- Extract when a professional title is directly associated with a person
+- Context clues: title before/after name, signature blocks, "our [title]", organizational charts
+- Examples that qualify: "John Smith, VP of Sales", "Sarah Chen (Procurement Manager)"
+- Titles must be specific job roles, not generic descriptors
+
+**WORKS_ON (Person → Purchase Order):**
+- Extract when a person has responsibility for or is actively handling a specific PO
+- Context clues: "handling PO", "responsible for", "assigned to", "working on order", "managing invoice"
+- Examples that qualify: "Sarah is handling PO #54321", "John assigned to Invoice #2025-001"
+- Must reference a specific PO number/identifier
+
+**CONTAINS (Purchase Order → Material):**
+- Extract when specific materials are listed as part of a PO or order
+- Context clues: "PO includes", "order contains", "invoice for [material]", line items, bill of materials
+- Examples that qualify: "PO #54321 includes polycarbonate PC-1000", "order for 500kg ABS resin"
+- Must link specific PO to specific material
+
+**SUPPLIES_TO (Company → Company):**
+- Extract for vendor/supplier relationships between businesses
+- Context clues: "supplies", "vendor for", "provides to", "ships to", invoices/POs between companies
+- Examples that qualify: "Superior Mold supplies to Unit Industries", "Acme is our resin vendor"
+- Must show clear supplier → customer direction
+
+**SUPPLIES (Company → Material):**
+- Extract when a company provides or manufactures specific materials
+- Context clues: "supplies [material]", "provides [material]", "manufacturer of", product catalogs
+- Examples that qualify: "PolyPlastics supplies ABS resin", "Acme provides polycarbonate PC-1000"
+- Must link specific company to specific material
+
+**SENT_TO (Purchase Order → Person/Company):**
+- Extract when a PO is explicitly directed to or sent to a recipient
+- Context clues: "PO sent to", "invoice for", "order placed with", "addressed to"
+- Examples that qualify: "PO #54321 sent to John Smith", "Invoice #2025-001 for Acme Industries"
+- Must show clear PO → recipient direction
+
+**HAS_CERTIFICATION (Company → Certification):**
+- Extract when certifications are explicitly attributed to a company
+- Context clues: "ISO certified", "has certification", "certified for", certificates/standards mentioned
+- Examples that qualify: "ISO 9001 certified supplier", "Acme has IATF 16949 certification"
+- Must be a recognized standard/certification, not generic quality claims
+
+**General Principles:**
+- Require explicit evidence in the text - avoid inference or assumption
+- Context matters: "John from Acme" in an email signature = WORKS_FOR, but in "John from Acme called" = WORKS_WITH
+- Directional relationships matter: SUPPLIES_TO goes from vendor → customer, not bidirectional
+- When multiple relationships could apply, choose the most specific one with strongest evidence
+- If confidence is below 90%, skip the relationship entirely
+
 # Examples
 
-Input: "John Smith from Acme Industries ordered polycarbonate PC-1000 for the Q4 widget project."
+Input: "John Smith from Acme Industries is handling PO #54321 which includes polycarbonate PC-1000."
 Output:
 - (John Smith, WORKS_FOR, Acme Industries)
-- (John Smith, CONTACT_FOR, Q4 widget project)
-- (Q4 widget project, REQUIRES, polycarbonate PC-1000)
+- (John Smith, WORKS_ON, PO #54321)
+- (PO #54321, CONTAINS, polycarbonate PC-1000)
 
-Input: "Sarah Chen, our Procurement Manager, confirmed that PolyPlastics Supply will provide ISO 9001 certified ABS resin."
+Input: "Sarah Chen, our Procurement Manager, works with PolyPlastics Supply who provides ISO 9001 certified ABS resin."
 Output:
 - (Sarah Chen, HAS_ROLE, Procurement Manager)
-- (PolyPlastics Supply, SUPPLIES, ABS resin)
+- (Sarah Chen, WORKS_WITH, PolyPlastics Supply)
 - (ABS resin, HAS_CERTIFICATION, ISO 9001)
 
-Input: "Superior Mold provided mold inserts for the project."
+Input: "Superior Mold supplies to Unit Industries and provided mold inserts."
 Output:
-- (Superior Mold, SUPPLIES, mold inserts)
+- (Superior Mold, SUPPLIES_TO, Unit Industries)
 
 Now extract entities and relationships from the following text:
 
