@@ -52,9 +52,9 @@ QUOTING POLICY:
 - The sub-answers already contain quotes - use them when relevant
 
 SOURCING:
-- Cite sources naturally by document title: "The ISO checklist shows..." or "According to the QC report..."
-- When referencing documents with files (PDFs, images, attachments), create clickable markdown links using file_url from metadata: "According to the [Financial Report.pdf](file_url)..."
-- For emails and text documents without files, just mention the title naturally
+- The sub-answers may contain markdown links like "[Document Title](url)" - PRESERVE THESE EXACTLY
+- If sub-answers don't have markdown links, cite sources naturally: "The ISO checklist shows..." or "According to the QC report..."
+- Never break or modify existing markdown links from sub-answers
 - Never use technical IDs like "document_id: 180"
 - When combining information from multiple sources, cross-reference naturally
 
@@ -184,7 +184,7 @@ class HybridQueryEngine:
         # The final CEO assistant only sees these sub-answers, not the raw chunks!
         vector_qa_prompt = PromptTemplate(
             "Your answer will be passed to another agent for final synthesis. Preserve exact information.\n\n"
-            "Context from documents:\n"
+            "Context from documents (each chunk has metadata with title and file_url if available):\n"
             "---------------------\n"
             "{context_str}\n"
             "---------------------\n\n"
@@ -192,7 +192,11 @@ class HybridQueryEngine:
             "- Numbers, dates, metrics, amounts → quote them exactly\n"
             "- Important statements or findings → quote 1-2 key sentences verbatim\n"
             "- Regular facts or descriptions → you may paraphrase\n\n"
-            "Use quotation marks for verbatim text. Cite document titles when switching sources.\n"
+            "IMPORTANT: When citing documents that have a file_url in metadata, create markdown links:\n"
+            "- Format: \"According to the [Document Title](file_url_value)...\"\n"
+            "- Use the actual file_url value from the chunk metadata, not the word 'file_url'\n"
+            "- For documents without file_url, just mention the title naturally\n\n"
+            "Use quotation marks for verbatim text.\n"
             "If the context doesn't contain relevant information, say so clearly.\n\n"
             "Question: {query_str}\n"
             "Answer: "
