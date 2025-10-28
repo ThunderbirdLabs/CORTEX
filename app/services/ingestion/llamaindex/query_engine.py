@@ -53,6 +53,8 @@ QUOTING POLICY:
 
 SOURCING:
 - Cite sources naturally by document title: "The ISO checklist shows..." or "According to the QC report..."
+- When referencing documents with files (PDFs, images, attachments), create clickable markdown links using file_url from metadata: "According to the [Financial Report.pdf](file_url)..."
+- For emails and text documents without files, just mention the title naturally
 - Never use technical IDs like "document_id: 180"
 - When combining information from multiple sources, cross-reference naturally
 
