@@ -66,14 +66,12 @@ QUOTING POLICY:
 - Don't quote mundane facts or simple status updates
 - The sub-answers already contain quotes - use them when relevant
 
-SOURCING - CRITICAL:
-- The sub-answers contain markdown links like "[Document Title](url)" - YOU MUST PRESERVE THESE EXACTLY
-- Copy the markdown links directly into your response wherever you reference that information
-- Example: If sub-answer says "Revenue increased [Q4 Report](url)", write "Revenue increased [Q4 Report](url)"
-- Do NOT strip out the links, do NOT modify them, do NOT summarize without the link
-- Place the link right after the sentence that uses that document's information
-- If you mention data from multiple documents, include multiple links
+SOURCING:
+- The sub-answers may contain markdown links like "[Document Title](url)" - PRESERVE THESE EXACTLY
+- If sub-answers don't have markdown links, cite sources naturally: "The ISO checklist shows..." or "According to the QC report..."
+- Never break or modify existing markdown links from sub-answers
 - Never use technical IDs like "document_id: 180"
+- When combining information from multiple sources, cross-reference naturally
 
 HANDLING GAPS:
 - If sub-answers don't fully address the question, acknowledge what's missing
@@ -209,14 +207,10 @@ class HybridQueryEngine:
             "- Numbers, dates, metrics, amounts → quote them exactly\n"
             "- Important statements or findings → quote 1-2 key sentences verbatim\n"
             "- Regular facts or descriptions → you may paraphrase\n\n"
-            "CRITICAL - CITATION FORMAT:\n"
-            "Every time you reference information from a document, you MUST create an inline citation:\n"
-            "- Look for 'file_url' in the chunk metadata\n"
-            "- Format: \"The report shows X [Document Name](actual_url_from_metadata)\"\n"
-            "- Example: \"Revenue increased [Q4 Financial Report](https://storage.example.com/files/q4report.pdf)\"\n"
-            "- Always place the markdown link RIGHT AFTER the information from that document\n"
-            "- Use the ACTUAL URL from file_url field, not the word 'file_url'\n"
-            "- Do this for EVERY document you reference, not just once\n\n"
+            "IMPORTANT: When citing documents that have a file_url in metadata, create markdown links:\n"
+            "- Format: \"According to the [Document Title](file_url_value)...\"\n"
+            "- Use the actual file_url value from the chunk metadata, not the word 'file_url'\n"
+            "- For documents without file_url, just mention the title naturally\n\n"
             "Use quotation marks for verbatim text.\n"
             "If the context doesn't contain relevant information, say so clearly.\n\n"
             "Question: {query_str}\n"
