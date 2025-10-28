@@ -66,12 +66,13 @@ QUOTING POLICY:
 - Don't quote mundane facts or simple status updates
 - The sub-answers already contain quotes - use them when relevant
 
-SOURCING:
-- The sub-answers may contain markdown links like "[Document Title](url)" - PRESERVE THESE EXACTLY
-- If sub-answers don't have markdown links, cite sources naturally: "The ISO checklist shows..." or "According to the QC report..."
-- Never break or modify existing markdown links from sub-answers
-- Never use technical IDs like "document_id: 180"
-- When combining information from multiple sources, cross-reference naturally
+SOURCING - CRITICAL:
+- The sub-answers contain document citations in brackets like [Document_Title.pdf]
+- YOU MUST PRESERVE THESE CITATIONS EXACTLY in your final response
+- Example: If sub-answer says "Revenue increased 23% [Q4_Report.xlsx]", keep the [Q4_Report.xlsx] citation
+- NEVER remove or modify the bracketed citations - they are essential
+- Keep citations inline right after the relevant information, not at end of sentence
+- If combining info from multiple sources, preserve all citations: "Revenue grew [Q4_Report.xlsx] and costs decreased [Expenses_Sheet.xlsx]"
 
 HANDLING GAPS:
 - If sub-answers don't fully address the question, acknowledge what's missing
@@ -199,7 +200,7 @@ class HybridQueryEngine:
         # The final CEO assistant only sees these sub-answers, not the raw chunks!
         vector_qa_prompt = PromptTemplate(
             "Your answer will be passed to another agent for final synthesis. Preserve exact information.\n\n"
-            "Context from documents (each chunk has metadata with title and file_url if available):\n"
+            "Context from documents (each chunk has metadata with title):\n"
             "---------------------\n"
             "{context_str}\n"
             "---------------------\n\n"
@@ -207,10 +208,13 @@ class HybridQueryEngine:
             "- Numbers, dates, metrics, amounts → quote them exactly\n"
             "- Important statements or findings → quote 1-2 key sentences verbatim\n"
             "- Regular facts or descriptions → you may paraphrase\n\n"
-            "IMPORTANT: When citing documents that have a file_url in metadata, create markdown links:\n"
-            "- Format: \"According to the [Document Title](file_url_value)...\"\n"
-            "- Use the actual file_url value from the chunk metadata, not the word 'file_url'\n"
-            "- For documents without file_url, just mention the title naturally\n\n"
+            "CRITICAL - DOCUMENT CITATIONS:\n"
+            "When you use information from a document, include the document title in brackets immediately after:\n"
+            "- Format: \"Revenue increased 23% [Q4_Financial_Report.xlsx]\"\n"
+            "- Format: \"Quality metrics improved [ISO_Audit_Checklist.pdf]\"\n"
+            "- Use the EXACT title from the chunk metadata\n"
+            "- Place the citation right after the fact, not at end of sentence\n"
+            "- Every piece of information MUST have its source in brackets\n\n"
             "Use quotation marks for verbatim text.\n"
             "If the context doesn't contain relevant information, say so clearly.\n\n"
             "Question: {query_str}\n"
@@ -228,6 +232,12 @@ class HybridQueryEngine:
             "- Describe relationships clearly: who did what, who works where, who sent what\n"
             "- If context includes quotes or specific statements, preserve them\n"
             "- Translate technical relationship types to natural language (CREATED_BY → \"created by\")\n\n"
+            "CRITICAL - DOCUMENT CITATIONS:\n"
+            "When you reference information from a document, include the document title in brackets:\n"
+            "- Format: \"Email from John Smith [Email_2024_10_15.eml]\"\n"
+            "- Format: \"Sandra works in QA [Employee_Directory.xlsx]\"\n"
+            "- Use the EXACT title from the context metadata\n"
+            "- Every fact MUST cite its source document in brackets\n\n"
             "If the context doesn't contain relevant information, say so clearly.\n\n"
             "Question: {query_str}\n"
             "Answer: "
@@ -510,7 +520,7 @@ Return ONLY the JSON object, nothing else.
                 # Sub-question prompt for filtered vector queries (same as unfiltered)
                 vector_qa_prompt_filtered = PromptTemplate(
                     "Your answer will be passed to another agent for final synthesis. Preserve exact information.\n\n"
-                    "Context from documents:\n"
+                    "Context from documents (each chunk has metadata with title):\n"
                     "---------------------\n"
                     "{context_str}\n"
                     "---------------------\n\n"
@@ -518,7 +528,14 @@ Return ONLY the JSON object, nothing else.
                     "- Numbers, dates, metrics, amounts → quote them exactly\n"
                     "- Important statements or findings → quote 1-2 key sentences verbatim\n"
                     "- Regular facts or descriptions → you may paraphrase\n\n"
-                    "Use quotation marks for verbatim text. Cite document titles when switching sources.\n"
+                    "CRITICAL - DOCUMENT CITATIONS:\n"
+                    "When you use information from a document, include the document title in brackets immediately after:\n"
+                    "- Format: \"Revenue increased 23% [Q4_Financial_Report.xlsx]\"\n"
+                    "- Format: \"Quality metrics improved [ISO_Audit_Checklist.pdf]\"\n"
+                    "- Use the EXACT title from the chunk metadata\n"
+                    "- Place the citation right after the fact, not at end of sentence\n"
+                    "- Every piece of information MUST have its source in brackets\n\n"
+                    "Use quotation marks for verbatim text.\n"
                     "If the context doesn't contain relevant information, say so clearly.\n\n"
                     "Question: {query_str}\n"
                     "Answer: "
@@ -628,6 +645,12 @@ Cypher Query:"""
                     "- Describe relationships clearly: who did what, who works where, who sent what\n"
                     "- If context includes quotes or specific statements, preserve them\n"
                     "- Translate technical relationship types to natural language (CREATED_BY → \"created by\")\n\n"
+                    "CRITICAL - DOCUMENT CITATIONS:\n"
+                    "When you reference information from a document, include the document title in brackets:\n"
+                    "- Format: \"Email from John Smith [Email_2024_10_15.eml]\"\n"
+                    "- Format: \"Sandra works in QA [Employee_Directory.xlsx]\"\n"
+                    "- Use the EXACT title from the context metadata\n"
+                    "- Every fact MUST cite its source document in brackets\n\n"
                     "If the context doesn't contain relevant information, say so clearly.\n\n"
                     "Question: {query_str}\n"
                     "Answer: "
