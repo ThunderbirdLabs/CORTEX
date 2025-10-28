@@ -144,17 +144,20 @@ class HybridQueryEngine:
         )
 
         # Qdrant vector store (with async client for retrieval)
-        # Connection pool limits to prevent exhaustion under load
+        # Increased timeout for slower connections and added retries
         qdrant_client = QdrantClient(
             url=QDRANT_URL,
             api_key=QDRANT_API_KEY,
-            timeout=30.0,  # 30s timeout for operations
+            timeout=60.0,  # 60s timeout for operations (increased from 30s)
             # Connection pooling handled by httpx internally (default: 100 max connections)
         )
         qdrant_aclient = AsyncQdrantClient(
             url=QDRANT_URL,
             api_key=QDRANT_API_KEY,
-            timeout=30.0
+            timeout=60.0,  # 60s timeout (increased from 30s)
+            # Retry on connection failures
+            max_retries=3,
+            retry_on_failures=True
         )
         vector_store = QdrantVectorStore(
             client=qdrant_client,
@@ -178,10 +181,10 @@ class HybridQueryEngine:
             password=NEO4J_PASSWORD,
             url=NEO4J_URI,
             database=NEO4J_DATABASE,
-            timeout=30.0,  # 30s timeout for queries
+            timeout=60.0,  # 60s timeout for queries (increased from 30s)
             # Neo4j driver config (prevent connection exhaustion under load)
             max_connection_pool_size=50,  # Max 50 concurrent connections
-            connection_acquisition_timeout=30.0,  # 30s wait for connection from pool
+            connection_acquisition_timeout=60.0,  # 60s wait for connection from pool (increased from 30s)
             max_connection_lifetime=3600,  # Recycle connections after 1 hour
         )
         self.graph_store = graph_store

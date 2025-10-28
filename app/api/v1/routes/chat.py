@@ -266,9 +266,24 @@ async def chat(
 
     except Exception as e:
         logger.error(f"Chat error: {str(e)}", exc_info=True)
+
+        # Provide more helpful error messages based on error type
+        error_message = "I'm experiencing technical difficulties. Please try again in a moment."
+
+        # Check for specific error types
+        error_str = str(e).lower()
+        if "timeout" in error_str or "connection" in error_str:
+            error_message = "The knowledge base is taking longer than expected to respond. Please try again."
+        elif "qdrant" in error_str:
+            error_message = "Unable to connect to the knowledge base. Please try again."
+        elif "neo4j" in error_str:
+            error_message = "Unable to connect to the graph database. Please try again."
+        elif "openai" in error_str or "api" in error_str:
+            error_message = "The AI service is temporarily unavailable. Please try again."
+
         raise HTTPException(
             status_code=500,
-            detail=f"Chat failed: {str(e)}"
+            detail=error_message
         )
 
 
