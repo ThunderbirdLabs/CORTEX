@@ -235,7 +235,8 @@ async def chat(
                 'document_type': metadata.get('document_type', 'document'),
                 'timestamp': metadata.get('created_at', metadata.get('timestamp', 'Unknown')),
                 'text_preview': node.text[:200] if hasattr(node, 'text') else '',
-                'score': node.score if hasattr(node, 'score') else None
+                'score': node.score if hasattr(node, 'score') else None,
+                'file_url': metadata.get('file_url', None)  # ADD FILE URL FOR CLICKABLE LINKS
             }
             sources.append(source_info)
             logger.info(f"   📄 Source {source_index}: {source_info['source']} - {source_info['document_name']}")
