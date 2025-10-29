@@ -151,6 +151,20 @@ SHOW_PROGRESS = True
 NUM_WORKERS = 4  # For parallel node processing
 
 # ============================================
+# RELATIONSHIP VALIDATION CONFIGURATION
+# ============================================
+
+# Enable LLM-based relationship validation to prevent false relationships
+# Research: False relationships are worse than missing relationships
+# - Vector store handles semantic search (no graph needed)
+# - Knowledge graph provides PRECISE entity connections
+# - One false relationship → wrong business decision
+#
+# Cost: ~$0.001 per document (~0.1¢)
+# Performance: Adds ~200ms per relationship validation
+ENABLE_RELATIONSHIP_VALIDATION = os.getenv("ENABLE_RELATIONSHIP_VALIDATION", "true").lower() == "true"
+
+# ============================================
 # CACHING CONFIGURATION (Production)
 # ============================================
 

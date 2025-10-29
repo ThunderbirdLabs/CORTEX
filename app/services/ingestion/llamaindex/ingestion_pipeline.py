@@ -45,8 +45,10 @@ from .config import (
     OPENAI_API_KEY, EXTRACTION_MODEL, EXTRACTION_TEMPERATURE,
     EMBEDDING_MODEL, CHUNK_SIZE, CHUNK_OVERLAP, SHOW_PROGRESS,
     NUM_WORKERS, ENABLE_CACHE, REDIS_HOST, REDIS_PORT, CACHE_COLLECTION,
-    POSSIBLE_ENTITIES, POSSIBLE_RELATIONS, KG_VALIDATION_SCHEMA
+    POSSIBLE_ENTITIES, POSSIBLE_RELATIONS, KG_VALIDATION_SCHEMA,
+    ENABLE_RELATIONSHIP_VALIDATION
 )
+from .relationship_validator import RelationshipValidator
 
 logger = logging.getLogger(__name__)
 
@@ -366,6 +368,14 @@ Now extract entities and relationships from the following text:
             extract_prompt=extraction_prompt  # Manufacturing-specific extraction guidance
         )
         logger.info(f"✅ Entity Extractor: SchemaLLMPathExtractor (validated business schema)")
+
+        # Relationship validator (prevent false relationships)
+        self.relationship_validator = None
+        if ENABLE_RELATIONSHIP_VALIDATION:
+            self.relationship_validator = RelationshipValidator(llm=self.extraction_llm)
+            logger.info(f"✅ Relationship Validator: LLM-based validation enabled")
+        else:
+            logger.info(f"   ⚠️  Relationship validation disabled (set ENABLE_RELATIONSHIP_VALIDATION=true to enable)")
 
         # Production caching setup (optional but recommended)
         cache = None
@@ -819,9 +829,21 @@ Now extract entities and relationships from the following text:
                                 self._upsert_relations_with_retry(mentions_relations)
 
                         if relations:
-                            # Upsert extracted relationships between entities
-                            self._upsert_relations_with_retry(relations)
-                            total_relations += len(relations)
+                            # Validate relationships if enabled
+                            if self.relationship_validator:
+                                validated_relations = await self.relationship_validator.validate_relationships(
+                                    relations=relations,
+                                    entities=entities,
+                                    chunk_text=llama_node.text
+                                )
+                            else:
+                                # No validation - use all relationships
+                                validated_relations = relations
+
+                            # Upsert only validated relationships
+                            if validated_relations:
+                                self._upsert_relations_with_retry(validated_relations)
+                                total_relations += len(validated_relations)
 
                     if total_chunks > 0:
                         logger.info(f"   ✅ Created {total_chunks} chunk nodes (provenance)")
