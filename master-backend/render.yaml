@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: cortex-master-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MASTER_SUPABASE_URL
+        sync: false
+      - key: MASTER_SUPABASE_SERVICE_KEY
+        sync: false
