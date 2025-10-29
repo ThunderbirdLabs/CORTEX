@@ -44,6 +44,7 @@ def get_cors_middleware():
             "Content-Type",
             "Authorization",
             "X-API-Key",
+            "X-Admin-Session",  # Admin dashboard authentication
             "X-Request-ID",
         ],  # Explicit headers (more secure than "*")
         "expose_headers": ["X-Request-ID"],  # Headers frontend can read
