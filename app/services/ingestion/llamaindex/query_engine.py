@@ -38,9 +38,16 @@ from app.services.company_context import build_ceo_prompt_template
 
 logger = logging.getLogger(__name__)
 
-# CEO Assistant synthesis prompt - now dynamically loaded from master Supabase!
-# This is loaded once at module import time
-CEO_ASSISTANT_PROMPT_TEMPLATE = build_ceo_prompt_template()
+# CEO Assistant synthesis prompt - loaded lazily on first use
+# This ensures master_supabase_client is initialized first
+_CEO_ASSISTANT_PROMPT_TEMPLATE = None
+
+def get_ceo_prompt_template():
+    """Lazy load CEO prompt from Supabase (only on first use)"""
+    global _CEO_ASSISTANT_PROMPT_TEMPLATE
+    if _CEO_ASSISTANT_PROMPT_TEMPLATE is None:
+        _CEO_ASSISTANT_PROMPT_TEMPLATE = build_ceo_prompt_template()
+    return _CEO_ASSISTANT_PROMPT_TEMPLATE
 
 
 class HybridQueryEngine:
@@ -233,7 +240,7 @@ class HybridQueryEngine:
 
         # Custom CEO Assistant prompt for final response synthesis
         # CRITICAL: Instructs LLM to correlate information using shared document_id
-        ceo_assistant_prompt = PromptTemplate(CEO_ASSISTANT_PROMPT_TEMPLATE)
+        ceo_assistant_prompt = PromptTemplate(get_ceo_prompt_template())
 
         # Create custom response synthesizer with CEO Assistant prompt (compact mode)
         # Compact mode: concatenates full chunks for fewer LLM calls while preserving all text
@@ -631,7 +638,7 @@ Cypher Query:"""
                 from llama_index.core.response_synthesizers import get_response_synthesizer
 
                 # Use the same CEO Assistant prompt (with formatting instructions)
-                ceo_assistant_prompt = PromptTemplate(CEO_ASSISTANT_PROMPT_TEMPLATE)
+                ceo_assistant_prompt = PromptTemplate(get_ceo_prompt_template())
 
                 response_synthesizer = get_response_synthesizer(
                     llm=self.llm,
