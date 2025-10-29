@@ -237,60 +237,19 @@ def build_ceo_prompt_template() -> str:
 
     Used by query_engine.py for response synthesis.
     """
-    context = get_company_context()
-
     # Try to load template from Supabase first
     template = get_prompt_template("ceo_assistant")
 
     if template:
-        # Template exists in database - render it with company context variables
+        # Template exists in database - return it as-is (no variable rendering needed)
         logger.info("✅ Using CEO prompt template from master Supabase")
-
-        # Build team list
-        team_lines = []
-        for member in context["team"]:
-            name = member.get("name", "Unknown")
-            title = member.get("title", "")
-            role_desc = member.get("role_description", "")
-
-            if title and role_desc:
-                team_lines.append(f"- {name} - {title}: {role_desc}")
-            elif title:
-                team_lines.append(f"- {name} - {title}")
-            else:
-                team_lines.append(f"- {name}")
-
-        team_section = "\n".join(team_lines) if team_lines else "- Team information not available"
-
-        # Build industries list
-        industries_str = ", ".join(context["industries"]) if context["industries"] else "Various industries"
-
-        # Build company profile section
-        profile_parts = [f"{context['name']} - {context['location']}"]
-
-        if context["description"]:
-            profile_parts.append(context["description"])
-
-        if context["industries"]:
-            profile_parts.append(f"Industries: {industries_str}")
-
-        if context["capabilities"]:
-            capabilities_str = ", ".join(context["capabilities"])
-            profile_parts.append(f"Key capabilities: {capabilities_str}")
-
-        company_profile = "\n".join(profile_parts)
-
-        # Render template with variables
-        return render_prompt_template("ceo_assistant", {
-            "company_name": context["name"],
-            "company_description": context["description"][:100] if context["description"] else "a business",
-            "company_profile": company_profile,
-            "team_section": team_section
-        })
+        return template
 
     else:
         # Fallback: build prompt from context (for single-tenant or if template missing)
         logger.warning("⚠️  CEO prompt template not found in database, using fallback")
+
+        context = get_company_context()
 
         # Build team list
         team_lines = []
