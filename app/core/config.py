@@ -105,6 +105,13 @@ class Settings(BaseSettings):
     save_jsonl: bool = Field(default=False, description="Save emails to JSONL for debugging")
     semaphore_limit: int = Field(default=10, description="LlamaIndex concurrency limit")
 
+    # ============================================================================
+    # ADMIN DASHBOARD
+    # ============================================================================
+
+    admin_session_duration: int = Field(default=3600, description="Admin session duration in seconds (default 1 hour)")
+    admin_ip_whitelist: Optional[str] = Field(default=None, description="Comma-separated list of allowed admin IPs (optional)")
+
     class Config:
         env_file = ".env"
         case_sensitive = False
