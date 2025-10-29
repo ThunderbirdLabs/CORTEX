@@ -62,8 +62,14 @@ def extract_with_vision(file_path: str, file_type: str, check_business_relevance
         client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
         # CONTEXT-RICH PROMPT - extracts more than just OCR
+        # Load prompts from Supabase (falls back to hardcoded if unavailable)
+        from app.services.company_context import get_prompt_template
+
         if check_business_relevance:
-            prompt = """FIRST, classify if this image contains BUSINESS-CRITICAL CONTENT for Unit Industries Group, Inc. (injection molding manufacturer):
+            prompt = get_prompt_template("vision_ocr_business_check")
+            if not prompt:
+                logger.warning("⚠️  Could not load vision_ocr_business_check prompt from Supabase, using hardcoded fallback")
+                prompt = """FIRST, classify if this image contains BUSINESS-CRITICAL CONTENT for Unit Industries Group, Inc. (injection molding manufacturer):
 
 **BUSINESS-CRITICAL content** (KEEP these):
 - Technical documents: CAD drawings, engineering specs, blueprints, schematics, quality reports
@@ -103,8 +109,13 @@ If SKIP, provide brief reason. If BUSINESS, continue with full extraction:
 [Brief description of what this document is about and its purpose]
 
 Be thorough and extract EVERYTHING visible."""
+            else:
+                logger.info("✅ Using vision_ocr_business_check prompt from Supabase")
         else:
-            prompt = """Analyze this document/image and provide a comprehensive extraction:
+            prompt = get_prompt_template("vision_ocr_extract")
+            if not prompt:
+                logger.warning("⚠️  Could not load vision_ocr_extract prompt from Supabase, using hardcoded fallback")
+                prompt = """Analyze this document/image and provide a comprehensive extraction:
 
 1. **Full Text Transcription**: Extract ALL text visible in the image (OCR)
 2. **Document Type**: What kind of document is this? (invoice, receipt, email, form, diagram, contract, etc.)
@@ -143,6 +154,8 @@ Be thorough and extract EVERYTHING visible, including:
 - Watermarks and stamps
 - Header/footer information
 - Small print and fine details"""
+            else:
+                logger.info("✅ Using vision_ocr_extract prompt from Supabase")
 
         # Call GPT-4o Vision with detail=high for best OCR quality
         response = client.chat.completions.create(

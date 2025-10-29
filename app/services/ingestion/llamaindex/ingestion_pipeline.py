@@ -196,11 +196,13 @@ class UniversalIngestionPipeline:
         # Entity extractor (for Person/Company/Deal/etc.)
         # Using SchemaLLMPathExtractor with manufacturing-specific prompt
         from .config import ENTITIES, RELATIONS
+        from app.services.company_context import get_prompt_template
 
-        # Manufacturing-specific extraction prompt
-        extraction_prompt = PromptTemplate(
-            template="""
-You are an expert at extracting entities and relationships from injection molding manufacturing documents.
+        # Load entity extraction prompt from Supabase (falls back to hardcoded if unavailable)
+        entity_extraction_template = get_prompt_template("entity_extraction")
+        if not entity_extraction_template:
+            logger.warning("⚠️  Could not load entity_extraction prompt from Supabase, using hardcoded fallback")
+            entity_extraction_template = """You are an expert at extracting entities and relationships from injection molding manufacturing documents.
 
 **MISSION**: Build an enterprise knowledge graph that maps critical business relationships inside the company.
 Extract ONLY information that helps answer strategic questions about organizational structure, supply chain dependencies,
@@ -354,8 +356,11 @@ Output:
 Now extract entities and relationships from the following text:
 
 {text}
-""".strip()
-        )
+"""
+        else:
+            logger.info("✅ Using entity_extraction prompt from Supabase")
+
+        extraction_prompt = PromptTemplate(template=entity_extraction_template.strip())
 
         self.entity_extractor = SchemaLLMPathExtractor(
             llm=self.extraction_llm,

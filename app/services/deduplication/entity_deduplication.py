@@ -613,7 +613,13 @@ class EntityDeduplicationService:
                 record = result.single()
                 entity_type = record["label"] if record and record["label"] else "Unknown"
 
-            prompt = f"""You are an entity resolution expert for a manufacturing business knowledge graph.
+            # Load deduplication prompt from Supabase (falls back to hardcoded if unavailable)
+            from app.services.company_context import get_prompt_template
+
+            dedup_template = get_prompt_template("entity_deduplication")
+            if not dedup_template:
+                logger.warning("⚠️  Could not load entity_deduplication prompt from Supabase, using hardcoded fallback")
+                dedup_template = """You are an entity resolution expert for a manufacturing business knowledge graph.
 
 TASK: Decide if these entities should be merged into ONE entity or kept SEPARATE.
 
@@ -649,6 +655,10 @@ RESPOND WITH ONLY:
 - "SEPARATE" if they are different entities
 
 Your answer:"""
+            else:
+                logger.info("✅ Using entity_deduplication prompt from Supabase")
+
+            prompt = dedup_template.format(entities_list=entities_list, entity_type=entity_type)
 
             response = self.llm.complete(prompt)
             decision = response.text.strip().upper()
