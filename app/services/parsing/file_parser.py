@@ -61,101 +61,25 @@ def extract_with_vision(file_path: str, file_type: str, check_business_relevance
         # Initialize OpenAI client
         client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
-        # CONTEXT-RICH PROMPT - extracts more than just OCR
-        # Load prompts from Supabase (falls back to hardcoded if unavailable)
+        # Load prompts from Supabase (NO hardcoded fallback)
         from app.services.company_context import get_prompt_template
 
         if check_business_relevance:
+            logger.info("🔄 Loading vision_ocr_business_check prompt from Supabase...")
             prompt = get_prompt_template("vision_ocr_business_check")
             if not prompt:
-                logger.warning("⚠️  Could not load vision_ocr_business_check prompt from Supabase, using hardcoded fallback")
-                prompt = """FIRST, classify if this image contains BUSINESS-CRITICAL CONTENT for Unit Industries Group, Inc. (injection molding manufacturer):
-
-**BUSINESS-CRITICAL content** (KEEP these):
-- Technical documents: CAD drawings, engineering specs, blueprints, schematics, quality reports
-- Business documents: Invoices, purchase orders, quotes, contracts, certificates (CoC, FOD, ISO)
-- Data/Reports: Charts, graphs, spreadsheets with business data, production schedules
-- Product photos: Parts, molds, machinery, materials, prototypes
-- Screenshots: Technical content, work communications, business applications
-
-**NON-BUSINESS content** (SKIP these):
-- Company logos (standalone images without surrounding business content)
-- Email signatures (standalone without email body)
-- Generic marketing graphics, banners, decorative images
-- Personal photos unrelated to manufacturing
-- Social media graphics, memes, stock photos
-- Small icons, badges, or decorative elements
-
-Start your response with EXACTLY ONE LINE:
-CLASSIFICATION: BUSINESS or SKIP
-
-If SKIP, provide brief reason. If BUSINESS, continue with full extraction:
-
-=== FULL TEXT ===
-[Complete transcription of all visible text]
-
-=== DOCUMENT TYPE ===
-[Type of document]
-
-=== KEY ENTITIES ===
-- Companies: [list]
-- People: [list]
-- Amounts: [list]
-- Dates: [list]
-- Materials/Products: [list]
-- Reference Numbers: [list]
-
-=== CONTEXT ===
-[Brief description of what this document is about and its purpose]
-
-Be thorough and extract EVERYTHING visible."""
-            else:
-                logger.info("✅ Using vision_ocr_business_check prompt from Supabase")
+                error_msg = "❌ FATAL: vision_ocr_business_check prompt not found in Supabase! Run seed script: migrations/master/004_seed_unit_industries_prompts.sql"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            logger.info("✅ Loaded vision_ocr_business_check prompt from Supabase (version loaded dynamically)")
         else:
+            logger.info("🔄 Loading vision_ocr_extract prompt from Supabase...")
             prompt = get_prompt_template("vision_ocr_extract")
             if not prompt:
-                logger.warning("⚠️  Could not load vision_ocr_extract prompt from Supabase, using hardcoded fallback")
-                prompt = """Analyze this document/image and provide a comprehensive extraction:
-
-1. **Full Text Transcription**: Extract ALL text visible in the image (OCR)
-2. **Document Type**: What kind of document is this? (invoice, receipt, email, form, diagram, contract, etc.)
-3. **Key Information**: Extract important details:
-   - Companies/Organizations mentioned
-   - People (names, roles, emails)
-   - Monetary amounts and currencies
-   - Dates and deadlines
-   - Materials, products, or items
-   - Order numbers, invoice numbers, PO numbers
-   - Certifications or standards mentioned
-4. **Context**: What is this document about? What's the main purpose or subject?
-
-Format your response as:
-
-=== FULL TEXT ===
-[Complete transcription of all visible text]
-
-=== DOCUMENT TYPE ===
-[Type of document]
-
-=== KEY ENTITIES ===
-- Companies: [list]
-- People: [list]
-- Amounts: [list]
-- Dates: [list]
-- Materials/Products: [list]
-- Reference Numbers: [list]
-
-=== CONTEXT ===
-[Brief description of what this document is about and its purpose]
-
-Be thorough and extract EVERYTHING visible, including:
-- Handwritten text
-- Text in tables, forms, and diagrams
-- Watermarks and stamps
-- Header/footer information
-- Small print and fine details"""
-            else:
-                logger.info("✅ Using vision_ocr_extract prompt from Supabase")
+                error_msg = "❌ FATAL: vision_ocr_extract prompt not found in Supabase! Run seed script: migrations/master/004_seed_unit_industries_prompts.sql"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            logger.info("✅ Loaded vision_ocr_extract prompt from Supabase (version loaded dynamically)")
 
         # Call GPT-4o Vision with detail=high for best OCR quality
         response = client.chat.completions.create(

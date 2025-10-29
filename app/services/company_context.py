@@ -231,114 +231,21 @@ def render_prompt_template(prompt_key: str, variables: Dict[str, str]) -> str:
 
 def build_ceo_prompt_template() -> str:
     """
-    Build CEO Assistant prompt template with dynamic company context.
-
-    NOW LOADS FROM SUPABASE! Falls back to building from context if no template found.
+    Load CEO Assistant prompt template from Supabase (NO fallback).
 
     Used by query_engine.py for response synthesis.
     """
-    # Try to load template from Supabase first
+    # Load template from Supabase (no fallback allowed)
+    logger.info("🔄 Loading ceo_assistant prompt from Supabase...")
     template = get_prompt_template("ceo_assistant")
 
-    if template:
-        # Template exists in database - return it as-is (no variable rendering needed)
-        logger.info("✅ Using CEO prompt template from master Supabase")
-        return template
+    if not template:
+        error_msg = "❌ FATAL: ceo_assistant prompt not found in Supabase! Run seed script: migrations/master/004_seed_unit_industries_prompts.sql"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
-    else:
-        # Fallback: build prompt from context (for single-tenant or if template missing)
-        logger.warning("⚠️  CEO prompt template not found in database, using fallback")
-
-        context = get_company_context()
-
-        # Build team list
-        team_lines = []
-        for member in context["team"]:
-            name = member.get("name", "Unknown")
-            title = member.get("title", "")
-            role_desc = member.get("role_description", "")
-
-            if title and role_desc:
-                team_lines.append(f"- {name} - {title}: {role_desc}")
-            elif title:
-                team_lines.append(f"- {name} - {title}")
-            else:
-                team_lines.append(f"- {name}")
-
-        team_section = "\n".join(team_lines) if team_lines else "- Team information not available"
-
-        # Build industries list
-        industries_str = ", ".join(context["industries"]) if context["industries"] else "Various industries"
-
-        # Build capabilities list
-        capabilities_str = ", ".join(context["capabilities"]) if context["capabilities"] else ""
-
-        # Build company profile section
-        profile_parts = [f"{context['name']} - {context['location']}"]
-
-        if context["description"]:
-            profile_parts.append(context["description"])
-
-        if context["industries"]:
-            profile_parts.append(f"Industries: {industries_str}")
-
-        if context["capabilities"]:
-            profile_parts.append(f"Key capabilities: {capabilities_str}")
-
-        company_profile = "\n".join(f"- {part}" if i > 0 else part for i, part in enumerate(profile_parts))
-
-        # Build full prompt template (fallback version)
-        prompt = f"""You are the CEO of {context['name']}, {context['description'][:100] if context['description'] else 'a business'}.
-
-COMPANY PROFILE:
-{company_profile}
-
-YOUR TEAM:
-{team_section}
-
-Below are answers from sub-questions (not raw documents):
----------------------
-{{{{context_str}}}}
----------------------
-
-Given the information above and not prior knowledge, create a comprehensive, conversational response that synthesizes these sub-answers.
-
-QUOTING POLICY:
-- Use direct quotes when they add value: specific numbers, impactful statements, unique insights
-- Keep quotes to 1-2 full sentences maximum
-- Don't quote mundane facts or simple status updates
-- The sub-answers already contain quotes - use them when relevant
-
-SOURCING:
-- The sub-answers may contain markdown links like "[Document Title](url)" - PRESERVE THESE EXACTLY
-- If sub-answers don't have markdown links, cite sources naturally: "The ISO checklist shows..." or "According to the QC report..."
-- Never break or modify existing markdown links from sub-answers
-- Never use technical IDs like "document_id: 180"
-- When combining information from multiple sources, cross-reference naturally
-
-HANDLING GAPS:
-- If sub-answers don't fully address the question, acknowledge what's missing
-- Don't make up information not present in the context
-- If sub-answers conflict, present both perspectives
-
-STYLE:
-- Conversational and direct - skip formal report language
-- Make connections between different pieces of information
-- Provide insights and suggestions
-- Skip greetings and sign-offs
-
-FORMATTING (markdown):
-- Emoji section headers (📦 🚨 📊 🚛 💰 ⚡ 🎯) to organize
-- **Bold** for important numbers, names, key points
-- Bullet points and numbered lists for structure
-- Tables for data comparisons
-- ✅/❌ for status
-- Code blocks for metrics/dates/technical details
-
-Question: {{{{query_str}}}}
-Answer: """
-
-        return prompt
+    logger.info("✅ Loaded ceo_assistant prompt from Supabase (version loaded dynamically)")
+    return template
 
 
 def build_email_classification_context() -> str:

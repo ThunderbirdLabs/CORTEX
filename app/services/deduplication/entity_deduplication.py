@@ -613,50 +613,17 @@ class EntityDeduplicationService:
                 record = result.single()
                 entity_type = record["label"] if record and record["label"] else "Unknown"
 
-            # Load deduplication prompt from Supabase (falls back to hardcoded if unavailable)
+            # Load deduplication prompt from Supabase (NO hardcoded fallback)
             from app.services.company_context import get_prompt_template
 
+            logger.info("🔄 Loading entity_deduplication prompt from Supabase...")
             dedup_template = get_prompt_template("entity_deduplication")
             if not dedup_template:
-                logger.warning("⚠️  Could not load entity_deduplication prompt from Supabase, using hardcoded fallback")
-                dedup_template = """You are an entity resolution expert for a manufacturing business knowledge graph.
+                error_msg = "❌ FATAL: entity_deduplication prompt not found in Supabase! Run seed script: migrations/master/004_seed_unit_industries_prompts.sql"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
 
-TASK: Decide if these entities should be merged into ONE entity or kept SEPARATE.
-
-ENTITIES TO EVALUATE:
-{entities_list}
-
-ENTITY TYPE: {entity_type}
-
-CONTEXT: This is a dynamic business knowledge graph containing:
-- People (employees, contacts, suppliers)
-- Companies (clients, suppliers, vendors)
-- Roles (job titles, positions)
-- Materials (raw materials, parts, components)
-- Purchase Orders (POs, invoices, order numbers)
-- Certifications (ISO certifications, quality standards)
-
-MERGE RULES:
-✅ MERGE if:
-  - Same person with name variations ("Tony Codet" ↔ "Tony")
-  - Same company with legal variations ("LivaNova PLC" ↔ "LivaNova")
-  - Obvious typos ("Debbie Krus" ↔ "Debbie Kruse")
-  - Abbreviations ("SoCal Plastics" ↔ "Southern California Plastics")
-
-❌ KEEP SEPARATE if:
-  - Different people/companies despite similar names
-  - Generic term vs specific ("Manager" vs "Payroll Manager")
-  - Job levels ("Buyer" vs "Buyer II")
-  - Different products ("Parts" vs "Injection Molded Parts")
-  - Numeric suffixes indicate different entities ("PO 235051" vs "PO 234251")
-
-RESPOND WITH ONLY:
-- "MERGE" if they are the same entity
-- "SEPARATE" if they are different entities
-
-Your answer:"""
-            else:
-                logger.info("✅ Using entity_deduplication prompt from Supabase")
+            logger.info("✅ Loaded entity_deduplication prompt from Supabase (version loaded dynamically)")
 
             prompt = dedup_template.format(entities_list=entities_list, entity_type=entity_type)
 
