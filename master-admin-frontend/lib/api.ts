@@ -212,6 +212,34 @@ class MasterAPIClient {
   }
 
   // ============================================================================
+  // Prompts
+  // ============================================================================
+
+  async getPrompts(companyId: string) {
+    const res = await fetch(`${API_URL}/prompts/${companyId}`, {
+      headers: this.getHeaders(),
+    });
+
+    if (!res.ok) throw new Error('Failed to fetch prompts');
+    return res.json();
+  }
+
+  async updatePrompt(companyId: string, promptKey: string, data: any) {
+    const res = await fetch(`${API_URL}/prompts/${companyId}/${promptKey}`, {
+      method: 'PATCH',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data),
+    });
+
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.detail || 'Failed to update prompt');
+    }
+
+    return res.json();
+  }
+
+  // ============================================================================
   // Stats
   // ============================================================================
 

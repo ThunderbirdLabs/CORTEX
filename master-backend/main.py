@@ -114,6 +114,11 @@ class TeamMemberCreate(BaseModel):
     reports_to: Optional[str] = None
     email: Optional[str] = None
 
+class PromptUpdate(BaseModel):
+    prompt_template: str
+    prompt_name: Optional[str] = None
+    prompt_description: Optional[str] = None
+
 # ============================================================================
 # Authentication
 # ============================================================================
@@ -452,6 +457,72 @@ async def create_team_member(member: TeamMemberCreate, admin = Depends(get_curre
     result = supabase.table("company_team_members").insert({
         **member.model_dump(),
         "is_active": True,
+    }).execute()
+
+    return result.data[0]
+
+# ============================================================================
+# Prompt Management Endpoints
+# ============================================================================
+
+@app.get("/prompts/{company_id}")
+async def list_prompts(company_id: str, admin = Depends(get_current_admin)):
+    """List all prompts for a company."""
+
+    result = supabase.table("company_prompts")\
+        .select("*")\
+        .eq("company_id", company_id)\
+        .eq("is_active", True)\
+        .order("prompt_key")\
+        .execute()
+
+    return result.data
+
+@app.patch("/prompts/{company_id}/{prompt_key}")
+async def update_prompt(
+    company_id: str,
+    prompt_key: str,
+    updates: PromptUpdate,
+    admin = Depends(get_current_admin)
+):
+    """Update a prompt for a company."""
+
+    # Get current version
+    current = supabase.table("company_prompts")\
+        .select("version")\
+        .eq("company_id", company_id)\
+        .eq("prompt_key", prompt_key)\
+        .eq("is_active", True)\
+        .single()\
+        .execute()
+
+    if not current.data:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    # Filter out None values and increment version
+    update_data = {k: v for k, v in updates.model_dump().items() if v is not None}
+    update_data["updated_at"] = datetime.utcnow().isoformat()
+    update_data["version"] = (current.data.get("version") or 1) + 1
+
+    result = supabase.table("company_prompts")\
+        .update(update_data)\
+        .eq("company_id", company_id)\
+        .eq("prompt_key", prompt_key)\
+        .eq("is_active", True)\
+        .execute()
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    # Log audit event
+    supabase.table("audit_log_global").insert({
+        "admin_id": admin["id"],
+        "company_id": company_id,
+        "action": "prompt_updated",
+        "details": {
+            "prompt_key": prompt_key,
+            "version": update_data["version"]
+        },
     }).execute()
 
     return result.data[0]

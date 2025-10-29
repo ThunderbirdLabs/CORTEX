@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Building2,
   FileCode,
+  FileText,
   Users,
   Settings,
   LogOut
@@ -40,6 +41,7 @@ export default function DashboardLayout({
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/dashboard/companies', label: 'Companies', icon: Building2 },
     { href: '/dashboard/schemas', label: 'Schemas', icon: FileCode },
+    { href: '/dashboard/prompts', label: 'Prompts', icon: FileText },
   ];
 
   if (!admin) {
