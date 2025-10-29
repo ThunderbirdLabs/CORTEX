@@ -230,6 +230,27 @@ async def chat(
             # Clean document name: remove "[Outlook Embedded]" prefix
             clean_doc_name = doc_name.replace('[Outlook Embedded] ', '') if doc_name else doc_name
 
+            # Get parent_document_id - if missing, try to lookup via email_id
+            parent_doc_id = metadata.get('parent_document_id', None)
+            if not parent_doc_id and metadata.get('email_id'):
+                # This is an attachment without parent_document_id set
+                # Lookup parent email by source_id (message_id)
+                try:
+                    email_id = metadata.get('email_id')
+                    parent_lookup = supabase.table('documents')\
+                        .select('id')\
+                        .eq('tenant_id', user_id)\
+                        .eq('source_id', email_id)\
+                        .eq('document_type', 'email')\
+                        .limit(1)\
+                        .execute()
+
+                    if parent_lookup.data and len(parent_lookup.data) > 0:
+                        parent_doc_id = parent_lookup.data[0]['id']
+                        logger.info(f"   🔗 Found parent email for attachment via email_id lookup: {parent_doc_id}")
+                except Exception as e:
+                    logger.warning(f"   ⚠️  Failed to lookup parent email: {e}")
+
             source_info = {
                 'index': source_index,
                 'document_id': str(document_id) if document_id is not None else None,
@@ -240,7 +261,7 @@ async def chat(
                 'text_preview': node.text[:200] if hasattr(node, 'text') else '',
                 'score': node.score if hasattr(node, 'score') else None,
                 'file_url': metadata.get('file_url', None),
-                'parent_document_id': metadata.get('parent_document_id', None)  # For "Explore Chain" feature
+                'parent_document_id': str(parent_doc_id) if parent_doc_id is not None else None  # For "Explore Chain" feature
             }
             sources.append(source_info)
             logger.info(f"   📄 Source {source_index}: {source_info['source']} - {source_info['document_name']}")
