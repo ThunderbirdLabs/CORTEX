@@ -70,3 +70,8 @@ dump.rdb
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Test/debug scripts in root (should be in scripts/)
+/test_*.py
+/debug_*.py
+/run_*.py
