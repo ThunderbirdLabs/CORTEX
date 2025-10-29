@@ -169,17 +169,22 @@ async def full_health_check(
 
     # Qdrant (Vector DB)
     try:
-        from app.services.ingestion.llamaindex.index_manager import IndexManager
-        index_manager = IndexManager()
-        # Try to get collection info
-        collection_info = index_manager.qdrant_client.get_collection(
-            index_manager.config.qdrant_collection_name
-        )
-        components["qdrant"] = {
-            "status": "healthy",
-            "vectors_count": collection_info.vectors_count,
-            "points_count": collection_info.points_count
-        }
+        from app.core.dependencies import query_engine
+        if query_engine and hasattr(query_engine, 'qdrant_client'):
+            # Try to get collection info
+            collection_info = query_engine.qdrant_client.get_collection(
+                query_engine.config.qdrant_collection_name
+            )
+            components["qdrant"] = {
+                "status": "healthy",
+                "vectors_count": collection_info.vectors_count,
+                "points_count": collection_info.points_count
+            }
+        else:
+            components["qdrant"] = {
+                "status": "unhealthy",
+                "error": "Query engine not initialized"
+            }
     except Exception as e:
         components["qdrant"] = {
             "status": "unhealthy",
@@ -188,16 +193,22 @@ async def full_health_check(
 
     # Neo4j (Graph DB)
     try:
-        from app.services.ingestion.llamaindex.index_manager import IndexManager
-        index_manager = IndexManager()
-        # Try a simple cypher query
-        with index_manager.neo4j_driver.session() as session:
-            result = session.run("MATCH (n) RETURN count(n) as count LIMIT 1")
-            node_count = result.single()["count"]
-        components["neo4j"] = {
-            "status": "healthy",
-            "nodes_count": node_count
-        }
+        from app.core.dependencies import query_engine
+        if query_engine and hasattr(query_engine, 'neo4j_graph_store'):
+            # Try a simple cypher query
+            driver = query_engine.neo4j_graph_store._driver
+            with driver.session() as session:
+                result = session.run("MATCH (n) RETURN count(n) as count LIMIT 1")
+                node_count = result.single()["count"]
+            components["neo4j"] = {
+                "status": "healthy",
+                "nodes_count": node_count
+            }
+        else:
+            components["neo4j"] = {
+                "status": "unhealthy",
+                "error": "Query engine not initialized"
+            }
     except Exception as e:
         components["neo4j"] = {
             "status": "unhealthy",
@@ -431,33 +442,71 @@ async def get_connected_users(
     session_id: str = Depends(verify_admin_session),
     supabase: Client = Depends(get_supabase)
 ):
-    """Get all users and their connection status."""
+    """Get all users and their connection status (uses same logic as /oauth/status)."""
+    import httpx
+
+    async def get_nango_connection_details(connection_id: str, provider_key: str) -> dict:
+        """Fetch connection details from Nango API including last sync time."""
+        if not connection_id or not provider_key:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                url = f"https://api.nango.dev/connection/{connection_id}?provider_config_key={provider_key}"
+                headers = {"Authorization": f"Bearer {settings.nango_secret}"}
+                response = await client.get(url, headers=headers)
+                if response.status_code == 200:
+                    data = response.json()
+                    return {
+                        "last_sync": data.get("metadata", {}).get("last_synced_at"),
+                        "email": data.get("metadata", {}).get("email"),
+                        "status": data.get("credentials_status")
+                    }
+        except Exception as e:
+            logger.warning(f"Failed to get Nango connection details: {e}")
+        return None
+
     try:
+        # Import helper function from oauth routes
+        from app.api.v1.routes.oauth import get_connection
+
         # Get unique user IDs from documents table
         result = supabase.rpc('get_unique_tenant_ids').execute()
 
-        # For each user, check their connection status via sync_jobs
         users = []
         for row in result.data:
             user_id = row.get('tenant_id')
 
-            # Get last sync for each provider
-            last_syncs = {}
-            for provider in ['gmail', 'outlook', 'drive']:
-                sync_result = supabase.table("sync_jobs")\
-                    .select("*")\
-                    .eq("user_id", user_id)\
-                    .eq("job_type", provider)\
-                    .order("created_at", desc=True)\
-                    .limit(1)\
-                    .execute()
+            # Get connection IDs for this user
+            outlook_connection = await get_connection(user_id, settings.nango_provider_key_outlook) if settings.nango_provider_key_outlook else None
+            gmail_connection = await get_connection(user_id, settings.nango_provider_key_gmail) if settings.nango_provider_key_gmail else None
+            drive_connection = await get_connection(user_id, settings.nango_provider_key_google_drive) if settings.nango_provider_key_google_drive else gmail_connection
 
-                if sync_result.data:
-                    last_syncs[provider] = sync_result.data[0]
+            # Get details from Nango
+            outlook_details = await get_nango_connection_details(outlook_connection, settings.nango_provider_key_outlook) if outlook_connection else None
+            gmail_details = await get_nango_connection_details(gmail_connection, settings.nango_provider_key_gmail) if gmail_connection else None
+            drive_details = await get_nango_connection_details(drive_connection, settings.nango_provider_key_google_drive) if drive_connection else None
 
             users.append({
-                "user_id": user_id,
-                "last_syncs": last_syncs
+                "tenant_id": user_id,
+                "providers": {
+                    "outlook": {
+                        "connected": outlook_connection is not None,
+                        "connection_id": outlook_connection,
+                        "last_sync": outlook_details.get("last_sync") if outlook_details else None,
+                        "email": outlook_details.get("email") if outlook_details else None
+                    },
+                    "gmail": {
+                        "connected": gmail_connection is not None,
+                        "connection_id": gmail_connection,
+                        "last_sync": gmail_details.get("last_sync") if gmail_details else None,
+                        "email": gmail_details.get("email") if gmail_details else None
+                    },
+                    "google_drive": {
+                        "connected": drive_connection is not None,
+                        "connection_id": drive_connection,
+                        "last_sync": drive_details.get("last_sync") if drive_details else None
+                    }
+                }
             })
 
         return {"users": users}
@@ -716,18 +765,20 @@ async def get_current_schema(
             .execute()
 
         # Get entity counts from Neo4j
+        entity_counts = {}
         try:
-            from app.services.ingestion.llamaindex.index_manager import IndexManager
-            index_manager = IndexManager()
-
-            entity_counts = {}
-            for entity_type in POSSIBLE_ENTITIES:
-                with index_manager.neo4j_driver.session() as session:
-                    result = session.run(
-                        f"MATCH (n:{entity_type}) RETURN count(n) as count"
-                    )
-                    entity_counts[entity_type] = result.single()["count"]
-        except:
+            from app.core.dependencies import query_engine
+            if query_engine and hasattr(query_engine, 'neo4j_graph_store'):
+                driver = query_engine.neo4j_graph_store._driver
+                for entity_type in POSSIBLE_ENTITIES:
+                    with driver.session() as session:
+                        result = session.run(
+                            f"MATCH (n:{entity_type}) RETURN count(n) as count"
+                        )
+                        record = result.single()
+                        entity_counts[entity_type] = record["count"] if record else 0
+        except Exception as e:
+            logger.warning(f"Failed to get entity counts: {e}")
             entity_counts = {}
 
         # Separate default vs custom for frontend display
