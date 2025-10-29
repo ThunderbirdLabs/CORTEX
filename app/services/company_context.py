@@ -13,9 +13,14 @@ Each company can customize both their data AND their prompts!
 import logging
 from typing import Dict, List, Optional
 from app.core.config_master import master_config
-from app.core.dependencies import master_supabase_client
 
 logger = logging.getLogger(__name__)
+
+
+def _get_master_client():
+    """Get master_supabase_client dynamically to avoid import-time None capture."""
+    from app.core.dependencies import master_supabase_client
+    return master_supabase_client
 
 # Global cache for company context (loaded once at startup)
 _company_context_cache: Optional[Dict] = None
@@ -67,7 +72,13 @@ def load_company_context() -> Dict:
         # Load company info from master Supabase
         logger.info(f"🔍 Loading company context for company_id: {master_config.company_id}")
 
-        company_result = master_supabase_client.table("companies")\
+        master_client = _get_master_client()
+        if not master_client:
+            logger.error("❌ Master Supabase client not initialized")
+            _company_context_cache = _get_default_context()
+            return _company_context_cache
+
+        company_result = master_client.table("companies")\
             .select("*")\
             .eq("id", master_config.company_id)\
             .single()\
@@ -81,7 +92,7 @@ def load_company_context() -> Dict:
         company = company_result.data
 
         # Load team members from master Supabase
-        team_result = master_supabase_client.table("company_team_members")\
+        team_result = master_client.table("company_team_members")\
             .select("*")\
             .eq("company_id", master_config.company_id)\
             .eq("is_active", True)\
@@ -161,7 +172,13 @@ def load_prompt_templates() -> Dict[str, str]:
     try:
         logger.info(f"🔍 Loading prompt templates for company_id: {master_config.company_id}")
 
-        result = master_supabase_client.table("company_prompts")\
+        master_client = _get_master_client()
+        if not master_client:
+            logger.error("❌ Master Supabase client not initialized")
+            _prompt_templates_cache = {}
+            return _prompt_templates_cache
+
+        result = master_client.table("company_prompts")\
             .select("prompt_key, prompt_template")\
             .eq("company_id", master_config.company_id)\
             .eq("is_active", True)\
