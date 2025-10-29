@@ -111,14 +111,31 @@ async def ingest_document_universal(
             # Need to extract text from file
             if file_path:
                 logger.info(f"   📄 Parsing file: {file_path}")
-                content, parse_metadata = extract_text_from_file(file_path, file_type)
+                # Check business relevance for email attachments (not user uploads)
+                check_relevance = (document_type == "attachment")
+                content, parse_metadata = extract_text_from_file(file_path, file_type, check_business_relevance=check_relevance)
 
             elif file_bytes and filename:
                 logger.info(f"   📤 Parsing uploaded file: {filename}")
-                content, parse_metadata = extract_text_from_bytes(file_bytes, filename, file_type)
+                # Check business relevance for email attachments (not user uploads)
+                check_relevance = (document_type == "attachment")
+                content, parse_metadata = extract_text_from_bytes(file_bytes, filename, file_type, check_business_relevance=check_relevance)
 
             else:
                 raise ValueError("Must provide either 'content', 'file_path', or 'file_bytes + filename'")
+
+        # Check if attachment was skipped (non-business content like logos)
+        if parse_metadata.get('skip_attachment'):
+            logger.info(f"   ⏭️  SKIPPING non-business attachment: {filename or title} - {parse_metadata.get('skip_reason')}")
+            return {
+                'status': 'skipped',
+                'reason': 'non_business_content',
+                'skip_reason': parse_metadata.get('skip_reason'),
+                'source': source,
+                'source_id': source_id,
+                'title': filename or title,
+                'document_type': document_type
+            }
 
         # Ensure we have a title
         if not title:

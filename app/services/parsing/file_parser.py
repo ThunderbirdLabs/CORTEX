@@ -23,7 +23,7 @@ import magic
 logger = logging.getLogger(__name__)
 
 
-def extract_with_vision(file_path: str, file_type: str) -> Tuple[str, Dict]:
+def extract_with_vision(file_path: str, file_type: str, check_business_relevance: bool = False) -> Tuple[str, Dict]:
     """
     Extract text AND rich context from images/documents using GPT-4o Vision.
 
@@ -34,11 +34,12 @@ def extract_with_vision(file_path: str, file_type: str) -> Tuple[str, Dict]:
     - Document structure (invoices, receipts, forms, diagrams)
 
     Args:
-        file_path: Path to image/PDF file
-        file_type: MIME type
+        file_path: Path to the image/document file
+        file_type: MIME type of the file
+        check_business_relevance: If True, classify if image is business-relevant or just decorative (logos, signatures, etc.)
 
     Returns:
-        Tuple of (extracted_text_with_context, metadata)
+        Tuple of (extracted_text_with_context, metadata) - Returns ("", {"skip_attachment": True, ...}) if not business-relevant
     """
     from openai import OpenAI
 
@@ -61,7 +62,49 @@ def extract_with_vision(file_path: str, file_type: str) -> Tuple[str, Dict]:
         client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
         # CONTEXT-RICH PROMPT - extracts more than just OCR
-        prompt = """Analyze this document/image and provide a comprehensive extraction:
+        if check_business_relevance:
+            prompt = """FIRST, classify if this image contains BUSINESS-CRITICAL CONTENT for Unit Industries Group, Inc. (injection molding manufacturer):
+
+**BUSINESS-CRITICAL content** (KEEP these):
+- Technical documents: CAD drawings, engineering specs, blueprints, schematics, quality reports
+- Business documents: Invoices, purchase orders, quotes, contracts, certificates (CoC, FOD, ISO)
+- Data/Reports: Charts, graphs, spreadsheets with business data, production schedules
+- Product photos: Parts, molds, machinery, materials, prototypes
+- Screenshots: Technical content, work communications, business applications
+
+**NON-BUSINESS content** (SKIP these):
+- Company logos (standalone images without surrounding business content)
+- Email signatures (standalone without email body)
+- Generic marketing graphics, banners, decorative images
+- Personal photos unrelated to manufacturing
+- Social media graphics, memes, stock photos
+- Small icons, badges, or decorative elements
+
+Start your response with EXACTLY ONE LINE:
+CLASSIFICATION: BUSINESS or SKIP
+
+If SKIP, provide brief reason. If BUSINESS, continue with full extraction:
+
+=== FULL TEXT ===
+[Complete transcription of all visible text]
+
+=== DOCUMENT TYPE ===
+[Type of document]
+
+=== KEY ENTITIES ===
+- Companies: [list]
+- People: [list]
+- Amounts: [list]
+- Dates: [list]
+- Materials/Products: [list]
+- Reference Numbers: [list]
+
+=== CONTEXT ===
+[Brief description of what this document is about and its purpose]
+
+Be thorough and extract EVERYTHING visible."""
+        else:
+            prompt = """Analyze this document/image and provide a comprehensive extraction:
 
 1. **Full Text Transcription**: Extract ALL text visible in the image (OCR)
 2. **Document Type**: What kind of document is this? (invoice, receipt, email, form, diagram, contract, etc.)
@@ -125,6 +168,36 @@ Be thorough and extract EVERYTHING visible, including:
 
         # Extract the rich text response
         text = response.choices[0].message.content
+
+        # Check if this was classified as non-business (if relevance check was requested)
+        if check_business_relevance and text.strip().startswith("CLASSIFICATION: SKIP"):
+            # Extract skip reason
+            lines = text.split('\n')
+            reason = lines[0].replace("CLASSIFICATION: SKIP", "").strip()
+            if not reason and len(lines) > 1:
+                reason = lines[1].strip()
+
+            logger.info(f"   ⏭️  SKIPPING non-business attachment: {Path(file_path).name} - {reason}")
+
+            metadata = {
+                "parser": "gpt4o_vision",
+                "file_type": file_type,
+                "file_name": Path(file_path).name,
+                "file_size": os.path.getsize(file_path),
+                "skip_attachment": True,
+                "skip_reason": reason or "Non-business content (logo, signature, or decorative image)",
+                "model": "gpt-4o",
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens
+            }
+
+            return "", metadata  # Return empty text to signal skip
+
+        # Remove classification line if present (for BUSINESS content)
+        if check_business_relevance and text.strip().startswith("CLASSIFICATION: BUSINESS"):
+            lines = text.split('\n')
+            text = '\n'.join(lines[1:]).strip()  # Remove first line
 
         metadata = {
             "parser": "gpt4o_vision",
@@ -199,22 +272,24 @@ def detect_file_type(file_path: str) -> str:
 
 def extract_text_from_file(
     file_path: str,
-    file_type: Optional[str] = None
+    file_type: Optional[str] = None,
+    check_business_relevance: bool = False
 ) -> Tuple[str, Dict]:
     """
     Extract text from any file type using hybrid strategy with OCR.
 
     Strategy:
     1. PDFs → Try fast mode first (text only), if < 100 chars → OCR (scanned PDF)
-    2. Images → Tesseract OCR for text extraction
+    2. Images → GPT-4o Vision OCR for text extraction (with optional business relevance check)
     3. Other files → standard Unstructured parsing
 
     Args:
         file_path: Path to file
         file_type: Optional MIME type (auto-detected if not provided)
+        check_business_relevance: If True, skip non-business images (logos, signatures)
 
     Returns:
-        (extracted_text, metadata_dict)
+        (extracted_text, metadata_dict) - Returns ("", {"skip_attachment": True}) if not business-relevant
 
     Raises:
         ValueError: If file parsing fails
@@ -260,7 +335,11 @@ def extract_text_from_file(
 
                             # OCR the page image with GPT-4o Vision
                             try:
-                                page_text, _ = extract_with_vision(tmp_path, 'image/png')
+                                page_text, page_meta = extract_with_vision(tmp_path, 'image/png', check_business_relevance=check_business_relevance)
+                                # Check if page was skipped
+                                if page_meta.get('skip_attachment'):
+                                    logger.info(f"   ⏭️  Page {i+1}: Skipped (non-business content)")
+                                    continue
                                 page_texts.append(page_text)
                                 logger.info(f"   ✅ Page {i+1}: {len(page_text)} chars extracted with context")
                             finally:
@@ -288,8 +367,8 @@ def extract_text_from_file(
         # Special handling for images (OCR with GPT-4o Vision - context-aware)
         elif file_type in ['image/png', 'image/jpeg', 'image/jpg', 'image/tiff', 'image/bmp']:
             logger.info(f"   🔍 Running context-aware OCR on image (GPT-4o Vision)...")
-            text, metadata = extract_with_vision(file_path, file_type)
-            # Note: extract_with_vision already handles errors gracefully
+            text, metadata = extract_with_vision(file_path, file_type, check_business_relevance=check_business_relevance)
+            # Note: extract_with_vision already handles errors gracefully and returns skip signal if needed
         
         else:
             # Non-PDF, non-image files: use standard Unstructured
@@ -304,7 +383,7 @@ def extract_text_from_file(
         logger.info(f"   🔄 Attempting GPT-4o Vision OCR fallback...")
 
         try:
-            text, metadata = extract_with_vision(file_path, file_type)
+            text, metadata = extract_with_vision(file_path, file_type, check_business_relevance=check_business_relevance)
             logger.info(f"✅ Vision OCR fallback succeeded: {len(text)} chars extracted with context")
             metadata['fallback_method'] = 'gpt4o_vision_ocr'
             metadata['original_error'] = str(e)
@@ -364,7 +443,8 @@ def extract_with_generic_parser(file_path: str, file_type: str) -> Tuple[str, Di
 def extract_text_from_bytes(
     file_bytes: bytes,
     filename: str,
-    file_type: Optional[str] = None
+    file_type: Optional[str] = None,
+    check_business_relevance: bool = False
 ) -> Tuple[str, Dict]:
     """
     Extract text from file bytes (for uploads or API responses).
@@ -373,9 +453,10 @@ def extract_text_from_bytes(
         file_bytes: File content as bytes
         filename: Original filename (used for extension detection)
         file_type: Optional MIME type
+        check_business_relevance: If True, skip non-business images (logos, signatures)
 
     Returns:
-        (extracted_text, metadata_dict)
+        (extracted_text, metadata_dict) - Returns ("", {"skip_attachment": True}) if not business-relevant
 
     Raises:
         ValueError: If file parsing fails
@@ -388,7 +469,7 @@ def extract_text_from_bytes(
 
     try:
         # Extract text from temp file
-        text, metadata = extract_text_from_file(tmp_path, file_type)
+        text, metadata = extract_text_from_file(tmp_path, file_type, check_business_relevance=check_business_relevance)
 
         # Add original filename to metadata
         metadata['original_filename'] = filename

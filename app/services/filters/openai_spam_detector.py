@@ -80,9 +80,29 @@ def classify_email_batch(emails: List[Dict[str, Any]], batch_size: int = 10) -> 
         try:
             # Build prompt with multiple emails
             prompt_parts = [
-                "Classify each email as either BUSINESS or SPAM. BUSINESS = legitimate work emails, client communications, vendor emails. SPAM = newsletters, marketing, promotions, automated notifications.",
+                "You are filtering emails for Unit Industries Group, Inc., a plastic injection molding manufacturer in Santa Ana, CA.",
                 "",
-                "Respond with only the classifications, one per line (BUSINESS or SPAM):",
+                "COMPANY CONTEXT:",
+                "- Specializes in: injection molding, connectors, high-temp thermoplastics, printed circuitry, wire harnessing, electro/mechanical assembly",
+                "- Industries served: Communications, Medical, Defense/Aerospace, Industrial/Semiconductor, Multimedia, Automotive, Clean Technology",
+                "- Has Class 100,000 Clean Room for medical molding",
+                "- Key vendors: SCP (Southern California Plastics), SMC (materials), shipping carriers, machinery vendors",
+                "- Key clients: Medical device companies, aerospace contractors, automotive suppliers, communications equipment manufacturers",
+                "",
+                "BUSINESS emails include:",
+                "- Purchase orders, quotes, RFQs, invoices from clients/vendors",
+                "- Technical specifications, CAD files, engineering drawings",
+                "- Quality control documents (CoC, FOD, ISO 9001 audits)",
+                "- Production schedules, shipping notifications, material deliveries",
+                "- Employee communications, internal operations",
+                "- Industry-specific content (molding, thermoplastics, quality standards)",
+                "",
+                "SPAM emails include:",
+                "- Generic newsletters, marketing campaigns, promotions",
+                "- Automated notifications unrelated to manufacturing",
+                "- Mass-sent emails not specific to injection molding/manufacturing",
+                "",
+                "Classify each email as BUSINESS or SPAM. Respond with only the classifications, one per line:",
                 ""
             ]
             
