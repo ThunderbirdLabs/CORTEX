@@ -51,18 +51,13 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 # SCHEMA CONFIGURATION (SchemaLLMPathExtractor)
 # ============================================
 
-# Entity Types - Injection Molding Manufacturing Focus
+# Entity Types - Loaded from Master Supabase
 # Vector store handles document content - graph maps critical business relationships
 
-# Default entity types (always active)
-DEFAULT_ENTITIES = [
-    "PERSON",         # Employees, contacts, account managers, suppliers
-    "COMPANY",        # Clients, suppliers, vendors, partners
-    "ROLE",           # Job titles: VP Sales, Quality Engineer, Procurement Manager, Account Manager
-    "PURCHASE_ORDER", # Purchase orders, invoices, PO numbers
-    "MATERIAL",       # Raw materials: polycarbonate, resins, steel, pellets, components
-    "CERTIFICATION",  # ISO certs, material certifications, quality certifications
-]
+# NOTE: Default entities moved to master Supabase (company_schemas table)
+# Each company can have their own entity types stored in master
+# Backend loads at startup based on COMPANY_ID
+DEFAULT_ENTITIES = []  # Empty - all entities loaded from master Supabase
 
 def _load_custom_entities():
     """
@@ -97,14 +92,14 @@ def _load_custom_entities():
                 .eq("is_active", True)\
                 .execute()
 
-            custom_entities = [row["entity_type"] for row in result.data if row.get("entity_type")]
+            all_entities = [row["entity_type"] for row in result.data if row.get("entity_type")]
 
-            if custom_entities:
-                logger.info(f"✅ Loaded {len(custom_entities)} custom entities for this company: {custom_entities}")
+            if all_entities:
+                logger.info(f"✅ Loaded {len(all_entities)} entities from master for this company: {all_entities}")
             else:
-                logger.info("ℹ️  No custom entities for this company (using defaults only)")
+                logger.warning("⚠️  No entities found in master for this company! Graph extraction will be limited.")
 
-            return custom_entities
+            return all_entities
 
         else:
             # SINGLE-TENANT MODE (BACKWARD COMPATIBLE): Load from company Supabase
@@ -179,7 +174,8 @@ def _load_custom_relations():
         return []
 
 # Merge default + custom entities and relationships
-POSSIBLE_ENTITIES = DEFAULT_ENTITIES + _load_custom_entities()
+# Load ALL entities from master Supabase (no more hardcoded defaults)
+POSSIBLE_ENTITIES = _load_custom_entities()
 
 # Relationship Types - Strict, False-Relationship Proof
 # Design: Only extract relationships with EXPLICIT evidence, no inference
