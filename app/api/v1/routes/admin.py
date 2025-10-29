@@ -702,7 +702,12 @@ async def get_current_schema(
 ):
     """Get current entity and relationship schema."""
     try:
-        from app.services.ingestion.llamaindex.config import POSSIBLE_ENTITIES, POSSIBLE_RELATIONS
+        from app.services.ingestion.llamaindex.config import (
+            POSSIBLE_ENTITIES,
+            POSSIBLE_RELATIONS,
+            DEFAULT_ENTITIES,
+            DEFAULT_RELATIONS
+        )
 
         # Get overrides from database
         overrides = supabase.table("admin_schema_overrides")\
@@ -725,9 +730,17 @@ async def get_current_schema(
         except:
             entity_counts = {}
 
+        # Separate default vs custom for frontend display
+        custom_entities = [e for e in POSSIBLE_ENTITIES if e not in DEFAULT_ENTITIES]
+        custom_relations = [r for r in POSSIBLE_RELATIONS if r not in DEFAULT_RELATIONS]
+
         return {
-            "entities": POSSIBLE_ENTITIES,
-            "relationships": POSSIBLE_RELATIONS,
+            "entities": POSSIBLE_ENTITIES,  # All entities (default + custom merged)
+            "default_entities": DEFAULT_ENTITIES,
+            "custom_entities": custom_entities,
+            "relationships": POSSIBLE_RELATIONS,  # All relationships (default + custom merged)
+            "default_relations": DEFAULT_RELATIONS,
+            "custom_relations": custom_relations,
             "overrides": overrides.data,
             "entity_counts": entity_counts
         }

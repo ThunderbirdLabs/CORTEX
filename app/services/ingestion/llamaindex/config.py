@@ -53,7 +53,9 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 
 # Entity Types - Injection Molding Manufacturing Focus
 # Vector store handles document content - graph maps critical business relationships
-POSSIBLE_ENTITIES = [
+
+# Default entity types (always active)
+DEFAULT_ENTITIES = [
     "PERSON",         # Employees, contacts, account managers, suppliers
     "COMPANY",        # Clients, suppliers, vendors, partners
     "ROLE",           # Job titles: VP Sales, Quality Engineer, Procurement Manager, Account Manager
@@ -62,9 +64,94 @@ POSSIBLE_ENTITIES = [
     "CERTIFICATION",  # ISO certs, material certifications, quality certifications
 ]
 
+def _load_custom_entities():
+    """
+    Load custom entity types from admin_schema_overrides table.
+    Called at startup to merge with default entities.
+    Returns empty list if DB unavailable or on error.
+    """
+    try:
+        from supabase import create_client
+        import os
+
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+
+        if not supabase_url or not supabase_key:
+            return []  # No DB config, use defaults only
+
+        supabase = create_client(supabase_url, supabase_key)
+
+        # Fetch active entity overrides
+        result = supabase.table("admin_schema_overrides")\
+            .select("entity_type")\
+            .eq("override_type", "entity")\
+            .eq("is_active", True)\
+            .execute()
+
+        custom_entities = [row["entity_type"] for row in result.data if row.get("entity_type")]
+
+        if custom_entities:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"✅ Loaded {len(custom_entities)} custom entity types from database: {custom_entities}")
+
+        return custom_entities
+
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"⚠️  Could not load custom entities from database: {e}. Using defaults only.")
+        return []  # Fallback to defaults
+
+def _load_custom_relations():
+    """
+    Load custom relationship types from admin_schema_overrides table.
+    Called at startup to merge with default relationships.
+    Returns empty list if DB unavailable or on error.
+    """
+    try:
+        from supabase import create_client
+        import os
+
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+
+        if not supabase_url or not supabase_key:
+            return []
+
+        supabase = create_client(supabase_url, supabase_key)
+
+        # Fetch active relationship overrides
+        result = supabase.table("admin_schema_overrides")\
+            .select("relation_type")\
+            .eq("override_type", "relation")\
+            .eq("is_active", True)\
+            .execute()
+
+        custom_relations = [row["relation_type"] for row in result.data if row.get("relation_type")]
+
+        if custom_relations:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"✅ Loaded {len(custom_relations)} custom relationship types from database: {custom_relations}")
+
+        return custom_relations
+
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"⚠️  Could not load custom relationships from database: {e}. Using defaults only.")
+        return []
+
+# Merge default + custom entities and relationships
+POSSIBLE_ENTITIES = DEFAULT_ENTITIES + _load_custom_entities()
+
 # Relationship Types - Strict, False-Relationship Proof
 # Design: Only extract relationships with EXPLICIT evidence, no inference
-POSSIBLE_RELATIONS = [
+
+# Default relationship types (always active)
+DEFAULT_RELATIONS = [
     # People relationships
     "WORKS_FOR",          # PERSON → COMPANY (employment)
     "WORKS_WITH",         # PERSON → PERSON/COMPANY (collaboration, contact)
@@ -82,6 +169,9 @@ POSSIBLE_RELATIONS = [
     # Certifications
     "HAS_CERTIFICATION",  # COMPANY → CERTIFICATION
 ]
+
+# Merge default + custom relationships
+POSSIBLE_RELATIONS = DEFAULT_RELATIONS + _load_custom_relations()
 
 # Validation Schema - Manufacturing-Critical Relationships Only
 # Enforces relationship direction and valid entity connections
