@@ -227,16 +227,20 @@ async def chat(
             seen_documents.add(unique_key)
 
             # This is a valid, unique document source
+            # Clean document name: remove "[Outlook Embedded]" prefix
+            clean_doc_name = doc_name.replace('[Outlook Embedded] ', '') if doc_name else doc_name
+
             source_info = {
                 'index': source_index,
                 'document_id': str(document_id) if document_id is not None else None,
-                'document_name': doc_name,
+                'document_name': clean_doc_name,
                 'source': source_system,
                 'document_type': metadata.get('document_type', 'document'),
                 'timestamp': metadata.get('created_at', metadata.get('timestamp', 'Unknown')),
                 'text_preview': node.text[:200] if hasattr(node, 'text') else '',
                 'score': node.score if hasattr(node, 'score') else None,
-                'file_url': metadata.get('file_url', None)  # ADD FILE URL FOR CLICKABLE LINKS
+                'file_url': metadata.get('file_url', None),
+                'parent_document_id': metadata.get('parent_document_id', None)  # For "Explore Chain" feature
             }
             sources.append(source_info)
             logger.info(f"   📄 Source {source_index}: {source_info['source']} - {source_info['document_name']}")
