@@ -18,8 +18,20 @@ This script will:
 import os
 import sys
 import getpass
-import bcrypt
-from supabase import create_client, Client
+
+try:
+    import bcrypt
+except ImportError:
+    print("❌ Error: bcrypt not installed")
+    print("   Run: pip install bcrypt")
+    sys.exit(1)
+
+try:
+    from supabase import create_client, Client
+except ImportError:
+    print("❌ Error: supabase not installed")
+    print("   Run: pip install supabase")
+    sys.exit(1)
 
 def print_header(text):
     """Pretty print section headers."""
