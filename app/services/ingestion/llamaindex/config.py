@@ -66,42 +66,76 @@ DEFAULT_ENTITIES = [
 
 def _load_custom_entities():
     """
-    Load custom entity types from admin_schema_overrides table.
+    Load custom entity types from database.
+    MULTI-TENANT: Loads from master Supabase (company_schemas table filtered by COMPANY_ID)
+    SINGLE-TENANT: Loads from company Supabase (admin_schema_overrides table) - BACKWARD COMPATIBLE
     Called at startup to merge with default entities.
     Returns empty list if DB unavailable or on error.
     """
     try:
         from supabase import create_client
         import os
+        import logging
+        logger = logging.getLogger(__name__)
 
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+        # Check for multi-tenant mode
+        company_id = os.getenv("COMPANY_ID")
+        master_url = os.getenv("MASTER_SUPABASE_URL")
+        master_key = os.getenv("MASTER_SUPABASE_SERVICE_KEY")
 
-        if not supabase_url or not supabase_key:
-            return []  # No DB config, use defaults only
+        if company_id and master_url and master_key:
+            # MULTI-TENANT MODE: Load from master Supabase
+            logger.info(f"🏢 Loading schemas from MASTER Supabase (Company ID: {company_id})")
 
-        supabase = create_client(supabase_url, supabase_key)
+            master = create_client(master_url, master_key)
 
-        # Fetch active entity overrides
-        result = supabase.table("admin_schema_overrides")\
-            .select("entity_type")\
-            .eq("override_type", "entity")\
-            .eq("is_active", True)\
-            .execute()
+            # Fetch THIS company's custom entities
+            result = master.table("company_schemas")\
+                .select("entity_type")\
+                .eq("company_id", company_id)\
+                .eq("override_type", "entity")\
+                .eq("is_active", True)\
+                .execute()
 
-        custom_entities = [row["entity_type"] for row in result.data if row.get("entity_type")]
+            custom_entities = [row["entity_type"] for row in result.data if row.get("entity_type")]
 
-        if custom_entities:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(f"✅ Loaded {len(custom_entities)} custom entity types from database: {custom_entities}")
+            if custom_entities:
+                logger.info(f"✅ Loaded {len(custom_entities)} custom entities for this company: {custom_entities}")
+            else:
+                logger.info("ℹ️  No custom entities for this company (using defaults only)")
 
-        return custom_entities
+            return custom_entities
+
+        else:
+            # SINGLE-TENANT MODE (BACKWARD COMPATIBLE): Load from company Supabase
+            logger.info("🏠 Loading schemas from company Supabase (single-tenant mode)")
+
+            supabase_url = os.getenv("SUPABASE_URL")
+            supabase_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+
+            if not supabase_url or not supabase_key:
+                return []  # No DB config, use defaults only
+
+            supabase = create_client(supabase_url, supabase_key)
+
+            # Fetch active entity overrides (old table name for backward compatibility)
+            result = supabase.table("admin_schema_overrides")\
+                .select("entity_type")\
+                .eq("override_type", "entity")\
+                .eq("is_active", True)\
+                .execute()
+
+            custom_entities = [row["entity_type"] for row in result.data if row.get("entity_type")]
+
+            if custom_entities:
+                logger.info(f"✅ Loaded {len(custom_entities)} custom entity types: {custom_entities}")
+
+            return custom_entities
 
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
-        logger.warning(f"⚠️  Could not load custom entities from database: {e}. Using defaults only.")
+        logger.warning(f"⚠️  Could not load custom entities: {e}. Using defaults only.")
         return []  # Fallback to defaults
 
 def _load_custom_relations():
