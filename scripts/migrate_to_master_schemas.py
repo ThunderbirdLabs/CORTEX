@@ -6,11 +6,18 @@ Migrate Default Schemas and Company Info to Master Supabase
 import os
 from supabase import create_client
 
-# Master Supabase
-MASTER_URL = "https://frkquqpbnczafibjsvmd.supabase.co"
-MASTER_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZya3F1cXBibmN6YWZpYmpzdm1kIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTc2NzYxNywiZXhwIjoyMDc3MzQzNjE3fQ.Q8OYGzwDYGk3tiybmW5EvuKOPZk9yJ1GaK71MpuCiys"
+# Master Supabase - from env vars
+MASTER_URL = os.getenv("MASTER_SUPABASE_URL")
+MASTER_KEY = os.getenv("MASTER_SUPABASE_SERVICE_KEY")
+COMPANY_ID = os.getenv("COMPANY_ID")
 
-COMPANY_ID = "2ede0765-6f69-4293-931d-22cc88437e01"
+if not MASTER_URL or not MASTER_KEY or not COMPANY_ID:
+    print("❌ Error: Missing required environment variables!")
+    print("   Please set:")
+    print("   - MASTER_SUPABASE_URL")
+    print("   - MASTER_SUPABASE_SERVICE_KEY")
+    print("   - COMPANY_ID")
+    exit(1)
 
 # Default entity types for Unit Industries
 DEFAULT_SCHEMAS = [
