@@ -1,27 +1,37 @@
 """
-Relationship Validator - LLM-based Verification for Knowledge Graph Quality
+Relationship Validator - LLM-based Quality Filter for Knowledge Graph
 
 OVERVIEW:
 ========
-Validates relationships extracted by SchemaLLMPathExtractor against source text
-to prevent false relationships from entering the knowledge graph.
+Validates relationships and entities extracted by SchemaLLMPathExtractor to ensure
+only high-quality, actionable knowledge enters the graph.
+
+DUAL PURPOSE:
+============
+1. Prevent false relationships (entities mentioned together but not connected)
+2. Filter low-insight entities (generic terms like "molding", "plastic", "meeting")
 
 WHY THIS MATTERS:
 ================
-False relationships are worse than missing relationships:
-- Vector store handles semantic search (no relationships needed)
-- Knowledge graph provides PRECISE entity connections
-- One false relationship → wrong business decision
+Quality > Quantity for knowledge graphs:
+- Vector store handles generic semantic search
+- Knowledge graph provides PRECISE, ACTIONABLE business intelligence
+- Generic entities pollute the graph without adding insight
+- False relationships lead to wrong business decisions
 
-Example False Relationship:
----------------------------
-Text: "John from Acme called about the order for Superior Mold"
+Example Scenarios:
+------------------
+✅ KEEP: "Unit Industries Inc. (COMPANY) -SUPPLIES_TO-> TriStar (COMPANY)"
+   → High-value supply chain intelligence
 
-SchemaLLMPathExtractor might extract:
-- John WORKS_FOR Superior Mold ❌ (both mentioned, but incorrect)
+❌ REJECT: "TriStar (COMPANY) -SUPPLIES-> Molding (MATERIAL)"
+   → "Molding" is too generic, no actionable insight
 
-Validator checks:
-- Is "John WORKS_FOR Superior Mold" explicitly stated? → NO → Reject
+✅ KEEP: "John Smith (PERSON) -WORKS_FOR-> Acme Industries (COMPANY)"
+   → Clear organizational structure
+
+❌ REJECT: "Sarah (PERSON) -HAS_ROLE-> Manager (ROLE)"
+   → "Manager" too generic without context
 
 ARCHITECTURE:
 ============
@@ -52,13 +62,14 @@ logger = logging.getLogger(__name__)
 
 class RelationshipValidator:
     """
-    Validates knowledge graph relationships against source text using LLM.
+    Quality filter for knowledge graph relationships and entities using LLM.
 
     Design Principles:
     - Read-only: Never modifies SchemaLLMPathExtractor objects
     - Boolean output: LLM returns YES/NO, Python does filtering
-    - Explicit evidence: Relationship must be clearly stated in text
-    - False negative tolerance: Better to miss a true relationship than accept a false one
+    - Quality-focused: Keeps high-insight relationships, rejects generic/low-value entities
+    - Dual validation: Checks both relationship accuracy AND entity quality
+    - Conservative: When uncertain about quality, reject
     """
 
     def __init__(self, llm: LLM):
@@ -96,23 +107,44 @@ class RelationshipValidator:
         - Validation is strict (explicit evidence required)
         """
 
-        # Truncate text to reasonable length (500 chars = ~125 tokens)
-        # Most relationships are evident in local context
-        text_preview = chunk_text[:500]
+        # Use full chunk text for validation (up to 1200 chars for context)
+        # Provides complete context for accurate relationship validation
+        text_preview = chunk_text[:1200]
 
-        # Simple, strict prompt - requires explicit evidence
-        prompt = f"""Does this text EXPLICITLY support the relationship?
+        # Quality-focused validation prompt with business context
+        prompt = f"""You are building an enterprise knowledge graph that maps accurate, high-quality relationships inside a business.
+
+MISSION:
+This knowledge graph reveals unique connections between documents, emails, messages, and raw data from multiple business apps. Your role is to ensure only actionable, specific relationships enter the graph - relationships that drive business decisions forward by showing what is truly happening across the organization.
+
+SOURCE DATA:
+You're analyzing real business communications: emails, documents, chat messages, invoices, purchase orders, and technical specifications. These contain both high-value intelligence (supply chain relationships, organizational structure) and low-value noise (generic terms, vague mentions).
 
 TEXT:
 {text_preview}
 
-RELATIONSHIP:
-{source.name} -{relation.label}-> {target.name}
+RELATIONSHIP TO EVALUATE:
+{source.name} ({source.label}) -{relation.label}-> {target.name} ({target.label})
 
-Rules:
-- Answer YES only if the relationship is clearly stated or strongly implied
-- Answer NO if entities are just mentioned together without clear relationship
-- Answer NO if you're uncertain
+QUALITY CRITERIA:
+
+REJECT if entities are too generic or provide no actionable insight:
+- Generic materials: "molding", "plastic", "resin" (without specific grades/types)
+- Generic roles: "manager", "engineer" (without full context)
+- Generic actions: "meeting", "call", "email"
+- Vague descriptors that don't identify specific business entities
+
+ACCEPT high-value business relationships that reveal true operations:
+- Company-to-company: SUPPLIES_TO, WORKS_WITH (supply chain intelligence)
+- Person-to-company: WORKS_FOR (organizational structure)
+- Specific materials: "polycarbonate PC-1000", "ABS resin grade 5" (actionable specs)
+- Named roles: "VP of Sales", "Quality Engineer" (specific positions)
+- Purchase orders with specific companies or materials (transaction tracking)
+
+VALIDATION:
+- ACCEPT if explicitly stated or strongly implied in the text
+- REJECT if entities are just mentioned together without clear relationship
+- When uncertain about business value, REJECT (quality > quantity)
 
 Answer only: YES or NO"""
 

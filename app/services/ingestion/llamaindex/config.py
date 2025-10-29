@@ -154,11 +154,15 @@ NUM_WORKERS = 4  # For parallel node processing
 # RELATIONSHIP VALIDATION CONFIGURATION
 # ============================================
 
-# Enable LLM-based relationship validation to prevent false relationships
-# Research: False relationships are worse than missing relationships
-# - Vector store handles semantic search (no graph needed)
-# - Knowledge graph provides PRECISE entity connections
-# - One false relationship → wrong business decision
+# Enable LLM-based quality filtering for knowledge graph
+# Purpose: Keep high-insight relationships, reject low-quality entities
+#
+# Quality > Quantity for knowledge graphs:
+# - Vector store handles generic semantic search
+# - Knowledge graph provides PRECISE, ACTIONABLE business intelligence
+# - Filters generic entities ("molding", "plastic") that add no insight
+# - Prevents false relationships that lead to wrong business decisions
+# - Keeps valuable relationships (company supply chains, org structure)
 #
 # Cost: ~$0.001 per document (~0.1¢)
 # Performance: Adds ~200ms per relationship validation
