@@ -48,7 +48,7 @@ class AdminLoginResponse(BaseModel):
 
 class HealthCheckResponse(BaseModel):
     status: str
-    components: Dict[str, any]
+    components: dict
     timestamp: str
 
 
