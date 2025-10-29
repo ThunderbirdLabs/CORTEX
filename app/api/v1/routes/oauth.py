@@ -129,13 +129,45 @@ async def nango_oauth_callback(payload: NangoOAuthCallback):
 async def get_status(user_id: str = Depends(get_current_user_id)):
     """
     Get connection status for authenticated user.
-    Shows which providers are connected.
+    Shows which providers are connected and last sync time from Nango.
     """
+    import httpx
+
+    async def get_nango_connection_details(connection_id: str, provider_key: str) -> dict:
+        """Fetch connection details from Nango API including last sync time."""
+        if not connection_id or not provider_key:
+            return None
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                url = f"https://api.nango.dev/connection/{connection_id}?provider_config_key={provider_key}"
+                headers = {"Authorization": f"Bearer {settings.nango_secret}"}
+                response = await client.get(url, headers=headers)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    # Nango returns metadata with last sync info
+                    return {
+                        "last_sync": data.get("metadata", {}).get("last_synced_at"),
+                        "email": data.get("metadata", {}).get("email"),
+                        "status": data.get("credentials_status")
+                    }
+        except Exception as e:
+            logger.warning(f"Failed to get Nango connection details: {e}")
+
+        return None
+
     try:
         outlook_connection = await get_connection(user_id, settings.nango_provider_key_outlook) if settings.nango_provider_key_outlook else None
         gmail_connection = await get_connection(user_id, settings.nango_provider_key_gmail) if settings.nango_provider_key_gmail else None
         drive_connection = await get_connection(user_id, settings.nango_provider_key_google_drive) if settings.nango_provider_key_google_drive else gmail_connection
         quickbooks_connection = await get_connection(user_id, settings.nango_provider_key_quickbooks) if settings.nango_provider_key_quickbooks else None
+
+        # Get detailed info from Nango for connected providers
+        outlook_details = await get_nango_connection_details(outlook_connection, settings.nango_provider_key_outlook) if outlook_connection else None
+        gmail_details = await get_nango_connection_details(gmail_connection, settings.nango_provider_key_gmail) if gmail_connection else None
+        drive_details = await get_nango_connection_details(drive_connection, settings.nango_provider_key_google_drive) if drive_connection else None
+        quickbooks_details = await get_nango_connection_details(quickbooks_connection, settings.nango_provider_key_quickbooks) if quickbooks_connection else None
 
         return {
             "tenant_id": user_id,
@@ -143,22 +175,28 @@ async def get_status(user_id: str = Depends(get_current_user_id)):
                 "outlook": {
                     "configured": settings.nango_provider_key_outlook is not None,
                     "connected": outlook_connection is not None,
-                    "connection_id": outlook_connection
+                    "connection_id": outlook_connection,
+                    "last_sync": outlook_details.get("last_sync") if outlook_details else None,
+                    "email": outlook_details.get("email") if outlook_details else None
                 },
                 "gmail": {
                     "configured": settings.nango_provider_key_gmail is not None,
                     "connected": gmail_connection is not None,
-                    "connection_id": gmail_connection
+                    "connection_id": gmail_connection,
+                    "last_sync": gmail_details.get("last_sync") if gmail_details else None,
+                    "email": gmail_details.get("email") if gmail_details else None
                 },
                 "google_drive": {
                     "configured": (settings.nango_provider_key_google_drive is not None) or (settings.nango_provider_key_gmail is not None),
                     "connected": drive_connection is not None,
-                    "connection_id": drive_connection
+                    "connection_id": drive_connection,
+                    "last_sync": drive_details.get("last_sync") if drive_details else None
                 },
                 "quickbooks": {
                     "configured": settings.nango_provider_key_quickbooks is not None,
                     "connected": quickbooks_connection is not None,
-                    "connection_id": quickbooks_connection
+                    "connection_id": quickbooks_connection,
+                    "last_sync": quickbooks_details.get("last_sync") if quickbooks_details else None
                 }
             }
         }
