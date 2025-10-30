@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from supabase import create_client
 from app.core.config import settings
+from app.core.config_master import master_config
 from app.services.ingestion.llamaindex import UniversalIngestionPipeline
 
 
@@ -51,6 +52,18 @@ async def main(use_batch: bool = False, num_workers: int = 4, max_concurrent_neo
         print("="*80)
         print(f"INGEST FROM SUPABASE DOCUMENTS TABLE {'(BATCH MODE)' if use_batch else '(SEQUENTIAL MODE)'}")
         print("="*80)
+
+        # Step 0: Initialize master Supabase client (CRITICAL for dynamic schemas/prompts)
+        print("\n0️⃣ Initializing master Supabase client for schemas/prompts...")
+        from app.core import dependencies
+        if master_config.is_multi_tenant:
+            dependencies.master_supabase_client = create_client(
+                master_config.master_supabase_url,
+                master_config.master_supabase_service_key
+            )
+            print(f"   ✅ Master Supabase connected (Company ID: {master_config.company_id})")
+        else:
+            print("   ⚠️  Single-tenant mode - no master Supabase")
 
         # Step 1: Connect to Supabase
         print("\n1️⃣ Connecting to Supabase...")

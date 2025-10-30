@@ -114,13 +114,15 @@ async def initialize_clients():
         supabase_client = create_client(settings.supabase_url, settings.supabase_anon_key)
         logger.info("✅ Supabase connected")
 
-    # Neo4j Indexes (ensure indexes exist before querying)
+    # Database Indexes (ensure indexes exist before querying - production autopilot)
     try:
-        from app.services.ingestion.llamaindex.index_manager import ensure_neo4j_indexes
-        logger.info("🔍 Ensuring Neo4j indexes exist...")
+        from app.services.ingestion.llamaindex.index_manager import ensure_neo4j_indexes, ensure_qdrant_indexes
+        logger.info("🔍 Ensuring database indexes exist...")
         await ensure_neo4j_indexes()
+        await ensure_qdrant_indexes()
+        logger.info("✅ Database indexes configured (Neo4j + Qdrant)")
     except Exception as e:
-        logger.warning(f"⚠️  Failed to create Neo4j indexes: {e}")
+        logger.warning(f"⚠️  Failed to create database indexes: {e}")
         logger.warning("   Queries may be slow without indexes!")
 
     # RAG Pipeline (lazy import to avoid circular dependencies)
