@@ -61,16 +61,16 @@ DEFAULT_ENTITIES = []  # Empty - all entities loaded from master Supabase
 
 def _load_custom_entities():
     """
-    Load entity types from master Supabase and convert to Pydantic Enum type.
+    Load entity types from master Supabase and convert to Literal type for strict mode.
     MULTI-TENANT: Loads from master Supabase (company_schemas table, schema_type='entities')
     Called at startup. Returns None if DB unavailable or on error.
 
     Returns:
-        Enum type for LlamaIndex SchemaLLMPathExtractor, or None if failed
+        Literal type for LlamaIndex SchemaLLMPathExtractor with strict=True, or None if failed
     """
     try:
         from supabase import create_client
-        from enum import Enum
+        from typing import Literal, get_args
         import os
         import logging
         import json
@@ -103,12 +103,13 @@ def _load_custom_entities():
             schema_content = result.data[0]["schema_content"]
             entity_list = json.loads(schema_content)
 
-            # Convert to Enum type for LlamaIndex (Pydantic 2 requirement)
-            # Creates: EntityType = Enum('EntityType', {PERSON: PERSON, COMPANY: COMPANY, ...})
-            entity_enum = Enum('EntityType', {name: name for name in entity_list})
+            # CRITICAL FIX: Create Literal type (not Enum) for strict=True compatibility
+            # LlamaIndex SchemaLLMPathExtractor with strict=True requires Literal types
+            # Creates: Literal["PERSON", "COMPANY", "ROLE", ...]
+            entity_literal = Literal[tuple(entity_list)]
 
-            logger.info(f"✅ Loaded {len(entity_list)} entities from master: {entity_list}")
-            return entity_enum
+            logger.info(f"✅ Loaded {len(entity_list)} entities as Literal type from master: {entity_list}")
+            return entity_literal
         else:
             logger.error("❌ No entities found in master for this company! Graph extraction will fail.")
             return None
@@ -121,16 +122,16 @@ def _load_custom_entities():
 
 def _load_custom_relations():
     """
-    Load relationship types from master Supabase and convert to Pydantic Enum type.
+    Load relationship types from master Supabase and convert to Literal type for strict mode.
     MULTI-TENANT: Loads from master Supabase (company_schemas table, schema_type='relations')
     Called at startup. Returns None if DB unavailable or on error.
 
     Returns:
-        Enum type for LlamaIndex SchemaLLMPathExtractor, or None if failed
+        Literal type for LlamaIndex SchemaLLMPathExtractor with strict=True, or None if failed
     """
     try:
         from supabase import create_client
-        from enum import Enum
+        from typing import Literal
         import os
         import logging
         import json
@@ -163,11 +164,13 @@ def _load_custom_relations():
             schema_content = result.data[0]["schema_content"]
             relation_list = json.loads(schema_content)
 
-            # Convert to Enum type for LlamaIndex (Pydantic 2 requirement)
-            relation_enum = Enum('RelationType', {name: name for name in relation_list})
+            # CRITICAL FIX: Create Literal type (not Enum) for strict=True compatibility
+            # LlamaIndex SchemaLLMPathExtractor with strict=True requires Literal types
+            # Creates: Literal["WORKS_FOR", "WORKS_WITH", ...]
+            relation_literal = Literal[tuple(relation_list)]
 
-            logger.info(f"✅ Loaded {len(relation_list)} relations from master: {relation_list}")
-            return relation_enum
+            logger.info(f"✅ Loaded {len(relation_list)} relations as Literal type from master: {relation_list}")
+            return relation_literal
         else:
             logger.error("❌ No relations found in master for this company! Graph extraction will fail.")
             return None

@@ -212,9 +212,10 @@ class UniversalIngestionPipeline:
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        # Count enum members for logging
-        entity_count = len(list(POSSIBLE_ENTITIES))
-        relation_count = len(list(POSSIBLE_RELATIONS))
+        # Count Literal types for logging (get_args extracts Literal values)
+        from typing import get_args
+        entity_count = len(get_args(POSSIBLE_ENTITIES)) if POSSIBLE_ENTITIES else 0
+        relation_count = len(get_args(POSSIBLE_RELATIONS)) if POSSIBLE_RELATIONS else 0
         validation_count = len(KG_VALIDATION_SCHEMA)
 
         logger.info(f"✅ Loaded schemas from Supabase: {entity_count} entities, {relation_count} relations, {validation_count} validation rules")
