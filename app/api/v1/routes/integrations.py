@@ -8,7 +8,8 @@ from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 import httpx
 
-from app.core.dependencies import get_current_user, get_http_client
+from app.core.dependencies import get_http_client
+from app.core.security import get_current_user_id
 from app.services.integrations import fetch_all_quickbooks_data
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ router = APIRouter(prefix="/integrations", tags=["integrations"])
 async def explore_quickbooks(
     connection_id: str = Query(None, description="Nango connection ID (defaults to user ID)"),
     http_client: httpx.AsyncClient = Depends(get_http_client),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     🔍 Explore ALL QuickBooks data for a user.
@@ -69,8 +70,6 @@ async def explore_quickbooks(
     - Data is fetched from Nango's synced cache (FAST!)
     - Nango syncs QB data automatically in background
     """
-    user_id = current_user.get("id") or current_user.get("sub")
-
     # Default connection_id to user_id if not provided
     if not connection_id:
         connection_id = user_id
@@ -98,7 +97,7 @@ async def quickbooks_summary(
     connection_id: str = Query(None, description="Nango connection ID (defaults to user ID)"),
     time_range: str = Query("this_month", description="Time range: this_week, this_month, this_quarter, this_year"),
     http_client: httpx.AsyncClient = Depends(get_http_client),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     📊 Get QuickBooks financial summary (cleaned and formatted).
@@ -128,8 +127,6 @@ async def quickbooks_summary(
     }
     ```
     """
-    user_id = current_user.get("id") or current_user.get("sub")
-
     if not connection_id:
         connection_id = user_id
 
