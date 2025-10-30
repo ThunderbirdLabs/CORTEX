@@ -298,22 +298,13 @@ def _load_quality_rules():
 POSSIBLE_ENTITIES = _load_custom_entities()
 POSSIBLE_RELATIONS = _load_custom_relations()
 KG_VALIDATION_SCHEMA = _load_validation_schema()
+
+# Aliases for SchemaLLMPathExtractor (expects Literal types for strict mode)
+# The working version used these names with Literal types
+ENTITIES = POSSIBLE_ENTITIES  # Already a Literal type from _load_custom_entities()
+RELATIONS = POSSIBLE_RELATIONS  # Already a Literal type from _load_custom_relations()
+VALIDATION_SCHEMA = KG_VALIDATION_SCHEMA  # Backward compatibility alias
 ENTITY_QUALITY_RULES = _load_quality_rules()
-
-# Legacy Literal types (for backward compatibility)
-ENTITIES = Literal[
-    "PERSON", "COMPANY", "ROLE",
-    "PURCHASE_ORDER", "MATERIAL", "CERTIFICATION"
-]
-
-RELATIONS = Literal[
-    "WORKS_FOR", "WORKS_WITH", "HAS_ROLE", "WORKS_ON",
-    "SUPPLIES_TO", "SUPPLIES",
-    "CONTAINS", "SENT_TO",
-    "HAS_CERTIFICATION"
-]
-
-VALIDATION_SCHEMA = KG_VALIDATION_SCHEMA  # Alias for backward compatibility
 
 # ============================================
 # INGESTION PIPELINE CONFIGURATION

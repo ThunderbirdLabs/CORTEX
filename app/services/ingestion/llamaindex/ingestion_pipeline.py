@@ -230,16 +230,25 @@ class UniversalIngestionPipeline:
 
         logger.info("✅ Loaded entity_extraction prompt from Supabase (version loaded dynamically)")
 
+        # CRITICAL FIX: Append {text} placeholder if missing
+        # SchemaLLMPathExtractor requires {text} to inject document content
+        if '{text}' not in entity_extraction_template:
+            logger.warning("⚠️  Adding missing {text} placeholder to prompt template!")
+            entity_extraction_template = entity_extraction_template.strip() + "\n\nNow extract entities and relationships from the following text:\n\n{text}"
+
         extraction_prompt = PromptTemplate(template=entity_extraction_template.strip())
+
+        # Import Literal types for SchemaLLMPathExtractor (strict mode requires Literal, not list)
+        from .config import ENTITIES, RELATIONS
 
         self.entity_extractor = SchemaLLMPathExtractor(
             llm=self.extraction_llm,
             max_triplets_per_chunk=5,  # Extract up to 5 highest-value relationships (quality over quantity)
             num_workers=4,
-            possible_entities=POSSIBLE_ENTITIES,  # Loaded from Supabase (fail-fast if missing)
-            possible_relations=POSSIBLE_RELATIONS,  # Loaded from Supabase (fail-fast if missing)
+            possible_entities=ENTITIES,  # Use Literal type for pydantic validation (strict mode)
+            possible_relations=RELATIONS,  # Use Literal type for pydantic validation (strict mode)
             kg_validation_schema=KG_VALIDATION_SCHEMA,  # Loaded from Supabase (fail-fast if missing)
-            strict=True,  # Enforce schema strictly for production quality
+            strict=True,  # Enforce schema strictly - dynamic Literal types from Supabase
             extract_prompt=extraction_prompt  # Manufacturing-specific extraction guidance
         )
         logger.info(f"✅ Entity Extractor: SchemaLLMPathExtractor (validated business schema)")
@@ -366,7 +375,6 @@ class UniversalIngestionPipeline:
         Returns:
             Dict with ingestion results
         """
-
         # Universal field extraction (works for both emails and documents tables)
         doc_id = document_row.get("id")
         source = document_row.get("source", "unknown")
@@ -607,7 +615,9 @@ class UniversalIngestionPipeline:
 
                     # Use entity extractor on the minimal-metadata document
                     # SchemaLLMPathExtractor uses acall (async) internally
+                    logger.info(f"   → Calling LLM for entity extraction (content: {len(extraction_content)} chars)...")
                     extracted_nodes = await self.entity_extractor.acall([document_for_extraction])
+                    logger.info(f"   → LLM returned {len(extracted_nodes)} nodes")
 
                     # Extract entities, relationships, AND chunk nodes from extraction
                     # SchemaLLMPathExtractor stores: 'nodes' (entities), 'relations', and creates chunk nodes with MENTIONS
@@ -616,6 +626,10 @@ class UniversalIngestionPipeline:
                     total_chunks = 0
 
                     for llama_node in extracted_nodes:
+                        # DEBUG: Log what we got from LLM
+                        raw_entities = llama_node.metadata.get("nodes", [])
+                        raw_relations = llama_node.metadata.get("relations", [])
+                        logger.info(f"   → Node metadata: entities={len(raw_entities)}, relations={len(raw_relations)}")
                         # 1. Extract entities from metadata
                         entities = llama_node.metadata.get("nodes", [])
 
