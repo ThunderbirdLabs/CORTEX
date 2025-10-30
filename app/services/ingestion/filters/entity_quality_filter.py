@@ -101,17 +101,21 @@ class EntityQualityFilter(TransformComponent):
             enable_type_validation: Apply type-specific rules (default: True)
             log_filtered: Log filtered entities (default: True)
         """
-        # Merge custom blacklist with defaults
+        # Create default blacklist
+        default_blacklist = {
+            "i", "we", "you", "he", "she", "it", "they", "me", "us", "them",
+            "meeting", "call", "email", "document", "file", "table", "chart",
+            "team", "group", "list", "item", "thing", "stuff",
+            "today", "yesterday", "tomorrow", "week", "month", "year",
+            "this", "that", "these", "those",
+            "the", "a", "an",
+        }
+
+        # Merge custom blacklist if provided
         if blacklist:
-            default_blacklist = {
-                "i", "we", "you", "he", "she", "it", "they", "me", "us", "them",
-                "meeting", "call", "email", "document", "file", "table", "chart",
-                "team", "group", "list", "item", "thing", "stuff",
-                "today", "yesterday", "tomorrow", "week", "month", "year",
-                "this", "that", "these", "those",
-                "the", "a", "an",
-            }
             blacklist = default_blacklist.union(blacklist)
+        else:
+            blacklist = default_blacklist
 
         super().__init__(
             blacklist=blacklist,
@@ -265,7 +269,7 @@ class EntityQualityFilter(TransformComponent):
 
     def _validate_entity_type(self, entity_name: str, entity_type: str) -> bool:
         """
-        Apply type-specific validation rules.
+        Apply type-specific validation rules loaded from Supabase.
 
         Args:
             entity_name: Entity name
@@ -274,31 +278,33 @@ class EntityQualityFilter(TransformComponent):
         Returns:
             True if entity passes type-specific validation
         """
-        if entity_type == "PERSON":
-            # PERSON entities should have at least 2 words (first + last name)
-            # Reject: "John" → Accept: "John Smith"
+        # Load quality rules from config (dynamically loaded from Supabase)
+        from app.services.ingestion.llamaindex.config import ENTITY_QUALITY_RULES
+
+        # If no rules loaded or entity type not in rules, pass validation
+        if not ENTITY_QUALITY_RULES or entity_type not in ENTITY_QUALITY_RULES:
+            return True
+
+        rules = ENTITY_QUALITY_RULES[entity_type]
+
+        # Check min_words rule
+        if "min_words" in rules:
             words = entity_name.split()
-            if len(words) < 2:
+            if len(words) < rules["min_words"]:
                 return False
 
-            # Reject if any word is a pronoun
+        # Check reject_if_contains rule
+        if "reject_if_contains" in rules:
+            words = entity_name.split()
             for word in words:
-                if word.lower() in {"i", "we", "you", "he", "she", "it", "they"}:
+                if word.lower() in rules["reject_if_contains"]:
                     return False
 
-        elif entity_type == "COMPANY":
-            # COMPANY entities with Corp/Inc/LLC/Ltd are higher quality
-            # But don't reject others (e.g., "Acme Manufacturing" is valid)
-            # Just reject if it's a generic term
-            if entity_name.lower() in {"company", "corporation", "business", "firm"}:
+        # Check reject_exact rule
+        if "reject_exact" in rules:
+            if entity_name.lower() in rules["reject_exact"]:
                 return False
 
-        elif entity_type == "MATERIAL":
-            # MATERIAL should be specific (reject generic "material", "part")
-            if entity_name.lower() in {"material", "part", "component", "item"}:
-                return False
-
-        # Other types: no specific validation (rely on blacklist + length)
         return True
 
     def _get_rejection_reason(self, entity_name: str, entity_type: str) -> str:
@@ -325,14 +331,25 @@ class EntityQualityFilter(TransformComponent):
             return "pattern_rejection (URL/email/path/numeric)"
 
         if self.enable_type_validation:
-            if entity_type == "PERSON" and len(name_normalized.split()) < 2:
-                return "person_single_word"
+            # Load quality rules from config (dynamically loaded from Supabase)
+            from app.services.ingestion.llamaindex.config import ENTITY_QUALITY_RULES
 
-            if entity_type == "COMPANY" and name_lower in {"company", "corporation", "business", "firm"}:
-                return "generic_company"
+            if ENTITY_QUALITY_RULES and entity_type in ENTITY_QUALITY_RULES:
+                rules = ENTITY_QUALITY_RULES[entity_type]
 
-            if entity_type == "MATERIAL" and name_lower in {"material", "part", "component", "item"}:
-                return "generic_material"
+                # Check min_words rule
+                if "min_words" in rules and len(name_normalized.split()) < rules["min_words"]:
+                    return f"min_words (requires {rules['min_words']})"
+
+                # Check reject_if_contains rule
+                if "reject_if_contains" in rules:
+                    for word in name_normalized.split():
+                        if word.lower() in rules["reject_if_contains"]:
+                            return f"contains_rejected_word ({word})"
+
+                # Check reject_exact rule
+                if "reject_exact" in rules and name_lower in rules["reject_exact"]:
+                    return "generic_term"
 
         return "unknown"
 

@@ -45,10 +45,8 @@ from .config import (
     OPENAI_API_KEY, EXTRACTION_MODEL, EXTRACTION_TEMPERATURE,
     EMBEDDING_MODEL, CHUNK_SIZE, CHUNK_OVERLAP, SHOW_PROGRESS,
     NUM_WORKERS, ENABLE_CACHE, REDIS_HOST, REDIS_PORT, CACHE_COLLECTION,
-    POSSIBLE_ENTITIES, POSSIBLE_RELATIONS, KG_VALIDATION_SCHEMA,
-    ENABLE_RELATIONSHIP_VALIDATION
+    POSSIBLE_ENTITIES, POSSIBLE_RELATIONS, KG_VALIDATION_SCHEMA
 )
-from .relationship_validator import RelationshipValidator
 
 logger = logging.getLogger(__name__)
 
@@ -195,8 +193,26 @@ class UniversalIngestionPipeline:
 
         # Entity extractor (for Person/Company/Deal/etc.)
         # Using SchemaLLMPathExtractor with manufacturing-specific prompt
-        from .config import ENTITIES, RELATIONS, POSSIBLE_ENTITIES, POSSIBLE_RELATIONS
+        from .config import POSSIBLE_ENTITIES, POSSIBLE_RELATIONS
         from app.services.company_context import get_prompt_template
+
+        # Validate schemas loaded from Supabase (fail-fast if missing)
+        if not POSSIBLE_ENTITIES:
+            error_msg = "❌ FATAL: POSSIBLE_ENTITIES not loaded from Supabase! Check COMPANY_ID and master Supabase credentials."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        if not POSSIBLE_RELATIONS:
+            error_msg = "❌ FATAL: POSSIBLE_RELATIONS not loaded from Supabase! Check COMPANY_ID and master Supabase credentials."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        if not KG_VALIDATION_SCHEMA:
+            error_msg = "❌ FATAL: KG_VALIDATION_SCHEMA not loaded from Supabase! Check COMPANY_ID and master Supabase credentials."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        logger.info(f"✅ Loaded schemas from Supabase: {len(POSSIBLE_ENTITIES)} entities, {len(POSSIBLE_RELATIONS)} relations, {len(KG_VALIDATION_SCHEMA)} validation rules")
 
         # Load entity extraction prompt from Supabase (NO hardcoded fallback)
         logger.info("🔄 Loading entity_extraction prompt from Supabase...")
@@ -214,21 +230,13 @@ class UniversalIngestionPipeline:
             llm=self.extraction_llm,
             max_triplets_per_chunk=5,  # Extract up to 5 highest-value relationships (quality over quantity)
             num_workers=4,
-            possible_entities=POSSIBLE_ENTITIES if POSSIBLE_ENTITIES else ENTITIES,  # Load from Supabase, fallback to hardcoded
-            possible_relations=POSSIBLE_RELATIONS if POSSIBLE_RELATIONS else RELATIONS,  # Load from Supabase, fallback to hardcoded
-            kg_validation_schema=KG_VALIDATION_SCHEMA,
+            possible_entities=POSSIBLE_ENTITIES,  # Loaded from Supabase (fail-fast if missing)
+            possible_relations=POSSIBLE_RELATIONS,  # Loaded from Supabase (fail-fast if missing)
+            kg_validation_schema=KG_VALIDATION_SCHEMA,  # Loaded from Supabase (fail-fast if missing)
             strict=True,  # Enforce schema strictly for production quality
             extract_prompt=extraction_prompt  # Manufacturing-specific extraction guidance
         )
         logger.info(f"✅ Entity Extractor: SchemaLLMPathExtractor (validated business schema)")
-
-        # Relationship validator (prevent false relationships)
-        self.relationship_validator = None
-        if ENABLE_RELATIONSHIP_VALIDATION:
-            self.relationship_validator = RelationshipValidator(llm=self.extraction_llm)
-            logger.info(f"✅ Relationship Validator: LLM-based validation enabled")
-        else:
-            logger.info(f"   ⚠️  Relationship validation disabled (set ENABLE_RELATIONSHIP_VALIDATION=true to enable)")
 
         # Production caching setup (optional but recommended)
         cache = None
@@ -682,21 +690,9 @@ class UniversalIngestionPipeline:
                                 self._upsert_relations_with_retry(mentions_relations)
 
                         if relations:
-                            # Validate relationships if enabled
-                            if self.relationship_validator:
-                                validated_relations = await self.relationship_validator.validate_relationships(
-                                    relations=relations,
-                                    entities=entities,
-                                    chunk_text=llama_node.text
-                                )
-                            else:
-                                # No validation - use all relationships
-                                validated_relations = relations
-
-                            # Upsert only validated relationships
-                            if validated_relations:
-                                self._upsert_relations_with_retry(validated_relations)
-                                total_relations += len(validated_relations)
+                            # Upsert all relationships directly to Neo4j
+                            self._upsert_relations_with_retry(relations)
+                            total_relations += len(relations)
 
                     if total_chunks > 0:
                         logger.info(f"   ✅ Created {total_chunks} chunk nodes (provenance)")

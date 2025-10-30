@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     supabase_db_url: Optional[str] = Field(default=None, description="Direct Supabase DB URL")
 
     # ============================================================================
+    # MULTI-TENANT (Master Supabase)
+    # ============================================================================
+
+    company_id: Optional[str] = Field(default=None, description="Company ID for multi-tenant deployment")
+    master_supabase_url: Optional[str] = Field(default=None, description="Master Supabase URL (control plane)")
+    master_supabase_service_key: Optional[str] = Field(default=None, description="Master Supabase service key")
+
+    # ============================================================================
     # OAUTH (Nango)
     # ============================================================================
 

@@ -61,16 +61,15 @@ DEFAULT_ENTITIES = []  # Empty - all entities loaded from master Supabase
 
 def _load_custom_entities():
     """
-    Load custom entity types from database.
-    MULTI-TENANT: Loads from master Supabase (company_schemas table filtered by COMPANY_ID)
-    SINGLE-TENANT: Loads from company Supabase (admin_schema_overrides table) - BACKWARD COMPATIBLE
-    Called at startup to merge with default entities.
-    Returns empty list if DB unavailable or on error.
+    Load entity types from master Supabase (NEW: JSON array format).
+    MULTI-TENANT: Loads from master Supabase (company_schemas table, schema_type='entities')
+    Called at startup. Returns empty list if DB unavailable or on error.
     """
     try:
         from supabase import create_client
         import os
         import logging
+        import json
         logger = logging.getLogger(__name__)
 
         # Check for multi-tenant mode
@@ -78,163 +77,210 @@ def _load_custom_entities():
         master_url = os.getenv("MASTER_SUPABASE_URL")
         master_key = os.getenv("MASTER_SUPABASE_SERVICE_KEY")
 
-        if company_id and master_url and master_key:
-            # MULTI-TENANT MODE: Load from master Supabase
-            logger.info(f"🏢 Loading schemas from MASTER Supabase (Company ID: {company_id})")
+        if not company_id or not master_url or not master_key:
+            logger.warning("⚠️  Missing COMPANY_ID or master Supabase credentials. No entities loaded.")
+            return []
 
-            master = create_client(master_url, master_key)
+        # MULTI-TENANT MODE: Load from master Supabase (JSON FORMAT)
+        logger.info(f"🏢 Loading entities from MASTER Supabase (Company ID: {company_id})")
 
-            # Fetch THIS company's custom entities
-            result = master.table("company_schemas")\
-                .select("entity_type")\
-                .eq("company_id", company_id)\
-                .eq("override_type", "entity")\
-                .eq("is_active", True)\
-                .execute()
+        master = create_client(master_url, master_key)
 
-            all_entities = [row["entity_type"] for row in result.data if row.get("entity_type")]
+        # Fetch THIS company's entities (JSON array)
+        result = master.table("company_schemas")\
+            .select("schema_content")\
+            .eq("company_id", company_id)\
+            .eq("schema_type", "entities")\
+            .eq("is_active", True)\
+            .execute()
 
-            if all_entities:
-                logger.info(f"✅ Loaded {len(all_entities)} entities from master for this company: {all_entities}")
-            else:
-                logger.warning("⚠️  No entities found in master for this company! Graph extraction will be limited.")
+        if result.data:
+            # Parse JSON array from schema_content
+            schema_content = result.data[0]["schema_content"]
+            all_entities = json.loads(schema_content)
 
+            logger.info(f"✅ Loaded {len(all_entities)} entities from master: {all_entities}")
             return all_entities
-
         else:
-            # SINGLE-TENANT MODE (BACKWARD COMPATIBLE): Load from company Supabase
-            logger.info("🏠 Loading schemas from company Supabase (single-tenant mode)")
-
-            supabase_url = os.getenv("SUPABASE_URL")
-            supabase_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
-
-            if not supabase_url or not supabase_key:
-                return []  # No DB config, use defaults only
-
-            supabase = create_client(supabase_url, supabase_key)
-
-            # Fetch active entity overrides (old table name for backward compatibility)
-            result = supabase.table("admin_schema_overrides")\
-                .select("entity_type")\
-                .eq("override_type", "entity")\
-                .eq("is_active", True)\
-                .execute()
-
-            custom_entities = [row["entity_type"] for row in result.data if row.get("entity_type")]
-
-            if custom_entities:
-                logger.info(f"✅ Loaded {len(custom_entities)} custom entity types: {custom_entities}")
-
-            return custom_entities
+            logger.error("❌ No entities found in master for this company! Graph extraction will fail.")
+            return []
 
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
-        logger.warning(f"⚠️  Could not load custom entities: {e}. Using defaults only.")
-        return []  # Fallback to defaults
+        logger.error(f"❌ Failed to load entities: {e}")
+        return []
 
 def _load_custom_relations():
     """
-    Load custom relationship types from admin_schema_overrides table.
-    Called at startup to merge with default relationships.
+    Load relationship types from master Supabase (NEW: JSON array format).
+    MULTI-TENANT: Loads from master Supabase (company_schemas table, schema_type='relations')
+    Called at startup. Returns empty list if DB unavailable or on error.
+    """
+    try:
+        from supabase import create_client
+        import os
+        import logging
+        import json
+        logger = logging.getLogger(__name__)
+
+        # Check for multi-tenant mode
+        company_id = os.getenv("COMPANY_ID")
+        master_url = os.getenv("MASTER_SUPABASE_URL")
+        master_key = os.getenv("MASTER_SUPABASE_SERVICE_KEY")
+
+        if not company_id or not master_url or not master_key:
+            logger.warning("⚠️  Missing COMPANY_ID or master Supabase credentials. No relations loaded.")
+            return []
+
+        # MULTI-TENANT MODE: Load from master Supabase (JSON FORMAT)
+        logger.info(f"🏢 Loading relations from MASTER Supabase (Company ID: {company_id})")
+
+        master = create_client(master_url, master_key)
+
+        # Fetch THIS company's relations (JSON array)
+        result = master.table("company_schemas")\
+            .select("schema_content")\
+            .eq("company_id", company_id)\
+            .eq("schema_type", "relations")\
+            .eq("is_active", True)\
+            .execute()
+
+        if result.data:
+            # Parse JSON array from schema_content
+            schema_content = result.data[0]["schema_content"]
+            all_relations = json.loads(schema_content)
+
+            logger.info(f"✅ Loaded {len(all_relations)} relations from master: {all_relations}")
+            return all_relations
+        else:
+            logger.error("❌ No relations found in master for this company! Graph extraction will fail.")
+            return []
+
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"❌ Failed to load relations: {e}")
+        return []
+
+def _load_validation_schema():
+    """
+    Load validation schema (allowed triplets) from master Supabase (NEW: JSON nested array format).
+    MULTI-TENANT: Loads from master Supabase (company_schemas table, schema_type='validation_schema')
+    Returns list of tuples like [("PERSON", "WORKS_FOR", "COMPANY"), ...].
     Returns empty list if DB unavailable or on error.
     """
     try:
         from supabase import create_client
         import os
+        import logging
+        import json
+        logger = logging.getLogger(__name__)
 
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+        # Check for multi-tenant mode
+        company_id = os.getenv("COMPANY_ID")
+        master_url = os.getenv("MASTER_SUPABASE_URL")
+        master_key = os.getenv("MASTER_SUPABASE_SERVICE_KEY")
 
-        if not supabase_url or not supabase_key:
+        if not company_id or not master_url or not master_key:
+            logger.warning("⚠️  Missing COMPANY_ID or master Supabase credentials. No validation schema loaded.")
             return []
 
-        supabase = create_client(supabase_url, supabase_key)
+        # MULTI-TENANT MODE: Load from master Supabase (JSON FORMAT)
+        logger.info(f"🏢 Loading validation schema from MASTER Supabase (Company ID: {company_id})")
 
-        # Fetch active relationship overrides
-        result = supabase.table("admin_schema_overrides")\
-            .select("relation_type")\
-            .eq("override_type", "relation")\
+        master = create_client(master_url, master_key)
+
+        # Fetch THIS company's validation schema (nested JSON array)
+        result = master.table("company_schemas")\
+            .select("schema_content")\
+            .eq("company_id", company_id)\
+            .eq("schema_type", "validation_schema")\
             .eq("is_active", True)\
             .execute()
 
-        custom_relations = [row["relation_type"] for row in result.data if row.get("relation_type")]
+        if result.data:
+            # Parse nested JSON array and convert to tuples
+            schema_content = result.data[0]["schema_content"]
+            nested_arrays = json.loads(schema_content)
+            validation_tuples = [tuple(item) for item in nested_arrays]
 
-        if custom_relations:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(f"✅ Loaded {len(custom_relations)} custom relationship types from database: {custom_relations}")
-
-        return custom_relations
+            logger.info(f"✅ Loaded {len(validation_tuples)} validation triplets from master")
+            return validation_tuples
+        else:
+            logger.error("❌ No validation schema found in master for this company! Graph extraction will fail.")
+            return []
 
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
-        logger.warning(f"⚠️  Could not load custom relationships from database: {e}. Using defaults only.")
+        logger.error(f"❌ Failed to load validation schema: {e}")
         return []
 
-# Merge default + custom entities and relationships
-# Load ALL entities from master Supabase (no more hardcoded defaults)
+def _load_quality_rules():
+    """
+    Load entity quality rules from master Supabase (NEW: JSON object format).
+    MULTI-TENANT: Loads from master Supabase (company_schemas table, schema_type='entity_quality_rules')
+    Returns dict like {"PERSON": {"min_words": 2, "reject_if_contains": [...]}, ...}.
+    Returns empty dict if DB unavailable or on error.
+    """
+    try:
+        from supabase import create_client
+        import os
+        import logging
+        import json
+        logger = logging.getLogger(__name__)
+
+        # Check for multi-tenant mode
+        company_id = os.getenv("COMPANY_ID")
+        master_url = os.getenv("MASTER_SUPABASE_URL")
+        master_key = os.getenv("MASTER_SUPABASE_SERVICE_KEY")
+
+        if not company_id or not master_url or not master_key:
+            logger.warning("⚠️  Missing COMPANY_ID or master Supabase credentials. No quality rules loaded.")
+            return {}
+
+        # MULTI-TENANT MODE: Load from master Supabase (JSON FORMAT)
+        logger.info(f"🏢 Loading entity quality rules from MASTER Supabase (Company ID: {company_id})")
+
+        master = create_client(master_url, master_key)
+
+        # Fetch THIS company's quality rules (JSON object)
+        result = master.table("company_schemas")\
+            .select("schema_content")\
+            .eq("company_id", company_id)\
+            .eq("schema_type", "entity_quality_rules")\
+            .eq("is_active", True)\
+            .execute()
+
+        if result.data:
+            # Parse JSON object from schema_content
+            schema_content = result.data[0]["schema_content"]
+            quality_rules = json.loads(schema_content)
+
+            logger.info(f"✅ Loaded quality rules for {len(quality_rules)} entity types from master")
+            return quality_rules
+        else:
+            logger.error("❌ No entity quality rules found in master for this company! Entity filtering may not work properly.")
+            return {}
+
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"❌ Failed to load entity quality rules: {e}")
+        return {}
+
+
+# ============================================
+# LOAD ALL SCHEMAS FROM MASTER SUPABASE
+# ============================================
+# Multi-tenant: Each company gets its own schema based on COMPANY_ID env var
+# All schemas loaded dynamically from master Supabase at startup
+
 POSSIBLE_ENTITIES = _load_custom_entities()
-
-# Relationship Types - Strict, False-Relationship Proof
-# Design: Only extract relationships with EXPLICIT evidence, no inference
-
-# Default relationship types (always active)
-DEFAULT_RELATIONS = [
-    # People relationships
-    "WORKS_FOR",          # PERSON → COMPANY (employment)
-    "WORKS_WITH",         # PERSON → PERSON/COMPANY (collaboration, contact)
-    "HAS_ROLE",           # PERSON → ROLE (job title)
-    "WORKS_ON",           # PERSON → PURCHASE_ORDER (who handles what)
-
-    # Business relationships
-    "SUPPLIES_TO",        # COMPANY → COMPANY (supplier relationship)
-    "SUPPLIES",           # COMPANY → MATERIAL (what company supplies)
-
-    # Materials & orders
-    "CONTAINS",           # PURCHASE_ORDER → MATERIAL (what materials in order)
-    "SENT_TO",            # PURCHASE_ORDER → PERSON/COMPANY (who receives PO)
-
-    # Certifications
-    "HAS_CERTIFICATION",  # COMPANY → CERTIFICATION
-]
-
-# Merge default + custom relationships
-POSSIBLE_RELATIONS = DEFAULT_RELATIONS + _load_custom_relations()
-
-# Validation Schema - Manufacturing-Critical Relationships Only
-# Enforces relationship direction and valid entity connections
-# Format: (HEAD_ENTITY, RELATIONSHIP, TAIL_ENTITY)
-KG_VALIDATION_SCHEMA = [
-    # ============================================
-    # PEOPLE RELATIONSHIPS
-    # ============================================
-    ("PERSON", "WORKS_FOR", "COMPANY"),          # "John works for Acme"
-    ("PERSON", "WORKS_WITH", "PERSON"),          # "John works with Sarah"
-    ("PERSON", "WORKS_WITH", "COMPANY"),         # "John works with Acme" (contact/collaboration)
-    ("PERSON", "HAS_ROLE", "ROLE"),              # "John has role VP of Sales"
-    ("PERSON", "WORKS_ON", "PURCHASE_ORDER"),    # "Sarah works on PO #54321"
-
-    # ============================================
-    # BUSINESS RELATIONSHIPS
-    # ============================================
-    ("COMPANY", "SUPPLIES_TO", "COMPANY"),       # "Superior Mold supplies to Unit Industries"
-    ("COMPANY", "WORKS_WITH", "COMPANY"),        # "Acme works with PolyPlastics"
-    ("COMPANY", "SUPPLIES", "MATERIAL"),         # "Acme supplies polycarbonate"
-
-    # ============================================
-    # MATERIALS & ORDERS
-    # ============================================
-    ("PURCHASE_ORDER", "CONTAINS", "MATERIAL"),  # "PO #54321 contains polycarbonate"
-    ("PURCHASE_ORDER", "SENT_TO", "PERSON"),     # "PO #54321 sent to John"
-    ("PURCHASE_ORDER", "SENT_TO", "COMPANY"),    # "PO #54321 sent to Acme"
-
-    # ============================================
-    # CERTIFICATIONS
-    # ============================================
-    ("COMPANY", "HAS_CERTIFICATION", "CERTIFICATION"),
-]
+POSSIBLE_RELATIONS = _load_custom_relations()
+KG_VALIDATION_SCHEMA = _load_validation_schema()
+ENTITY_QUALITY_RULES = _load_quality_rules()
 
 # Legacy Literal types (for backward compatibility)
 ENTITIES = Literal[
@@ -269,24 +315,6 @@ SHOW_PROGRESS = True
 
 # Parallel processing (production optimization)
 NUM_WORKERS = 4  # For parallel node processing
-
-# ============================================
-# RELATIONSHIP VALIDATION CONFIGURATION
-# ============================================
-
-# Enable LLM-based quality filtering for knowledge graph
-# Purpose: Keep high-insight relationships, reject low-quality entities
-#
-# Quality > Quantity for knowledge graphs:
-# - Vector store handles generic semantic search
-# - Knowledge graph provides PRECISE, ACTIONABLE business intelligence
-# - Filters generic entities ("molding", "plastic") that add no insight
-# - Prevents false relationships that lead to wrong business decisions
-# - Keeps valuable relationships (company supply chains, org structure)
-#
-# Cost: ~$0.001 per document (~0.1¢)
-# Performance: Adds ~200ms per relationship validation
-ENABLE_RELATIONSHIP_VALIDATION = os.getenv("ENABLE_RELATIONSHIP_VALIDATION", "true").lower() == "true"
 
 # ============================================
 # CACHING CONFIGURATION (Production)
