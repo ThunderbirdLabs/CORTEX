@@ -8,10 +8,23 @@ Usage:
 import sys
 from app.services.deduplication.entity_deduplication import run_entity_deduplication
 from app.core.config import settings
+from app.core.config_master import master_config
 
 def main():
     from datetime import datetime, timezone
     import time
+
+    # Initialize master_supabase_client for multi-tenant mode
+    if master_config.is_multi_tenant:
+        from supabase import create_client
+        import app.core.dependencies as deps
+
+        print(f"🏢 Cron job initializing multi-tenant mode (Company ID: {master_config.company_id})")
+        deps.master_supabase_client = create_client(
+            master_config.master_supabase_url,
+            master_config.master_supabase_service_key
+        )
+        print("✅ Cron job: Master Supabase client initialized")
 
     start_time = time.time()
     print(f"🚀 Starting deduplication at {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}")
