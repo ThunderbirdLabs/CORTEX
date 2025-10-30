@@ -61,12 +61,16 @@ DEFAULT_ENTITIES = []  # Empty - all entities loaded from master Supabase
 
 def _load_custom_entities():
     """
-    Load entity types from master Supabase (NEW: JSON array format).
+    Load entity types from master Supabase and convert to Pydantic Enum type.
     MULTI-TENANT: Loads from master Supabase (company_schemas table, schema_type='entities')
-    Called at startup. Returns empty list if DB unavailable or on error.
+    Called at startup. Returns None if DB unavailable or on error.
+
+    Returns:
+        Enum type for LlamaIndex SchemaLLMPathExtractor, or None if failed
     """
     try:
         from supabase import create_client
+        from enum import Enum
         import os
         import logging
         import json
@@ -79,7 +83,7 @@ def _load_custom_entities():
 
         if not company_id or not master_url or not master_key:
             logger.warning("⚠️  Missing COMPANY_ID or master Supabase credentials. No entities loaded.")
-            return []
+            return None
 
         # MULTI-TENANT MODE: Load from master Supabase (JSON FORMAT)
         logger.info(f"🏢 Loading entities from MASTER Supabase (Company ID: {company_id})")
@@ -97,28 +101,36 @@ def _load_custom_entities():
         if result.data:
             # Parse JSON array from schema_content
             schema_content = result.data[0]["schema_content"]
-            all_entities = json.loads(schema_content)
+            entity_list = json.loads(schema_content)
 
-            logger.info(f"✅ Loaded {len(all_entities)} entities from master: {all_entities}")
-            return all_entities
+            # Convert to Enum type for LlamaIndex (Pydantic 2 requirement)
+            # Creates: EntityType = Enum('EntityType', {PERSON: PERSON, COMPANY: COMPANY, ...})
+            entity_enum = Enum('EntityType', {name: name for name in entity_list})
+
+            logger.info(f"✅ Loaded {len(entity_list)} entities from master: {entity_list}")
+            return entity_enum
         else:
             logger.error("❌ No entities found in master for this company! Graph extraction will fail.")
-            return []
+            return None
 
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"❌ Failed to load entities: {e}")
-        return []
+        return None
 
 def _load_custom_relations():
     """
-    Load relationship types from master Supabase (NEW: JSON array format).
+    Load relationship types from master Supabase and convert to Pydantic Enum type.
     MULTI-TENANT: Loads from master Supabase (company_schemas table, schema_type='relations')
-    Called at startup. Returns empty list if DB unavailable or on error.
+    Called at startup. Returns None if DB unavailable or on error.
+
+    Returns:
+        Enum type for LlamaIndex SchemaLLMPathExtractor, or None if failed
     """
     try:
         from supabase import create_client
+        from enum import Enum
         import os
         import logging
         import json
@@ -131,7 +143,7 @@ def _load_custom_relations():
 
         if not company_id or not master_url or not master_key:
             logger.warning("⚠️  Missing COMPANY_ID or master Supabase credentials. No relations loaded.")
-            return []
+            return None
 
         # MULTI-TENANT MODE: Load from master Supabase (JSON FORMAT)
         logger.info(f"🏢 Loading relations from MASTER Supabase (Company ID: {company_id})")
@@ -149,19 +161,22 @@ def _load_custom_relations():
         if result.data:
             # Parse JSON array from schema_content
             schema_content = result.data[0]["schema_content"]
-            all_relations = json.loads(schema_content)
+            relation_list = json.loads(schema_content)
 
-            logger.info(f"✅ Loaded {len(all_relations)} relations from master: {all_relations}")
-            return all_relations
+            # Convert to Enum type for LlamaIndex (Pydantic 2 requirement)
+            relation_enum = Enum('RelationType', {name: name for name in relation_list})
+
+            logger.info(f"✅ Loaded {len(relation_list)} relations from master: {relation_list}")
+            return relation_enum
         else:
             logger.error("❌ No relations found in master for this company! Graph extraction will fail.")
-            return []
+            return None
 
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"❌ Failed to load relations: {e}")
-        return []
+        return None
 
 def _load_validation_schema():
     """

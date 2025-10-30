@@ -212,7 +212,12 @@ class UniversalIngestionPipeline:
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        logger.info(f"✅ Loaded schemas from Supabase: {len(POSSIBLE_ENTITIES)} entities, {len(POSSIBLE_RELATIONS)} relations, {len(KG_VALIDATION_SCHEMA)} validation rules")
+        # Count enum members for logging
+        entity_count = len(list(POSSIBLE_ENTITIES))
+        relation_count = len(list(POSSIBLE_RELATIONS))
+        validation_count = len(KG_VALIDATION_SCHEMA)
+
+        logger.info(f"✅ Loaded schemas from Supabase: {entity_count} entities, {relation_count} relations, {validation_count} validation rules")
 
         # Load entity extraction prompt from Supabase (NO hardcoded fallback)
         logger.info("🔄 Loading entity_extraction prompt from Supabase...")
