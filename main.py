@@ -46,6 +46,7 @@ try:
     )
     from app.api.v1.routes.deduplication import router as deduplication_router
     from app.api.v1.routes.admin import router as admin_router
+    from app.api.v1.routes.integrations import router as integrations_router
 except Exception as e:
     print(f"🚨 FATAL STARTUP ERROR: {e}", file=sys.stderr)
     print(f"Traceback:\n{traceback.format_exc()}", file=sys.stderr)
@@ -198,6 +199,7 @@ app.include_router(upload_router)
 app.include_router(chat_router)
 app.include_router(deduplication_router)
 app.include_router(admin_router)  # Admin dashboard routes
+app.include_router(integrations_router)  # QuickBooks, Salesforce, etc.
 
 # ============================================================================
 # SENTRY DEBUG ENDPOINT (DEV/STAGING ONLY)
