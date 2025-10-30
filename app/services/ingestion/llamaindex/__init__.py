@@ -1,13 +1,13 @@
 """
-LlamaIndex Services (Expert Recommended Pattern)
+DEPRECATED: Use app.services.rag instead
 
-Universal implementation:
-- UniversalIngestionPipeline: Ingests ANY document to Qdrant + Neo4j
-- HybridQueryEngine: SubQuestionQueryEngine for hybrid retrieval
+This module has been renamed to remove implementation details from the name.
+All new code should import from app.services.rag
 """
 
-from .ingestion_pipeline import UniversalIngestionPipeline
-from .query_engine import HybridQueryEngine
+# Re-export everything from new location for backward compatibility
+from app.services.rag.pipeline import UniversalIngestionPipeline
+from app.services.rag.query import HybridQueryEngine
 
 __all__ = [
     "UniversalIngestionPipeline",

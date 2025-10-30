@@ -1,7 +1,9 @@
 """
-File parsing services.
-Handles extraction of text from any file type (PDFs, Word, images, etc.)
-"""
-from app.services.parsing.file_parser import extract_text_from_file, extract_text_from_bytes
+DEPRECATED: Use app.services.preprocessing.file_parser instead
 
-__all__ = ["extract_text_from_file", "extract_text_from_bytes"]
+This module has been moved to preprocessing.
+All new code should import from app.services.preprocessing
+"""
+
+# Re-export from new location for backward compatibility
+from app.services.preprocessing.file_parser import *  # noqa: F401, F403

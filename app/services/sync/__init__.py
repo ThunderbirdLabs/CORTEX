@@ -1,11 +1,7 @@
 """
-DEPRECATED: Use app.services.sync instead
-
-This module has been consolidated into the sync system.
-All new code should import from app.services.sync
+Data Sync System
+Unified sync orchestration for all external data sources
 """
-
-# Re-export everything from new location for backward compatibility
 from app.services.sync.oauth import get_graph_token_via_nango, nango_list_gmail_records
 from app.services.sync.database import save_connection, get_connection
 from app.services.sync.orchestration.email_sync import run_gmail_sync, run_tenant_sync

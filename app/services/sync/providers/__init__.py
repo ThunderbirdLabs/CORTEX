@@ -1,11 +1,7 @@
 """
-DEPRECATED: Use app.services.sync.providers instead
-
-This module has been consolidated into the sync system.
-All new code should import from app.services.sync.providers
+Data Source Providers
+Normalization layer for external APIs (Gmail, Outlook, Drive, QuickBooks, Slack)
 """
-
-# Re-export everything from new location for backward compatibility
 from app.services.sync.providers.gmail import normalize_gmail_message
 from app.services.sync.providers.microsoft_graph import (
     list_all_users,
@@ -17,5 +13,5 @@ __all__ = [
     "normalize_gmail_message",
     "list_all_users",
     "sync_user_mailbox",
-    "normalize_message"
+    "normalize_message",
 ]

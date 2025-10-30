@@ -1,7 +1,9 @@
 """
-Search Utilities
-Query rewriting and optimization
-"""
-from app.services.search.query_rewriter import rewrite_query_with_context
+DEPRECATED: Use app.services.preprocessing.query_rewriter instead
 
-__all__ = ["rewrite_query_with_context"]
+This module has been moved to preprocessing.
+All new code should import from app.services.preprocessing
+"""
+
+# Re-export from new location for backward compatibility
+from app.services.preprocessing.query_rewriter import *  # noqa: F401, F403
