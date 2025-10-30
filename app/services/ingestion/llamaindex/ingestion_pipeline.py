@@ -195,7 +195,7 @@ class UniversalIngestionPipeline:
 
         # Entity extractor (for Person/Company/Deal/etc.)
         # Using SchemaLLMPathExtractor with manufacturing-specific prompt
-        from .config import ENTITIES, RELATIONS
+        from .config import ENTITIES, RELATIONS, POSSIBLE_ENTITIES, POSSIBLE_RELATIONS
         from app.services.company_context import get_prompt_template
 
         # Load entity extraction prompt from Supabase (NO hardcoded fallback)
@@ -214,8 +214,8 @@ class UniversalIngestionPipeline:
             llm=self.extraction_llm,
             max_triplets_per_chunk=5,  # Extract up to 5 highest-value relationships (quality over quantity)
             num_workers=4,
-            possible_entities=ENTITIES,  # Use Literal type for pydantic validation
-            possible_relations=RELATIONS,  # Use Literal type for pydantic validation
+            possible_entities=POSSIBLE_ENTITIES if POSSIBLE_ENTITIES else ENTITIES,  # Load from Supabase, fallback to hardcoded
+            possible_relations=POSSIBLE_RELATIONS if POSSIBLE_RELATIONS else RELATIONS,  # Load from Supabase, fallback to hardcoded
             kg_validation_schema=KG_VALIDATION_SCHEMA,
             strict=True,  # Enforce schema strictly for production quality
             extract_prompt=extraction_prompt  # Manufacturing-specific extraction guidance
