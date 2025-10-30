@@ -10,6 +10,7 @@ from app.api.v1.routes.search import router as search_router
 from app.api.v1.routes.emails import router as emails_router
 from app.api.v1.routes.upload import router as upload_router
 from app.api.v1.routes.chat import router as chat_router
+from app.api.v1.routes.dashboard import router as dashboard_router
 
 __all__ = [
     "health_router",
@@ -20,4 +21,5 @@ __all__ = [
     "emails_router",
     "upload_router",
     "chat_router",
+    "dashboard_router",
 ]
