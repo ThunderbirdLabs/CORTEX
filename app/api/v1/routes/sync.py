@@ -9,7 +9,7 @@ from supabase import Client
 
 from app.core.security import get_current_user_id
 from app.core.dependencies import get_supabase
-from app.services.background.tasks import sync_gmail_task, sync_drive_task, sync_outlook_task
+from app.services.background.tasks import sync_gmail_task, sync_drive_task, sync_outlook_task, sync_quickbooks_task
 from app.middleware.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
@@ -146,6 +146,48 @@ async def sync_once_drive(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/once/quickbooks")
+@limiter.limit("10/hour")  # 10 manual QuickBooks syncs per hour
+async def sync_once_quickbooks(
+    request: Request,
+    user_id: str = Depends(get_current_user_id),
+    supabase: Client = Depends(get_supabase)
+):
+    """
+    Start QuickBooks sync as background job.
+
+    Fetches invoices, bills, payments, customers from QuickBooks.
+    Each record is ingested as a document into Supabase + Knowledge Graph.
+
+    Returns immediately with job_id for status tracking.
+    """
+    logger.info(f"Enqueueing QuickBooks sync for user {user_id}")
+
+    try:
+        # Create job record
+        job = supabase.table("sync_jobs").insert({
+            "user_id": user_id,
+            "job_type": "quickbooks",
+            "status": "queued"
+        }).execute()
+
+        job_id = job.data[0]["id"]
+
+        # Enqueue background task
+        sync_quickbooks_task.send(user_id, job_id)
+
+        logger.info(f"✅ QuickBooks sync job {job_id} queued")
+
+        return {
+            "status": "queued",
+            "job_id": job_id,
+            "message": "QuickBooks sync started in background. Use GET /sync/jobs/{job_id} to check status."
+        }
+    except Exception as e:
+        logger.error(f"Error enqueueing QuickBooks sync: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/jobs/{job_id}")
 async def get_job_status(
     job_id: str,
@@ -154,7 +196,7 @@ async def get_job_status(
 ):
     """
     Get status of a background sync job.
-    
+
     Returns:
     - status: queued, running, completed, failed
     - started_at: When job started processing
