@@ -63,8 +63,9 @@ async def connect_start(
         else:
             raise HTTPException(status_code=400, detail="Google Drive provider not configured")
     elif provider.lower() in ["quickbooks", "qbo", "intuit"]:
+        logger.info(f"QuickBooks provider key value: {settings.nango_provider_key_quickbooks}")
         if not settings.nango_provider_key_quickbooks:
-            raise HTTPException(status_code=400, detail="QuickBooks provider not configured")
+            raise HTTPException(status_code=400, detail="QuickBooks provider not configured. Check NANGO_PROVIDER_KEY_QUICKBOOKS env var.")
         integration_id = "quickbooks"
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
