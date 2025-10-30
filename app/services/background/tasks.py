@@ -18,24 +18,35 @@ def get_sync_dependencies():
     Dramatiq workers run in separate processes, so we can't share global clients.
     """
     from app.core.config import settings
+    from app.core.config_master import master_config
     from app.services.ingestion.llamaindex import UniversalIngestionPipeline
-    
+    import app.core.dependencies as deps
+
+    # Initialize master_supabase_client for multi-tenant mode
+    if master_config.is_multi_tenant:
+        logger.info(f"🏢 Worker initializing multi-tenant mode (Company ID: {master_config.company_id})")
+        deps.master_supabase_client = create_client(
+            master_config.master_supabase_url,
+            master_config.master_supabase_service_key
+        )
+        logger.info("✅ Worker: Master Supabase client initialized")
+
     # Create fresh HTTP client
     http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(60.0),  # Longer timeout for background jobs
         limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
     )
-    
+
     # Create fresh Supabase client
     supabase = create_client(settings.supabase_url, settings.supabase_anon_key)
-    
+
     # Create fresh RAG pipeline
     try:
         rag_pipeline = UniversalIngestionPipeline()
     except Exception as e:
         logger.error(f"Failed to initialize RAG pipeline in worker: {e}")
         rag_pipeline = None
-    
+
     return http_client, supabase, rag_pipeline
 
 
