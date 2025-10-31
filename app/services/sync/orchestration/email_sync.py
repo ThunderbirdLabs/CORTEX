@@ -4,6 +4,7 @@ Coordinates Outlook and Gmail sync operations
 """
 import base64
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -20,6 +21,12 @@ from app.services.preprocessing.spam_filter import should_filter_email
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Thread lock for cursor management (prevents race conditions in multi-threaded sync)
+# Multiple threads fetching emails simultaneously could read the same cursor,
+# causing duplicate processing. This lock ensures only one thread accesses
+# cursor at a time.
+_cursor_lock = threading.Lock()
 
 
 # ============================================================================
@@ -71,21 +78,23 @@ async def run_tenant_sync(
         # Paginate through all Outlook records from Nango
         cursor = None
         has_more = True
-        
+
         while has_more:
             try:
-                # Fetch page of pre-synced records from Nango
-                # REDUCED to 10 to prevent memory/timeout issues with large email batches
-                result = await nango_list_email_records(
-                    http_client,
-                    provider_key,
-                    connection_id,
-                    cursor=cursor,
-                    limit=10
-                )
+                # THREAD-SAFE: Lock cursor read/fetch to prevent race conditions
+                with _cursor_lock:
+                    # Fetch page of pre-synced records from Nango
+                    # REDUCED to 10 to prevent memory/timeout issues with large email batches
+                    result = await nango_list_email_records(
+                        http_client,
+                        provider_key,
+                        connection_id,
+                        cursor=cursor,
+                        limit=10
+                    )
 
-                records = result.get("records", [])
-                next_cursor = result.get("next_cursor")
+                    records = result.get("records", [])
+                    next_cursor = result.get("next_cursor")
 
                 logger.info(f"📬 Fetched {len(records)} Outlook records from Nango (cursor: {cursor[:20] if cursor else 'none'}...)")
 
@@ -215,13 +224,15 @@ async def run_tenant_sync(
                     if len(filtered_emails) > 5:
                         logger.info(f"   ... and {len(filtered_emails) - 5} more")
 
-                # Update cursor for next page
-                if next_cursor:
-                    cursor = next_cursor
-                    logger.info(f"   ⏭️  Moving to next page (cursor: {cursor[:30]}...)")
-                else:
-                    logger.info(f"   ✅ No more pages - sync complete!")
-                    has_more = False
+                # THREAD-SAFE: Lock cursor update
+                with _cursor_lock:
+                    # Update cursor for next page
+                    if next_cursor:
+                        cursor = next_cursor
+                        logger.info(f"   ⏭️  Moving to next page (cursor: {cursor[:30]}...)")
+                    else:
+                        logger.info(f"   ✅ No more pages - sync complete!")
+                        has_more = False
 
             except Exception as e:
                 error_msg = f"Error fetching Outlook page from Nango: {e}"
@@ -322,18 +333,22 @@ async def run_gmail_sync(
         has_more = True
         while has_more:
             try:
-                # Fetch page of records
-                result = await nango_list_email_records(
-                    http_client,
-                    provider_key,
-                    connection_id,
-                    cursor=cursor,
-                    limit=100,
-                    modified_after=modified_after
-                )
+                # THREAD-SAFE: Lock cursor read/fetch to prevent race conditions
+                # Without this, multiple threads could read same cursor simultaneously
+                # and process duplicate emails
+                with _cursor_lock:
+                    # Fetch page of records
+                    result = await nango_list_email_records(
+                        http_client,
+                        provider_key,
+                        connection_id,
+                        cursor=cursor,
+                        limit=100,
+                        modified_after=modified_after
+                    )
 
-                records = result.get("records", [])
-                next_cursor = result.get("next_cursor")
+                    records = result.get("records", [])
+                    next_cursor = result.get("next_cursor")
 
                 logger.info(f"Fetched {len(records)} Gmail records (cursor: {cursor[:20] if cursor else 'none'}...)")
 
@@ -426,13 +441,15 @@ async def run_gmail_sync(
                         logger.error(error_msg)
                         errors.append(error_msg)
 
-                # Update cursor for next page
-                if next_cursor:
-                    cursor = next_cursor
-                    # Save cursor after each page for incremental sync
-                    await set_gmail_cursor(tenant_id, provider_key, cursor)
-                else:
-                    has_more = False
+                # THREAD-SAFE: Lock cursor update to prevent race conditions
+                with _cursor_lock:
+                    # Update cursor for next page
+                    if next_cursor:
+                        cursor = next_cursor
+                        # Save cursor after each page for incremental sync
+                        await set_gmail_cursor(tenant_id, provider_key, cursor)
+                    else:
+                        has_more = False
 
             except Exception as e:
                 error_msg = f"Error fetching Gmail page: {e}"
