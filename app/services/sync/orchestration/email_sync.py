@@ -9,14 +9,14 @@ from typing import Any, Dict, List, Optional
 import httpx
 from supabase import Client
 
-from app.services.ingestion.llamaindex import UniversalIngestionPipeline
-from app.services.nango.database import get_connection, get_gmail_cursor, set_gmail_cursor
-from app.services.connectors.gmail import normalize_gmail_message, download_gmail_attachment, is_supported_attachment_type
-from app.services.connectors.outlook import normalize_outlook_message
-from app.services.nango.nango_client import nango_list_email_records
-from app.services.nango.persistence import append_jsonl, ingest_to_cortex
-from app.services.universal.ingest import ingest_document_universal
-from app.services.filters.openai_spam_detector import should_filter_email
+from app.services.rag import UniversalIngestionPipeline
+from app.services.sync.database import get_connection, get_gmail_cursor, set_gmail_cursor
+from app.services.sync.providers.gmail import normalize_gmail_message, download_gmail_attachment, is_supported_attachment_type
+from app.services.sync.providers.outlook import normalize_outlook_message
+from app.services.sync.oauth import nango_list_email_records
+from app.services.sync.persistence import append_jsonl, ingest_to_cortex
+from app.services.preprocessing.normalizer import ingest_document_universal
+from app.services.preprocessing.spam_filter import should_filter_email
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -153,7 +153,7 @@ async def run_tenant_sync(
                                     # Download attachment via Nango action (proper binary handling!)
                                     logger.info(f"      📥 Downloading via Nango action: {filename} ({'inline CID' if is_inline else 'regular'})")
                                     
-                                    from app.services.nango.nango_client import nango_fetch_attachment
+                                    from app.services.sync.oauth import nango_fetch_attachment
                                     
                                     attachment_bytes = await nango_fetch_attachment(
                                         http_client=http_client,

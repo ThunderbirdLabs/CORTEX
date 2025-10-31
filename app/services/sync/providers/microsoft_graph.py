@@ -9,7 +9,7 @@ from typing import Any, Dict, List
 
 import httpx
 
-from app.services.nango.database import get_user_cursor, save_user_cursor
+from app.services.sync.database import get_user_cursor, save_user_cursor
 
 logger = logging.getLogger(__name__)
 

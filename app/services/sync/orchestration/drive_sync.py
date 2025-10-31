@@ -8,15 +8,15 @@ import httpx
 from supabase import Client
 
 from app.core.config import settings
-from app.services.ingestion.llamaindex import UniversalIngestionPipeline
-from app.services.nango.database import get_connection
-from app.services.connectors.google_drive import (
+from app.services.rag import UniversalIngestionPipeline
+from app.services.sync.database import get_connection
+from app.services.sync.providers.google_drive import (
     normalize_drive_file,
     is_supported_file_type,
     get_export_mime_type
 )
-from app.services.nango.drive_client import nango_fetch_file
-from app.services.universal.ingest import ingest_document_universal
+from app.services.sync.oauth import nango_fetch_file
+from app.services.preprocessing.normalizer import ingest_document_universal
 
 logger = logging.getLogger(__name__)
 

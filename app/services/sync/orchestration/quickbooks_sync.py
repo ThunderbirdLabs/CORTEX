@@ -18,10 +18,10 @@ from datetime import datetime
 import httpx
 from supabase import Client
 
-from app.services.ingestion.llamaindex import UniversalIngestionPipeline
-from app.services.nango.database import get_connection
-from app.services.universal.ingest import ingest_document_universal
-from app.services.integrations.quickbooks import nango_fetch_quickbooks_records
+from app.services.rag import UniversalIngestionPipeline
+from app.services.sync.database import get_connection
+from app.services.preprocessing.normalizer import ingest_document_universal
+from app.services.sync.providers.quickbooks import nango_fetch_quickbooks_records
 
 logger = logging.getLogger(__name__)
 

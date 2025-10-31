@@ -28,7 +28,7 @@ from .config import (
     OPENAI_API_KEY, QUERY_MODEL, QUERY_TEMPERATURE,
     EMBEDDING_MODEL, SIMILARITY_TOP_K
 )
-from .recency_postprocessor import DocumentTypeRecencyPostprocessor
+from .recency import DocumentTypeRecencyPostprocessor
 
 # Import SentenceTransformer reranker for production relevance scoring
 from llama_index.postprocessor.sbert_rerank import SentenceTransformerRerank
