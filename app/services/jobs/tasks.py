@@ -19,7 +19,7 @@ def get_sync_dependencies():
     """
     from app.core.config import settings
     from app.core.config_master import master_config
-    from app.services.ingestion.llamaindex import UniversalIngestionPipeline
+    from app.services.rag import UniversalIngestionPipeline
     import app.core.dependencies as deps
 
     # Initialize master_supabase_client for multi-tenant mode
@@ -54,7 +54,7 @@ async def _run_gmail_sync_with_cleanup(http_client: httpx.AsyncClient, supabase,
     """
     Async wrapper that runs Gmail sync and handles HTTP client cleanup properly.
     """
-    from app.services.nango import run_gmail_sync
+    from app.services.sync import run_gmail_sync
     
     try:
         result = await run_gmail_sync(http_client, supabase, rag_pipeline, user_id, provider_key, modified_after)
@@ -74,7 +74,7 @@ def sync_gmail_task(user_id: str, job_id: str, modified_after: Optional[str] = N
         job_id: Sync job ID for status tracking
         modified_after: Optional ISO datetime filter
     """
-    from app.services.nango import run_gmail_sync
+    from app.services.sync import run_gmail_sync
     from app.core.config import settings
     
     logger.info(f"🚀 Starting Gmail sync job {job_id} for user {user_id}")
@@ -132,7 +132,7 @@ def sync_drive_task(user_id: str, job_id: str, folder_ids: Optional[list] = None
         job_id: Sync job ID for status tracking
         folder_ids: Optional list of folder IDs to sync
     """
-    from app.services.nango.drive_sync import run_drive_sync
+    from app.services.sync.orchestration.drive_sync import run_drive_sync
     from app.core.config import settings
     
     logger.info(f"🚀 Starting Drive sync job {job_id} for user {user_id}")
@@ -184,7 +184,7 @@ async def _run_outlook_sync_with_cleanup(http_client: httpx.AsyncClient, supabas
     """
     Async wrapper that runs sync and handles HTTP client cleanup properly.
     """
-    from app.services.nango import run_tenant_sync
+    from app.services.sync import run_tenant_sync
     
     try:
         result = await run_tenant_sync(http_client, supabase, rag_pipeline, user_id, provider_key)
@@ -256,7 +256,7 @@ async def _run_quickbooks_sync_with_cleanup(http_client: httpx.AsyncClient, supa
     """
     Async wrapper that runs QuickBooks sync and handles HTTP client cleanup properly.
     """
-    from app.services.nango.quickbooks_sync import run_quickbooks_sync
+    from app.services.sync.orchestration.quickbooks_sync import run_quickbooks_sync
 
     try:
         result = await run_quickbooks_sync(http_client, supabase, rag_pipeline, user_id, provider_key)

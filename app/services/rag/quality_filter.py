@@ -279,7 +279,7 @@ class EntityQualityFilter(TransformComponent):
             True if entity passes type-specific validation
         """
         # Load quality rules from config (dynamically loaded from Supabase)
-        from app.services.ingestion.llamaindex.config import ENTITY_QUALITY_RULES
+        from app.services.rag.config import ENTITY_QUALITY_RULES
 
         # If no rules loaded or entity type not in rules, pass validation
         if not ENTITY_QUALITY_RULES or entity_type not in ENTITY_QUALITY_RULES:
@@ -332,7 +332,7 @@ class EntityQualityFilter(TransformComponent):
 
         if self.enable_type_validation:
             # Load quality rules from config (dynamically loaded from Supabase)
-            from app.services.ingestion.llamaindex.config import ENTITY_QUALITY_RULES
+            from app.services.rag.config import ENTITY_QUALITY_RULES
 
             if ENTITY_QUALITY_RULES and entity_type in ENTITY_QUALITY_RULES:
                 rules = ENTITY_QUALITY_RULES[entity_type]

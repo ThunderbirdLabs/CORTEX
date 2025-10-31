@@ -13,9 +13,9 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from supabase import Client
 
-from app.services.ingestion.llamaindex import UniversalIngestionPipeline
-from app.services.parsing.file_parser import extract_text_from_file, extract_text_from_bytes
-from app.services.deduplication import should_ingest_document
+from app.services.rag import UniversalIngestionPipeline
+from app.services.preprocessing.file_parser import extract_text_from_file, extract_text_from_bytes
+from app.services.preprocessing.content_deduplication import should_ingest_document
 
 logger = logging.getLogger(__name__)
 

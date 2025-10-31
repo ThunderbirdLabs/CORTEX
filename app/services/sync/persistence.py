@@ -9,8 +9,8 @@ from datetime import datetime
 
 from supabase import Client
 
-from app.services.ingestion.llamaindex import UniversalIngestionPipeline
-from app.services.universal.ingest import ingest_document_universal
+from app.services.rag import UniversalIngestionPipeline
+from app.services.preprocessing.normalizer import ingest_document_universal
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
