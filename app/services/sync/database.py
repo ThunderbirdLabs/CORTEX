@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import psycopg
-from psycopg_pool import ConnectionPool
+from psycopg.pool import ConnectionPool
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
