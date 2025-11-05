@@ -7,39 +7,22 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import psycopg
-from psycopg.pool import ConnectionPool
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# DATABASE CONNECTION POOL
+# DATABASE CONNECTION
 # ============================================================================
 
-# Global connection pool (initialized on first use)
-_connection_pool: Optional[ConnectionPool] = None
-
-def get_connection_pool() -> ConnectionPool:
-    """Get or create the connection pool."""
-    global _connection_pool
-    if _connection_pool is None:
-        logger.info("Initializing database connection pool...")
-        _connection_pool = ConnectionPool(
-            conninfo=settings.database_url,
-            min_size=2,
-            max_size=10,
-            timeout=30.0,
-            max_waiting=20,
-            open=True
-        )
-        logger.info("Database connection pool initialized successfully")
-    return _connection_pool
-
 def get_db_connection():
-    """Get database connection from the pool."""
-    pool = get_connection_pool()
-    return pool.connection()
+    """Get synchronous database connection.
+
+    Note: Creates a new connection each time. For high-frequency calls,
+    consider refactoring to use Supabase client instead.
+    """
+    return psycopg.connect(settings.database_url, autocommit=False)
 
 
 # ============================================================================
@@ -67,18 +50,15 @@ async def save_connection(tenant_id: str, provider_key: str, connection_id: str)
 
 
 async def get_connection(tenant_id: str, provider_key: str) -> Optional[str]:
-    """Get connection_id for a tenant."""
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT connection_id FROM connections WHERE tenant_id = %s AND provider_key = %s",
-                (tenant_id, provider_key)
-            )
-            row = cur.fetchone()
-            return row[0] if row else None
-    finally:
-        conn.close()
+    """Get connection_id for a tenant using Supabase client (avoids connection thrashing)."""
+    from app.core.dependencies import get_supabase_client
+
+    supabase = get_supabase_client()
+    result = supabase.table("connections").select("connection_id").eq("tenant_id", tenant_id).eq("provider_key", provider_key).limit(1).execute()
+
+    if result.data and len(result.data) > 0:
+        return result.data[0]["connection_id"]
+    return None
 
 
 # ============================================================================
