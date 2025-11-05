@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from supabase import create_client
 from app.core.config import settings
 from app.core.config_master import master_config
-from app.services.ingestion.llamaindex import UniversalIngestionPipeline
+from app.services.rag import UniversalIngestionPipeline
 
 
 async def main(use_batch: bool = False, num_workers: int = 4, max_concurrent_neo4j: int = 10, batch_size: int = 50):
