@@ -51,10 +51,23 @@ async def save_connection(tenant_id: str, provider_key: str, connection_id: str)
 
 async def get_connection(tenant_id: str, provider_key: str) -> Optional[str]:
     """Get connection_id for a tenant using Supabase client (avoids connection thrashing)."""
-    from app.core.dependencies import get_supabase_client
+    from app.core.dependencies import supabase_client
 
-    supabase = get_supabase_client()
-    result = supabase.table("connections").select("connection_id").eq("tenant_id", tenant_id).eq("provider_key", provider_key).limit(1).execute()
+    if not supabase_client:
+        logger.warning("Supabase client not initialized, falling back to direct psycopg connection")
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT connection_id FROM connections WHERE tenant_id = %s AND provider_key = %s",
+                    (tenant_id, provider_key)
+                )
+                row = cur.fetchone()
+                return row[0] if row else None
+        finally:
+            conn.close()
+
+    result = supabase_client.table("connections").select("connection_id").eq("tenant_id", tenant_id).eq("provider_key", provider_key).limit(1).execute()
 
     if result.data and len(result.data) > 0:
         return result.data[0]["connection_id"]
