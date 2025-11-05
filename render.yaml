@@ -28,3 +28,36 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.8
+
+  # Daily intelligence generation (midnight daily)
+  - type: cron
+    name: daily-intelligence
+    schedule: "0 0 * * *"
+    env: python
+    buildCommand: ./render-build.sh
+    startCommand: python -m app.services.jobs.run_daily_intelligence
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+
+  # Weekly intelligence generation (Monday 1am)
+  - type: cron
+    name: weekly-intelligence
+    schedule: "0 1 * * 1"
+    env: python
+    buildCommand: ./render-build.sh
+    startCommand: python -m app.services.jobs.run_weekly_intelligence
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+
+  # Monthly intelligence generation (1st of month 2am)
+  - type: cron
+    name: monthly-intelligence
+    schedule: "0 2 1 * *"
+    env: python
+    buildCommand: ./render-build.sh
+    startCommand: python -m app.services.jobs.run_monthly_intelligence
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8

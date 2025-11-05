@@ -11,6 +11,7 @@ from supabase import Client
 
 from app.services.rag import UniversalIngestionPipeline
 from app.services.preprocessing.normalizer import ingest_document_universal
+from app.services.identity import resolve_identity
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -105,9 +106,34 @@ async def ingest_to_cortex(
             except Exception as e:
                 logger.warning(f"Failed to parse received_datetime: {e}")
 
+        # Resolve sender identity (map platform-specific ID to canonical identity)
+        sender_identity = None
+        sender_canonical_id = None
+        sender_canonical_name = None
+
+        if email.get("sender_address"):
+            try:
+                sender_identity = await resolve_identity(
+                    supabase=supabase,
+                    tenant_id=email.get("tenant_id"),
+                    platform=email.get("source", "gmail"),  # 'gmail' or 'outlook'
+                    email=email.get("sender_address"),
+                    platform_user_id=email.get("sender_address"),  # Use email as platform ID
+                    display_name=email.get("sender_name")
+                )
+                sender_canonical_id = sender_identity.get("canonical_identity_id")
+                sender_canonical_name = sender_identity.get("canonical_name")
+
+                logger.info(
+                    f"🔗 Identity resolved: {email.get('sender_address')} → "
+                    f"{sender_canonical_name} ({sender_canonical_id})"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to resolve sender identity: {e}")
+
         # Use universal ingestion function
         logger.info(f"🔍 DEBUG: About to ingest email - tenant_id: {email.get('tenant_id')}, message_id: {email.get('message_id')}")
-        
+
         result = await ingest_document_universal(
             supabase=supabase,
             cortex_pipeline=cortex_pipeline,
@@ -124,7 +150,10 @@ async def ingest_to_cortex(
                 "sender_address": email.get("sender_address", ""),
                 "to_addresses": email.get("to_addresses", []),
                 "user_id": email.get("user_id"),
-                "web_link": email.get("web_link", "")
+                "web_link": email.get("web_link", ""),
+                # IDENTITY RESOLUTION: Add canonical identity metadata
+                "canonical_identity_id": sender_canonical_id,
+                "canonical_name": sender_canonical_name
             }
         )
         
