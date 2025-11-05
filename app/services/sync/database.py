@@ -7,18 +7,39 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import psycopg
+from psycopg_pool import ConnectionPool
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# DATABASE CONNECTION
+# DATABASE CONNECTION POOL
 # ============================================================================
 
+# Global connection pool (initialized on first use)
+_connection_pool: Optional[ConnectionPool] = None
+
+def get_connection_pool() -> ConnectionPool:
+    """Get or create the connection pool."""
+    global _connection_pool
+    if _connection_pool is None:
+        logger.info("Initializing database connection pool...")
+        _connection_pool = ConnectionPool(
+            conninfo=settings.database_url,
+            min_size=2,
+            max_size=10,
+            timeout=30.0,
+            max_waiting=20,
+            open=True
+        )
+        logger.info("Database connection pool initialized successfully")
+    return _connection_pool
+
 def get_db_connection():
-    """Get synchronous database connection."""
-    return psycopg.connect(settings.database_url)
+    """Get database connection from the pool."""
+    pool = get_connection_pool()
+    return pool.connection()
 
 
 # ============================================================================
