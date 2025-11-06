@@ -439,55 +439,100 @@ async def generate_ai_summary(
     # Build context for LLM
     if period_type == "daily":
         context = _build_daily_context(metrics)
-        prompt = f"""You are an executive assistant creating a daily activity summary.
+        prompt = f"""You are creating a personalized daily business intelligence summary.
 
 {context}
 
-Instructions:
-- Summarize each person's activity using their actual email subjects
-- Mention specific companies and what was discussed
-- Include financial activity if present
-- Be SPECIFIC with names, topics, and numbers from the data above
-- Write 4-5 sentences
-- Focus on actionable insights for a busy CEO
+Write a detailed summary organized by person and company. Structure:
 
-Write as if briefing an executive: WHO did WHAT and WHY it matters."""
+## People Activity
+For each active person:
+- **[Name] at [Company]**: Summarize what they're working on based on email subjects. Highlight urgent issues, blockers, or major accomplishments. Note specific PO numbers, project names, or deliverables.
+
+## Company Overview
+Group activity by company and summarize key themes.
+
+## Urgent Items
+Call out anything requiring immediate attention or blocking progress.
+
+## Financial Activity
+Summarize any invoices, payments, or outstanding balances.
+
+Style: Write like Claude's personalized memory summaries - conversational, specific, deeply contextual. Use actual names, numbers, topics from the data. Focus on WHAT HAPPENED and WHY IT MATTERS.
+
+Length: 6-10 detailed paragraphs."""
 
     elif period_type == "weekly":
         context = _build_weekly_context(metrics)
-        prompt = f"""You are an executive assistant summarizing this week's business trends.
+        prompt = f"""You are creating a weekly business intelligence summary focused on company-wide progress.
 
-Context:
 {context}
 
-Write a concise weekly summary (3-4 sentences) highlighting:
-1. Key trends and patterns
-2. Notable changes from last week
-3. Areas requiring attention
+Write a strategic weekly review covering:
 
-Focus on strategic insights, not just numbers."""
+## Week in Review
+What were the major accomplishments this week? What did we ship, complete, or close?
+
+## Goals vs Reality
+Based on activity patterns, what were we trying to accomplish? What actually got done?
+
+## Trends & Patterns
+What changed from last week? Who became more/less active? What new companies appeared?
+
+## Blockers & Risks
+What's stuck? What needs attention before next week?
+
+## Looking Ahead
+Based on this week's activity, what should be prioritized next week?
+
+Style: Strategic, company-focused (not person-by-person). Write like a weekly standup for the CEO - what shipped, what's blocked, what's next.
+
+Length: 5-7 paragraphs covering the company as a whole."""
 
     else:  # monthly
         context = _build_monthly_context(metrics)
-        prompt = f"""You are an executive assistant creating a monthly strategic summary.
+        prompt = f"""You are creating a monthly strategic summary for executive leadership.
 
-Context:
 {context}
 
-Write an executive summary (4-5 sentences) covering:
-1. Overall business performance
-2. Key accomplishments and challenges
-3. Strategic implications
-4. Recommended focus areas
+Write a comprehensive monthly review covering:
 
-This will be read by C-level executives."""
+## Executive Summary
+What defined this month? What were the major wins and challenges?
+
+## Business Performance
+Revenue, pipeline, customer activity. How did we perform vs last month?
+
+## Strategic Initiatives
+What major projects or deals progressed? What got completed?
+
+## Organizational Health
+Team productivity patterns, communication volume, collaboration trends.
+
+## Risks & Opportunities
+What emerged as risks? What new opportunities appeared?
+
+## Recommendations
+Based on this month's data, what should leadership focus on next month?
+
+Style: Strategic, forward-looking, executive-level. Write for C-suite consumption - focus on business outcomes, not operational details.
+
+Length: 8-12 paragraphs covering strategic themes."""
 
     try:
+        # Adjust max_tokens based on period type
+        max_tokens_map = {
+            "daily": 1500,    # Detailed per-person summaries
+            "weekly": 1200,   # Strategic company overview
+            "monthly": 2000   # Comprehensive executive summary
+        }
+        max_tokens = max_tokens_map.get(period_type, 1500)
+
         response = await openai_client.chat.completions.create(
             model="gpt-4o-mini",  # Fast and cost-effective
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
-            max_tokens=300
+            max_tokens=max_tokens
         )
 
         summary = response.choices[0].message.content.strip()
