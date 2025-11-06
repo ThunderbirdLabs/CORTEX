@@ -9,7 +9,8 @@ from datetime import date, timedelta
 import logging
 
 from supabase import Client
-from app.core.dependencies import get_supabase, get_current_user_id
+from app.core.dependencies import get_supabase
+from app.core.security import get_current_user_id
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
