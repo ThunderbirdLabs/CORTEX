@@ -45,9 +45,9 @@ try:
         chat_router,
         dashboard_router,
         intelligence_router,
-        analytics_router
+        analytics_router,
+        insights_router
     )
-    from app.api.v1.routes.insights import router as insights_router
     from app.api.v1.routes.deduplication import router as deduplication_router
     from app.api.v1.routes.admin import router as admin_router
     from app.api.v1.routes.integrations import router as integrations_router
