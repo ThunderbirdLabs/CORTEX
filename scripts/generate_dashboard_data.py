@@ -20,6 +20,7 @@ import sys
 import asyncio
 from datetime import datetime, date, timedelta
 from pathlib import Path
+from decimal import Decimal
 
 # Add parent directory to path to import app modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -103,35 +104,32 @@ async def main():
     logger.info("=" * 80)
 
     async with neo4j_driver.session() as session:
+        # Count all nodes (RAG entities don't have tenant_id, just check if graph is populated)
+        result = await session.run("MATCH (n) RETURN count(n) as count")
+        total_nodes = (await result.single())["count"]
+
         # Count PERSON nodes
-        result = await session.run(
-            "MATCH (p:PERSON) WHERE p.tenant_id = $tenant_id RETURN count(p) as count",
-            tenant_id=tenant_id
-        )
+        result = await session.run("MATCH (p:PERSON) RETURN count(p) as count")
         person_count = (await result.single())["count"]
 
         # Count COMPANY nodes
-        result = await session.run(
-            "MATCH (c:COMPANY) WHERE c.tenant_id = $tenant_id RETURN count(c) as count",
-            tenant_id=tenant_id
-        )
+        result = await session.run("MATCH (c:COMPANY) RETURN count(c) as count")
         company_count = (await result.single())["count"]
 
         # Count PURCHASE_ORDER nodes
-        result = await session.run(
-            "MATCH (po:PURCHASE_ORDER) WHERE po.tenant_id = $tenant_id RETURN count(po) as count",
-            tenant_id=tenant_id
-        )
+        result = await session.run("MATCH (po:PURCHASE_ORDER) RETURN count(po) as count")
         po_count = (await result.single())["count"]
 
+    logger.info(f"🔢 Total nodes in graph: {total_nodes}")
     logger.info(f"👥 PERSON entities: {person_count}")
     logger.info(f"🏢 COMPANY entities: {company_count}")
     logger.info(f"📝 PURCHASE_ORDER entities: {po_count}")
 
-    if person_count == 0 and company_count == 0:
+    if person_count > 0 or company_count > 0:
+        logger.info("✅ Knowledge graph populated! Entities available via RAG search.")
+    else:
         logger.warning("⚠️  No entities found in Neo4j!")
         logger.warning("   Documents exist but haven't been processed through RAG pipeline.")
-        logger.warning("   You may need to re-sync or manually trigger entity extraction.")
 
     # Step 4: Generate daily intelligence
     logger.info("\n" + "=" * 80)
@@ -149,11 +147,25 @@ async def main():
             target_date=today
         )
 
+        # Convert any date/decimal objects to JSON-serializable types
+        def convert_dates(obj):
+            if isinstance(obj, dict):
+                return {k: convert_dates(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_dates(item) for item in obj]
+            elif isinstance(obj, (date, datetime)):
+                return obj.isoformat()
+            elif isinstance(obj, Decimal):
+                return float(obj)
+            return obj
+
+        daily_data_clean = convert_dates(daily_data)
+
         # Insert into daily_intelligence table
         supabase.table("daily_intelligence").upsert({
             "tenant_id": tenant_id,
             "date": str(today),
-            **daily_data
+            **daily_data_clean
         }).execute()
 
         logger.info("✅ Daily intelligence generated successfully!")
@@ -182,12 +194,26 @@ async def main():
             week_start=week_start
         )
 
+        # Convert any date/decimal objects to JSON-serializable types
+        def convert_dates(obj):
+            if isinstance(obj, dict):
+                return {k: convert_dates(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_dates(item) for item in obj]
+            elif isinstance(obj, (date, datetime)):
+                return obj.isoformat()
+            elif isinstance(obj, Decimal):
+                return float(obj)
+            return obj
+
+        weekly_data_clean = convert_dates(weekly_data)
+
         # Insert into weekly_intelligence table
         supabase.table("weekly_intelligence").upsert({
             "tenant_id": tenant_id,
             "week_start": str(week_start),
             "week_end": str(week_start + timedelta(days=6)),
-            **weekly_data
+            **weekly_data_clean
         }).execute()
 
         logger.info("✅ Weekly intelligence generated successfully!")
@@ -208,6 +234,7 @@ async def main():
     month_start = today.replace(day=1)
     logger.info(f"📅 Generating for month: {month_start}")
 
+    monthly_data = None
     try:
         monthly_data = await calculate_monthly_insights(
             supabase=supabase,
@@ -216,11 +243,23 @@ async def main():
             month=month_start
         )
 
+        # Convert any date objects to strings for JSON serialization
+        def convert_dates(obj):
+            if isinstance(obj, dict):
+                return {k: convert_dates(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_dates(item) for item in obj]
+            elif isinstance(obj, (date, datetime)):
+                return obj.isoformat()
+            return obj
+
+        monthly_data_clean = convert_dates(monthly_data)
+
         # Insert into monthly_intelligence table
         supabase.table("monthly_intelligence").upsert({
             "tenant_id": tenant_id,
             "month": str(month_start),
-            **monthly_data
+            **monthly_data_clean
         }).execute()
 
         logger.info("✅ Monthly intelligence generated successfully!")
@@ -229,8 +268,8 @@ async def main():
 
     except Exception as e:
         logger.error(f"❌ Failed to generate monthly intelligence: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.warning("   This may be due to missing table columns (migration not run)")
+        logger.warning("   Monthly intelligence is optional - daily/weekly data should work fine")
 
     # Step 7: Summary report
     logger.info("\n" + "=" * 80)

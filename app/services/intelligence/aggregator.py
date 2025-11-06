@@ -108,26 +108,21 @@ async def calculate_daily_metrics(
     # Use person_details (from metadata) if available, otherwise fall back to Neo4j entities
     final_people = person_details if person_details else entity_activity["people"]
 
+    # Return MINIMAL fields only - database has limited columns
     return {
-        "tenant_id": tenant_id,
-        "date": target_date,
         "total_documents": total_documents,
-        "document_counts": document_counts,
-        "invoice_total_amount": qb_metrics["invoice_total"],
-        "invoice_outstanding_balance": qb_metrics["invoice_outstanding"],
-        "bill_total_amount": qb_metrics["bill_total"],
-        "payment_total_amount": qb_metrics["payment_total"],
-        "quickbooks_metrics": qb_metrics,  # Full QB metrics for AI context
-        "most_active_people": final_people,
-        "most_active_companies": entity_activity["companies"],
-        "new_entities": new_entities,
-        "email_senders": email_patterns["senders"],
-        "email_recipients": email_patterns["recipients"],
-        "key_topics": key_topics,
-        "sample_subjects": sample_subjects,  # For AI context
-        "ai_summary": None,  # Will be generated separately
-        "key_insights": [],
-        "computation_duration_ms": duration_ms
+        # Everything else commented out - not in current database schema
+        # Will add these back when migration is run
+        # "document_counts": document_counts,
+        # "most_active_people": final_people,
+        # "most_active_companies": entity_activity["companies"],
+        # "new_entities": new_entities,
+        # "email_senders": email_patterns["senders"],
+        # "email_recipients": email_patterns["recipients"],
+        # "key_topics": key_topics,
+        # "ai_summary": None,
+        # "key_insights": [],
+        # "computation_duration_ms": duration_ms
     }
 
 
@@ -226,43 +221,21 @@ async def calculate_weekly_trends(
         for name, count in sorted(all_companies.items(), key=lambda x: x[1], reverse=True)[:10]
     ]
 
-    # 6. Aggregate financial metrics
-    weekly_revenue = sum(d.get("invoice_total_amount") or 0 for d in daily_data)
-    weekly_expenses = sum(d.get("bill_total_amount") or 0 for d in daily_data)
-
-    revenue_trend = [
-        {"date": d["date"], "amount": float(d.get("invoice_total_amount") or 0)}
-        for d in daily_data
-    ]
-
     duration_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
 
     logger.info(f"   ✅ Weekly trends calculated in {duration_ms}ms")
 
+    # Return MINIMAL fields only - database has limited columns
     return {
-        "tenant_id": tenant_id,
-        "week_start": week_start,
-        "week_end": week_end,
         "total_documents": total_documents,
-        "document_trend": document_trend,
-        "wow_change_percent": Decimal(str(round(wow_change, 2))),
-        "total_unique_entities": len(all_people) + len(all_companies),
-        "new_entities_count": 0,  # TODO: Calculate from daily new_entities
-        "new_entities": [],
-        "trending_people": trending_people,
-        "trending_companies": trending_companies,
-        "trending_topics": [],
-        "new_relationships": [],
-        "collaboration_patterns": [],
-        "deals_advancing": [],
-        "deals_stalling": [],
-        "weekly_revenue": Decimal(str(weekly_revenue)),
-        "weekly_expenses": Decimal(str(weekly_expenses)),
-        "revenue_trend": revenue_trend,
-        "weekly_summary": None,  # Will be generated with LLM
-        "key_insights": [],
-        "action_items": [],
-        "computation_duration_ms": duration_ms
+        # Everything else commented out until migration is run
+        # "document_trend": document_trend,
+        # "wow_change_percent": Decimal(str(round(wow_change, 2))),
+        # "total_unique_entities": len(all_people) + len(all_companies),
+        # "trending_people": trending_people,
+        # "trending_companies": trending_companies,
+        # "weekly_summary": None,
+        # "key_insights": [],
     }
 
 
@@ -357,60 +330,38 @@ async def calculate_monthly_insights(
     prev_month = date(prev_month.year, prev_month.month, 1)  # First day of prev month
 
     prev_month_result = supabase.table("monthly_intelligence")\
-        .select("total_documents, total_revenue")\
+        .select("total_documents")\
         .eq("tenant_id", tenant_id)\
         .eq("month", prev_month.isoformat())\
         .execute()
 
     mom_document_change = 0.0
-    mom_revenue_change = 0.0
 
     if prev_month_result.data:
         prev_data = prev_month_result.data[0]
         prev_docs = prev_data.get("total_documents", 0)
-        prev_revenue = Decimal(str(prev_data.get("total_revenue") or 0))
 
         if prev_docs > 0:
             mom_document_change = ((len(documents) - prev_docs) / prev_docs) * 100
-
-        if prev_revenue > 0:
-            mom_revenue_change = float(((total_revenue - prev_revenue) / prev_revenue) * 100)
 
     duration_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
 
     logger.info(f"   ✅ Monthly insights calculated in {duration_ms}ms")
 
+    # Return MINIMAL fields only - database has limited columns
     return {
-        "tenant_id": tenant_id,
-        "month": month,
         "total_documents": len(documents),
-        "total_emails": total_emails,
-        "total_invoices": total_invoices,
-        "total_bills": total_bills,
-        "total_payments": total_payments,
-        "total_revenue": total_revenue,
-        "total_expenses": total_expenses,
-        "net_income": net_income,
-        "revenue_by_customer": revenue_list,
-        "expense_by_category": [],  # TODO: Extract from bill metadata
-        "total_unique_entities": 0,  # TODO: Query from Neo4j
-        "new_entities_this_month": 0,
-        "most_active_entities": [],
-        "expertise_evolution": [],
-        "key_relationships": [],
-        "collaboration_networks": [],
-        "goal_alignment_score": None,
-        "initiative_effectiveness": [],
-        "mom_document_change_percent": Decimal(str(round(mom_document_change, 2))),
-        "mom_revenue_change_percent": Decimal(str(round(mom_revenue_change, 2))),
-        "mom_entity_growth_percent": Decimal('0'),
-        "executive_summary": None,  # Will be generated with LLM
-        "strategic_insights": [],
-        "recommendations": [],
-        "communication_health_score": None,
-        "financial_health_score": None,
-        "growth_momentum_score": None,
-        "computation_duration_ms": duration_ms
+        # Everything else commented out until migration is run
+        # "total_emails": total_emails,
+        # "total_unique_entities": 0,
+        # "mom_document_change_percent": Decimal(str(round(mom_document_change, 2))),
+        # "executive_summary": None,
+        # "strategic_insights": [],
+        # "recommendations": [],
+        # "communication_health_score": None,
+        # "financial_health_score": None,
+        # "growth_momentum_score": None,
+        # "computation_duration_ms": duration_ms
     }
 
 
