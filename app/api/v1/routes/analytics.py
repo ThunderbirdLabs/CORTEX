@@ -10,7 +10,7 @@ from supabase import Client
 from collections import defaultdict
 
 from app.core.security import get_current_user_id
-from app.core.dependencies import get_supabase, get_neo4j_driver
+from app.core.dependencies import get_supabase, query_engine
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -36,7 +36,16 @@ async def get_trending_entities(
         # Calculate timestamp for filtering
         cutoff_timestamp = int((datetime.utcnow() - timedelta(days=days)).timestamp())
 
-        neo4j_driver = get_neo4j_driver()
+        # Access Neo4j via query engine
+        if not query_engine or not hasattr(query_engine, 'neo4j_graph_store'):
+            logger.warning("Query engine not initialized, returning empty data")
+            return {
+                "people": [],
+                "companies": [],
+                "date_range_days": days
+            }
+
+        neo4j_driver = query_engine.neo4j_graph_store._driver
 
         with neo4j_driver.session() as session:
             # Query for top people
@@ -249,7 +258,15 @@ async def get_deal_momentum(
         cutoff_timestamp = int((datetime.utcnow() - timedelta(days=days)).timestamp())
         week_ago_timestamp = int((datetime.utcnow() - timedelta(days=7)).timestamp())
 
-        neo4j_driver = get_neo4j_driver()
+        # Access Neo4j via query engine
+        if not query_engine or not hasattr(query_engine, 'neo4j_graph_store'):
+            logger.warning("Query engine not initialized, returning empty data")
+            return {
+                "deals": [],
+                "date_range_days": days
+            }
+
+        neo4j_driver = query_engine.neo4j_graph_store._driver
 
         with neo4j_driver.session() as session:
             # Query for purchase orders with mention statistics
@@ -450,7 +467,16 @@ async def get_relationship_network(
     try:
         logger.info(f"🕸️  Fetching relationship network for user {user_id}")
 
-        neo4j_driver = get_neo4j_driver()
+        # Access Neo4j via query engine
+        if not query_engine or not hasattr(query_engine, 'neo4j_graph_store'):
+            logger.warning("Query engine not initialized, returning empty data")
+            return {
+                "relationships": [],
+                "node_count": 0,
+                "edge_count": 0
+            }
+
+        neo4j_driver = query_engine.neo4j_graph_store._driver
 
         with neo4j_driver.session() as session:
             # Query for WORKS_FOR relationships
