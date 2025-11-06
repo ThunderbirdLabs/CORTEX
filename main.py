@@ -204,7 +204,7 @@ app.include_router(deduplication_router)
 app.include_router(admin_router)  # Admin dashboard routes
 app.include_router(integrations_router)  # QuickBooks, Salesforce, etc.
 app.include_router(dashboard_router)  # Executive dashboard API
-app.include_router(intelligence_router)  # Organizational intelligence API
+app.include_router(intelligence_router, prefix="/api/v1")  # Organizational intelligence API (adds /api/v1 to /intelligence prefix)
 app.include_router(analytics_router, prefix="/api/v1/analytics", tags=["analytics"])  # Business intelligence analytics API
 
 # ============================================================================
