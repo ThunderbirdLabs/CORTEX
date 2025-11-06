@@ -162,20 +162,30 @@ async def get_latest_insights(
 
         # Fetch insights
         result = supabase.table("intelligence_insights")\
-            .select("*, intelligence_search_queries!inner(display_title, display_icon, display_order)")\
+            .select("*")\
             .eq("tenant_id", user_id)\
             .eq("insight_date", target_date.isoformat())\
             .eq("time_period", time_period)\
-            .order("intelligence_search_queries(display_order)")\
             .limit(limit)\
             .execute()
 
         insights = result.data or []
 
-        # Transform to friendly format
+        # Fetch query metadata separately
+        queries_result = supabase.table("intelligence_search_queries")\
+            .select("query_text, display_title, display_icon, display_order")\
+            .execute()
+
+        # Build lookup map: query_text -> metadata
+        query_lookup = {
+            q["query_text"]: q for q in (queries_result.data or [])
+        }
+
+        # Transform to friendly format and sort by display order
         formatted_insights = []
         for insight in insights:
-            query_info = insight.get("intelligence_search_queries", {})
+            query_text = insight.get("search_query")
+            query_info = query_lookup.get(query_text, {})
 
             formatted_insights.append({
                 "category": insight.get("query_category"),
@@ -185,8 +195,16 @@ async def get_latest_insights(
                 "confidence": float(insight.get("confidence_score", 0)) if insight.get("confidence_score") else None,
                 "sources": insight.get("source_documents", []),
                 "total_sources": insight.get("total_sources", 0),
-                "generated_at": insight.get("generated_at")
+                "generated_at": insight.get("generated_at"),
+                "display_order": query_info.get("display_order", 999)
             })
+
+        # Sort by display order
+        formatted_insights.sort(key=lambda x: x["display_order"])
+
+        # Remove display_order from output
+        for insight in formatted_insights:
+            del insight["display_order"]
 
         return {
             "time_period": time_period,
@@ -218,7 +236,7 @@ async def get_insights_by_category(
         start_date = date.today() - timedelta(days=days)
 
         result = supabase.table("intelligence_insights")\
-            .select("*, intelligence_search_queries!inner(display_title, display_icon)")\
+            .select("*")\
             .eq("tenant_id", user_id)\
             .eq("query_category", category)\
             .eq("time_period", time_period)\
@@ -228,14 +246,25 @@ async def get_insights_by_category(
 
         insights = result.data or []
 
+        # Fetch query metadata separately
+        queries_result = supabase.table("intelligence_search_queries")\
+            .select("query_text, display_title, display_icon")\
+            .execute()
+
+        # Build lookup map
+        query_lookup = {
+            q["query_text"]: q for q in (queries_result.data or [])
+        }
+
         # Format for frontend
         formatted = []
         for insight in insights:
-            query_info = insight.get("intelligence_search_queries", {})
+            query_text = insight.get("search_query")
+            query_info = query_lookup.get(query_text, {})
 
             formatted.append({
                 "date": insight.get("insight_date"),
-                "title": query_info.get("display_title"),
+                "title": query_info.get("display_title", "Insight"),
                 "icon": query_info.get("display_icon"),
                 "answer": insight.get("ai_answer"),
                 "confidence": float(insight.get("confidence_score", 0)) if insight.get("confidence_score") else None,
