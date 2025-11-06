@@ -47,6 +47,7 @@ try:
         intelligence_router,
         analytics_router
     )
+    from app.api.v1.routes.insights import router as insights_router
     from app.api.v1.routes.deduplication import router as deduplication_router
     from app.api.v1.routes.admin import router as admin_router
     from app.api.v1.routes.integrations import router as integrations_router
@@ -206,6 +207,7 @@ app.include_router(integrations_router)  # QuickBooks, Salesforce, etc.
 app.include_router(dashboard_router)  # Executive dashboard API
 app.include_router(intelligence_router, prefix="/api/v1")  # Organizational intelligence API (adds /api/v1 to /intelligence prefix)
 app.include_router(analytics_router, prefix="/api/v1/analytics", tags=["analytics"])  # Business intelligence analytics API
+app.include_router(insights_router, prefix="/api/v1/insights", tags=["insights"])  # RAG-powered intelligence insights API
 
 # ============================================================================
 # SENTRY DEBUG ENDPOINT (DEV/STAGING ONLY)
