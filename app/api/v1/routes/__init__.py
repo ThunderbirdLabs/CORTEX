@@ -12,6 +12,7 @@ from app.api.v1.routes.upload import router as upload_router
 from app.api.v1.routes.chat import router as chat_router
 from app.api.v1.routes.dashboard import router as dashboard_router
 from app.api.v1.routes.intelligence import router as intelligence_router
+from app.api.v1.routes.analytics import router as analytics_router
 
 __all__ = [
     "health_router",
@@ -24,4 +25,5 @@ __all__ = [
     "chat_router",
     "dashboard_router",
     "intelligence_router",
+    "analytics_router",
 ]

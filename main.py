@@ -44,7 +44,8 @@ try:
         upload_router,
         chat_router,
         dashboard_router,
-        intelligence_router
+        intelligence_router,
+        analytics_router
     )
     from app.api.v1.routes.deduplication import router as deduplication_router
     from app.api.v1.routes.admin import router as admin_router
@@ -204,6 +205,7 @@ app.include_router(admin_router)  # Admin dashboard routes
 app.include_router(integrations_router)  # QuickBooks, Salesforce, etc.
 app.include_router(dashboard_router)  # Executive dashboard API
 app.include_router(intelligence_router)  # Organizational intelligence API
+app.include_router(analytics_router, prefix="/api/v1/analytics", tags=["analytics"])  # Business intelligence analytics API
 
 # ============================================================================
 # SENTRY DEBUG ENDPOINT (DEV/STAGING ONLY)
