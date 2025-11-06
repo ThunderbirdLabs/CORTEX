@@ -49,11 +49,12 @@ async def calculate_daily_metrics(
     logger.info(f"📊 Calculating daily intelligence for {tenant_id} on {target_date}")
 
     # 1. Query all documents for the day
+    # Use ingested_at (when doc was added to our DB) as fallback if source_created_at is null
     documents_result = supabase.table("documents")\
         .select("*")\
         .eq("tenant_id", tenant_id)\
-        .gte("source_created_at", date_start)\
-        .lt("source_created_at", date_end)\
+        .gte("ingested_at", date_start)\
+        .lt("ingested_at", date_end)\
         .execute()
 
     documents = documents_result.data
@@ -72,6 +73,12 @@ async def calculate_daily_metrics(
 
     # 4. Extract email communication patterns
     email_patterns = _extract_email_patterns(documents)
+
+    # 4b. Extract per-person activity with sample subjects
+    person_details = _extract_person_activity_details(documents)
+
+    # 4c. Collect sample email subjects for AI context
+    sample_subjects = _extract_sample_subjects(documents, limit=20)
 
     # 5. Query Neo4j for entity activity
     entity_activity = await _query_entity_activity(
@@ -97,6 +104,10 @@ async def calculate_daily_metrics(
 
     logger.info(f"   ✅ Daily metrics calculated in {duration_ms}ms")
 
+    # Merge person details with entity activity
+    # Use person_details (from metadata) if available, otherwise fall back to Neo4j entities
+    final_people = person_details if person_details else entity_activity["people"]
+
     return {
         "tenant_id": tenant_id,
         "date": target_date,
@@ -106,12 +117,14 @@ async def calculate_daily_metrics(
         "invoice_outstanding_balance": qb_metrics["invoice_outstanding"],
         "bill_total_amount": qb_metrics["bill_total"],
         "payment_total_amount": qb_metrics["payment_total"],
-        "most_active_people": entity_activity["people"],
+        "quickbooks_metrics": qb_metrics,  # Full QB metrics for AI context
+        "most_active_people": final_people,
         "most_active_companies": entity_activity["companies"],
         "new_entities": new_entities,
         "email_senders": email_patterns["senders"],
         "email_recipients": email_patterns["recipients"],
         "key_topics": key_topics,
+        "sample_subjects": sample_subjects,  # For AI context
         "ai_summary": None,  # Will be generated separately
         "key_insights": [],
         "computation_duration_ms": duration_ms
@@ -302,8 +315,8 @@ async def calculate_monthly_insights(
     documents_result = supabase.table("documents")\
         .select("*")\
         .eq("tenant_id", tenant_id)\
-        .gte("source_created_at", month_start_str)\
-        .lt("source_created_at", month_end_str)\
+        .gte("ingested_at", month_start_str)\
+        .lt("ingested_at", month_end_str)\
         .execute()
 
     documents = documents_result.data
@@ -426,12 +439,19 @@ async def generate_ai_summary(
     # Build context for LLM
     if period_type == "daily":
         context = _build_daily_context(metrics)
-        prompt = f"""You are an executive assistant summarizing yesterday's business activity.
+        prompt = f"""You are an executive assistant creating a daily activity summary.
 
-Context:
 {context}
 
-Write a concise 2-3 sentence daily summary highlighting the most important activities and insights. Focus on what matters to executives."""
+Instructions:
+- Summarize each person's activity using their actual email subjects
+- Mention specific companies and what was discussed
+- Include financial activity if present
+- Be SPECIFIC with names, topics, and numbers from the data above
+- Write 4-5 sentences
+- Focus on actionable insights for a busy CEO
+
+Write as if briefing an executive: WHO did WHAT and WHY it matters."""
 
     elif period_type == "weekly":
         context = _build_weekly_context(metrics)
@@ -551,6 +571,73 @@ def _extract_email_patterns(documents: List[Dict]) -> Dict[str, List[Dict]]:
         "senders": senders_list,
         "recipients": recipients_list
     }
+
+
+def _extract_person_activity_details(documents: List[Dict]) -> List[Dict]:
+    """
+    Extract per-person activity with sample email subjects.
+    Groups by canonical_name if available, otherwise by sender_address.
+    """
+    person_activity = {}  # {person_name: {"count": N, "subjects": [...]}}
+
+    for doc in documents:
+        if doc.get("document_type") != "email":
+            continue
+
+        metadata = doc.get("metadata", {})
+
+        # Prefer canonical_name, fallback to sender_address
+        person_name = metadata.get("canonical_name")
+        if not person_name:
+            person_name = metadata.get("sender_address") or metadata.get("from")
+
+        if not person_name:
+            continue
+
+        # Initialize if first time seeing this person
+        if person_name not in person_activity:
+            person_activity[person_name] = {
+                "name": person_name,
+                "count": 0,
+                "subjects": []
+            }
+
+        # Increment count
+        person_activity[person_name]["count"] += 1
+
+        # Collect email subject (max 3 per person for sampling)
+        subject = doc.get("title") or metadata.get("subject", "")
+        if subject and len(person_activity[person_name]["subjects"]) < 3:
+            person_activity[person_name]["subjects"].append(subject)
+
+    # Convert to list, sort by count, format output
+    people_list = []
+    for person_name, data in sorted(person_activity.items(), key=lambda x: x[1]["count"], reverse=True)[:10]:
+        people_list.append({
+            "name": person_name,
+            "count": data["count"],
+            "sample_subjects": data["subjects"]
+        })
+
+    return people_list
+
+
+def _extract_sample_subjects(documents: List[Dict], limit: int = 20) -> List[str]:
+    """Extract sample email subjects for AI context."""
+    subjects = []
+
+    for doc in documents:
+        if doc.get("document_type") != "email":
+            continue
+
+        subject = doc.get("title")
+        if not subject:
+            subject = doc.get("metadata", {}).get("subject")
+
+        if subject and len(subjects) < limit:
+            subjects.append(subject)
+
+    return subjects
 
 
 def _extract_key_topics(documents: List[Dict], top_n: int = 10) -> List[Dict]:
@@ -679,8 +766,8 @@ async def _calculate_weekly_from_documents(
     documents_result = supabase.table("documents")\
         .select("*")\
         .eq("tenant_id", tenant_id)\
-        .gte("source_created_at", week_start_str)\
-        .lt("source_created_at", week_end_str)\
+        .gte("ingested_at", week_start_str)\
+        .lt("ingested_at", week_end_str)\
         .execute()
 
     documents = documents_result.data
@@ -713,19 +800,52 @@ async def _calculate_weekly_from_documents(
 
 
 def _build_daily_context(metrics: Dict) -> str:
-    """Build context string for daily summary LLM prompt."""
+    """Build context string for daily summary LLM prompt with actual content."""
     lines = [
-        f"Date: {metrics['date']}",
-        f"Total Activity: {metrics['total_documents']} documents",
-        f"Emails: {metrics['document_counts'].get('email', 0)}",
+        f"# Daily Activity Report - {metrics['date']}",
+        f"",
+        f"## Overview",
+        f"Total: {metrics['total_documents']} documents",
+        f"- Emails: {metrics['document_counts'].get('email', 0)}",
+        f"- Attachments: {metrics['document_counts'].get('attachment', 0)}",
+        f"- QuickBooks: {metrics['document_counts'].get('invoice', 0) + metrics['document_counts'].get('bill', 0)}",
+        f"",
     ]
 
-    if metrics.get('invoice_total_amount'):
-        lines.append(f"Revenue: ${metrics['invoice_total_amount']:,.2f}")
-
+    # Per-person activity with details
     if metrics.get('most_active_people'):
-        people = ", ".join(p['name'] for p in metrics['most_active_people'][:3])
-        lines.append(f"Most Active: {people}")
+        lines.append("## People Activity")
+        for person in metrics['most_active_people'][:5]:
+            lines.append(f"- {person['name']}: {person['count']} documents")
+            # Add sample subjects if available
+            if person.get('sample_subjects'):
+                for subject in person['sample_subjects'][:3]:
+                    lines.append(f"  → \"{subject}\"")
+        lines.append("")
+
+    # Per-company activity
+    if metrics.get('most_active_companies'):
+        lines.append("## Company Activity")
+        for company in metrics['most_active_companies'][:5]:
+            lines.append(f"- {company['name']}: {company['count']} mentions")
+        lines.append("")
+
+    # Financial summary
+    if metrics.get('quickbooks_metrics'):
+        qb = metrics['quickbooks_metrics']
+        if qb.get('invoice_total', 0) > 0:
+            lines.append("## Financial Activity")
+            lines.append(f"- Invoices: ${qb['invoice_total']:,.2f}")
+            if qb.get('invoice_outstanding', 0) > 0:
+                lines.append(f"- Outstanding: ${qb['invoice_outstanding']:,.2f}")
+            lines.append("")
+
+    # Sample email subjects for context
+    if metrics.get('sample_subjects'):
+        lines.append("## Sample Email Subjects")
+        for subject in metrics['sample_subjects'][:10]:
+            lines.append(f"- {subject}")
+        lines.append("")
 
     return "\n".join(lines)
 
