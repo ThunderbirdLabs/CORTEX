@@ -196,10 +196,18 @@ Response (JSON only):"""
         source_documents = []
         source_nodes = response.get("source_nodes", []) if response else []
         for node in source_nodes[:max_sources]:
+            # Safely extract score (handle None values)
+            score = 0.0
+            if hasattr(node, 'score') and node.score is not None:
+                try:
+                    score = float(node.score)
+                except (TypeError, ValueError):
+                    score = 0.0
+
             source_doc = {
                 "node_id": node.node_id if hasattr(node, 'node_id') else None,
                 "text": node.text[:500] if hasattr(node, 'text') else "",  # Truncate long text
-                "score": float(node.score) if hasattr(node, 'score') else 0.0,
+                "score": score,
                 "metadata": node.metadata if hasattr(node, 'metadata') else {}
             }
             source_documents.append(source_doc)
