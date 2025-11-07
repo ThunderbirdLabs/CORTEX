@@ -149,12 +149,34 @@ async def _run_single_rag_query(
     query_text = query_config["query_text"]
     query_category = query_config["query_category"]
     max_sources = query_config.get("max_sources", 5)
+    output_format = query_config.get("output_format", "text")
+    output_schema = query_config.get("output_schema")
 
     # Add time context to the query
     time_context = _build_time_context(time_period, insight_date)
-    contextualized_query = f"{time_context}\n\n{query_text}"
 
-    logger.info(f"   🔎 Running: {query_config['display_title']}")
+    # Build contextualized query with JSON schema enforcement if needed
+    if output_format != "text" and output_schema:
+        # Structured output: enforce JSON schema
+        import json
+        schema_str = json.dumps(output_schema, indent=2) if isinstance(output_schema, dict) else str(output_schema)
+        contextualized_query = f"""{time_context}
+
+{query_text}
+
+CRITICAL INSTRUCTIONS:
+You MUST respond with ONLY valid JSON matching this exact schema. Do not include any text outside the JSON.
+Do not use markdown code blocks - return raw JSON only.
+
+Required JSON Schema:
+{schema_str}
+
+Response (JSON only):"""
+    else:
+        # Text output: conversational response
+        contextualized_query = f"{time_context}\n\n{query_text}"
+
+    logger.info(f"   🔎 Running: {query_config['display_title']} ({output_format})")
 
     # Get query engine (initialized if needed)
     engine = get_query_engine()
@@ -190,6 +212,32 @@ async def _run_single_rag_query(
             avg_score = sum(doc['score'] for doc in source_documents) / len(source_documents)
             confidence_score = round(min(avg_score, 1.0), 2)
 
+        # Parse structured data if JSON format expected
+        structured_data = None
+        if output_format != "text" and output_schema:
+            import json
+            import re
+            try:
+                # Try to extract JSON from response (GPT sometimes adds markdown)
+                # First, try direct parse
+                try:
+                    structured_data = json.loads(ai_answer)
+                except json.JSONDecodeError:
+                    # Try to extract JSON from markdown code block
+                    json_match = re.search(r'```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```', ai_answer, re.DOTALL)
+                    if json_match:
+                        structured_data = json.loads(json_match.group(1))
+                    else:
+                        # Try to find any JSON object/array in the text
+                        json_match = re.search(r'(\{.*?\}|\[.*?\])', ai_answer, re.DOTALL)
+                        if json_match:
+                            structured_data = json.loads(json_match.group(1))
+
+                logger.info(f"      ✅ Parsed structured JSON ({output_format})")
+            except Exception as e:
+                logger.warning(f"      ⚠️  Failed to parse structured JSON: {e}")
+                # Keep ai_answer as-is for debugging
+
         # Store in database
         insight_record = {
             "tenant_id": tenant_id,
@@ -203,7 +251,8 @@ async def _run_single_rag_query(
             "total_sources": len(source_documents),
             "generation_duration_ms": generation_duration_ms,
             "model_used": "gpt-4o-mini",
-            "is_stale": False
+            "is_stale": False,
+            "structured_data": structured_data
         }
 
         # Upsert (will update if same tenant/date/query exists)
