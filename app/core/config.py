@@ -1,10 +1,18 @@
 """
 Unified Configuration
 All environment variables and settings in one place
+
+MULTI-TENANT MODE:
+- If COMPANY_ID + MASTER_SUPABASE_URL + MASTER_SUPABASE_SERVICE_KEY are set,
+  infrastructure credentials are loaded from master Supabase automatically
+- Otherwise, all credentials must be provided as environment variables (backward compatible)
 """
 from typing import Optional
+import logging
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -25,9 +33,9 @@ class Settings(BaseSettings):
     # DATABASE (Supabase PostgreSQL)
     # ============================================================================
 
-    database_url: str = Field(..., description="PostgreSQL connection string")
-    supabase_url: str = Field(..., description="Supabase project URL")
-    supabase_anon_key: str = Field(..., description="Supabase anonymous key")
+    database_url: Optional[str] = Field(default=None, description="PostgreSQL connection string")
+    supabase_url: Optional[str] = Field(default=None, description="Supabase project URL")
+    supabase_anon_key: Optional[str] = Field(default=None, description="Supabase anonymous key")
     supabase_service_key: Optional[str] = Field(default=None, description="Supabase service key (for Cortex)")
     supabase_db_url: Optional[str] = Field(default=None, description="Direct Supabase DB URL")
 
@@ -43,7 +51,7 @@ class Settings(BaseSettings):
     # OAUTH (Nango)
     # ============================================================================
 
-    nango_secret: str = Field(..., description="Nango API secret key")
+    nango_secret: Optional[str] = Field(default=None, description="Nango API secret key")
 
     # Provider configurations
     nango_provider_key_outlook: Optional[str] = Field(default=None, description="Nango provider key for Outlook")
@@ -63,17 +71,20 @@ class Settings(BaseSettings):
     # ============================================================================
 
     # Vector Database (Qdrant)
-    qdrant_url: str = Field(..., description="Qdrant Cloud URL")
-    qdrant_api_key: str = Field(..., description="Qdrant API key")
+    qdrant_url: Optional[str] = Field(default=None, description="Qdrant Cloud URL")
+    qdrant_api_key: Optional[str] = Field(default=None, description="Qdrant API key")
     qdrant_collection_name: str = Field(default="cortex_documents", description="Qdrant collection name")
 
     # Knowledge Graph (Neo4j + Graphiti)
-    neo4j_uri: str = Field(..., description="Neo4j Aura URI")
+    neo4j_uri: Optional[str] = Field(default=None, description="Neo4j Aura URI")
     neo4j_user: str = Field(default="neo4j", description="Neo4j username")
-    neo4j_password: str = Field(..., description="Neo4j password")
+    neo4j_password: Optional[str] = Field(default=None, description="Neo4j password")
 
     # LLM & Embeddings (OpenAI)
-    openai_api_key: str = Field(..., description="OpenAI API key")
+    openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
+
+    # Redis (job queue)
+    redis_url: Optional[str] = Field(default=None, description="Redis connection URL")
 
     # ============================================================================
     # API KEYS
@@ -119,6 +130,102 @@ class Settings(BaseSettings):
 
     admin_session_duration: int = Field(default=3600, description="Admin session duration in seconds (default 1 hour)")
     admin_ip_whitelist: Optional[str] = Field(default=None, description="Comma-separated list of allowed admin IPs (optional)")
+
+    @model_validator(mode='after')
+    def load_from_master_supabase(self):
+        """
+        Load infrastructure credentials from master Supabase if multi-tenant mode is enabled.
+        Priority: Environment variables > Master Supabase > Error
+        """
+        # Check if multi-tenant mode
+        if not (self.company_id and self.master_supabase_url and self.master_supabase_service_key):
+            logger.info("🏠 Single-tenant mode: Using environment variables for all credentials")
+            return self
+
+        logger.info(f"🏢 Multi-tenant mode detected (Company ID: {self.company_id})")
+        logger.info("🔍 Attempting to load credentials from master Supabase...")
+
+        try:
+            from supabase import create_client
+
+            # Connect to master Supabase
+            master_client = create_client(self.master_supabase_url, self.master_supabase_service_key)
+
+            # Fetch deployment credentials
+            result = master_client.table("company_deployments")\
+                .select("*")\
+                .eq("company_id", self.company_id)\
+                .single()\
+                .execute()
+
+            if not result.data:
+                raise ValueError(f"No deployment found for company_id: {self.company_id}")
+
+            deployment = result.data
+            logger.info("✅ Successfully loaded credentials from master Supabase")
+
+            # Load credentials with fallback to env vars
+            # Priority: ENV VAR > MASTER SUPABASE > None
+            def load_with_fallback(field_name: str, supabase_key: str, current_value):
+                """Load from Supabase if env var not set, with logging"""
+                if current_value is not None:
+                    logger.debug(f"  ✓ {field_name}: Using environment variable")
+                    return current_value
+
+                supabase_value = deployment.get(supabase_key)
+                if supabase_value:
+                    logger.info(f"  ✓ {field_name}: Loaded from master Supabase")
+                    return supabase_value
+
+                logger.warning(f"  ⚠️  {field_name}: Not found in env or master Supabase")
+                return None
+
+            # Supabase (company operational database)
+            self.supabase_url = load_with_fallback("supabase_url", "supabase_url", self.supabase_url)
+            self.supabase_anon_key = load_with_fallback("supabase_anon_key", "supabase_anon_key", self.supabase_anon_key)
+            self.supabase_service_key = load_with_fallback("supabase_service_key", "supabase_service_key", self.supabase_service_key)
+
+            # Derive database_url from supabase_url if not set
+            if not self.database_url and self.supabase_url:
+                # Extract project ref from URL (e.g., slhntddytmzpqqrfndgg from https://slhntddytmzpqqrfndgg.supabase.co)
+                project_ref = self.supabase_url.replace("https://", "").replace(".supabase.co", "")
+                # Note: We don't have the password in master Supabase, so this won't work perfectly
+                # User should provide DATABASE_URL as env var or we need to store it in master Supabase
+                logger.warning("  ⚠️  database_url: Cannot derive from supabase_url (password not stored)")
+
+            # Neo4j
+            self.neo4j_uri = load_with_fallback("neo4j_uri", "neo4j_uri", self.neo4j_uri)
+            self.neo4j_password = load_with_fallback("neo4j_password", "neo4j_password", self.neo4j_password)
+            if not self.neo4j_user and deployment.get("neo4j_user"):
+                self.neo4j_user = deployment["neo4j_user"]
+
+            # Qdrant
+            self.qdrant_url = load_with_fallback("qdrant_url", "qdrant_url", self.qdrant_url)
+            self.qdrant_api_key = load_with_fallback("qdrant_api_key", "qdrant_api_key", self.qdrant_api_key)
+            if not self.qdrant_collection_name and deployment.get("qdrant_collection_name"):
+                self.qdrant_collection_name = deployment["qdrant_collection_name"]
+
+            # Redis
+            self.redis_url = load_with_fallback("redis_url", "redis_url", self.redis_url)
+
+            # OpenAI
+            self.openai_api_key = load_with_fallback("openai_api_key", "openai_api_key", self.openai_api_key)
+
+            # Nango
+            self.nango_secret = load_with_fallback("nango_secret", "nango_secret_key", self.nango_secret)
+            self.nango_provider_key_gmail = load_with_fallback("nango_provider_key_gmail", "nango_provider_key_gmail", self.nango_provider_key_gmail)
+            self.nango_provider_key_outlook = load_with_fallback("nango_provider_key_outlook", "nango_provider_key_outlook", self.nango_provider_key_outlook)
+            self.nango_provider_key_google_drive = load_with_fallback("nango_provider_key_google_drive", "nango_provider_key_google_drive", self.nango_provider_key_google_drive)
+            self.nango_provider_key_quickbooks = load_with_fallback("nango_provider_key_quickbooks", "nango_provider_key_quickbooks", self.nango_provider_key_quickbooks)
+
+            logger.info("🎉 Multi-tenant configuration complete!")
+
+        except Exception as e:
+            logger.error(f"❌ Failed to load from master Supabase: {e}")
+            logger.warning("⚠️  Falling back to environment variables (if available)")
+            # Don't raise - allow fallback to env vars
+
+        return self
 
     class Config:
         env_file = ".env"
