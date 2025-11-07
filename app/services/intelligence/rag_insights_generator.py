@@ -165,7 +165,7 @@ async def _run_single_rag_query(
     # Run the RAG search
     try:
         # Use the hybrid search (combines vector + keyword + graph)
-        response = engine.query(contextualized_query)
+        response = await engine.query(contextualized_query)
 
         # Extract AI answer
         ai_answer = str(response.response) if response.response else "No insights found"
