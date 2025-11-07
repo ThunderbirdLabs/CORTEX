@@ -3,14 +3,22 @@ Query Rewriting - Converts vague follow-up queries into explicit searchable quer
 """
 import os
 import logging
-from typing import List, Dict
+from typing import List, Dict, Optional
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
 
-# Initialize OpenAI client
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Lazy initialize OpenAI client (loaded from config after startup)
+_openai_client: Optional[OpenAI] = None
+
+def get_openai_client() -> OpenAI:
+    """Get or create OpenAI client (lazy initialization)"""
+    global _openai_client
+    if _openai_client is None:
+        from app.core.config import settings
+        _openai_client = OpenAI(api_key=settings.openai_api_key)
+    return _openai_client
 
 
 def rewrite_query_with_context(
@@ -72,7 +80,8 @@ Rewrite this query to be explicit and searchable. Return ONLY the rewritten quer
     ]
 
     try:
-        response = openai_client.chat.completions.create(
+        client = get_openai_client()
+        response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
             temperature=0.3,  # Lower temperature for consistent rewrites
