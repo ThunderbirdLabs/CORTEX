@@ -264,8 +264,12 @@ Response (JSON only):"""
         }
 
         # Upsert (will update if same tenant/date/query exists)
+        # Use on_conflict to specify which constraint to check
         result = supabase.table("intelligence_insights")\
-            .upsert(insight_record)\
+            .upsert(
+                insight_record,
+                on_conflict="tenant_id,insight_date,search_query"
+            )\
             .execute()
 
         # Update last_run_at for the query
