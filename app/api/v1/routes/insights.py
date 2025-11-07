@@ -361,10 +361,14 @@ async def generate_insights(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class DrillDownRequest(BaseModel):
+    widget_title: str
+    widget_message: str
+
+
 @router.post("/drill-down")
 async def get_drill_down_report(
-    widget_title: str,
-    widget_message: str,
+    request: DrillDownRequest,
     user_id: str = Depends(get_current_user_id),
     supabase: Client = Depends(get_supabase)
 ):
@@ -374,14 +378,14 @@ async def get_drill_down_report(
     Returns detailed analysis with all related sources.
     """
     try:
-        logger.info(f"🔍 Generating drill-down report for: {widget_title}")
+        logger.info(f"🔍 Generating drill-down report for: {request.widget_title}")
 
         # Generate detailed report
         report = await generate_drill_down_report(
             supabase=supabase,
             tenant_id=user_id,
-            widget_title=widget_title,
-            widget_message=widget_message
+            widget_title=request.widget_title,
+            widget_message=request.widget_message
         )
 
         return {
