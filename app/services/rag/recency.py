@@ -232,6 +232,16 @@ class DocumentTypeRecencyPostprocessor(BaseNodePostprocessor):
         skipped_count = 0
         type_stats = {}  # Track boosts per document type
 
+        # BEFORE: Log top 5 nodes before recency adjustment
+        logger.info("📊 BEFORE Recency Decay (Top 5):")
+        for i, node in enumerate(nodes[:5], 1):
+            meta = node.node.metadata if hasattr(node, 'node') else {}
+            created_ts = meta.get(self.timestamp_key, now_ts)
+            age_days = (now_ts - created_ts) / 86400
+            dtype = meta.get(self.document_type_key, 'unknown')
+            text = (node.node.text if hasattr(node, 'node') and hasattr(node.node, 'text') else str(node))[:40]
+            logger.info(f"  {i}. score={node.score:.8f} age={age_days:.1f}d type={dtype} | {text}...")
+
         for node in nodes:
             # Get document type and timestamp from metadata
             doc_type = node.node.metadata.get(self.document_type_key, "").lower()
@@ -275,6 +285,16 @@ class DocumentTypeRecencyPostprocessor(BaseNodePostprocessor):
 
         # Re-sort by new scores (highest first)
         nodes.sort(key=lambda x: x.score, reverse=True)
+
+        # AFTER: Log top 5 nodes after recency adjustment
+        logger.info("📊 AFTER Recency Decay (Top 5 - re-sorted):")
+        for i, node in enumerate(nodes[:5], 1):
+            meta = node.node.metadata if hasattr(node, 'node') else {}
+            created_ts = meta.get(self.timestamp_key, now_ts)
+            age_days = (now_ts - created_ts) / 86400
+            dtype = meta.get(self.document_type_key, 'unknown')
+            text = (node.node.text if hasattr(node, 'node') and hasattr(node.node, 'text') else str(node))[:40]
+            logger.info(f"  {i}. score={node.score:.8f} age={age_days:.1f}d type={dtype} | {text}...")
 
         # Log summary stats
         for doc_type, stats in type_stats.items():

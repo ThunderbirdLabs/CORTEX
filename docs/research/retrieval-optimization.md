@@ -1,7 +1,26 @@
 # Comprehensive Research: RAG Retrieval & Ranking Optimization (2025)
 **Research Date**: January 2025
+**Last Audit**: November 5, 2025
 **Focus**: Production-grade hybrid RAG, entity/relationship boosting, reranking strategies
 **Sources**: 40+ credible sources (LlamaIndex docs, Neo4j, NVIDIA, academic papers, production case studies)
+
+---
+
+## ✅ IMPLEMENTATION STATUS (Last Verified: Nov 5, 2025)
+
+| Feature | Status | File Location | Notes |
+|---------|--------|---------------|-------|
+| GPU Acceleration | ✅ ACTIVE | query.py:214-229 | Auto-detects CUDA/MPS, graceful CPU fallback |
+| Document-Type Recency | ✅ ACTIVE | recency.py:136-295 | email:30d, attachment:90d decay profiles |
+| Qdrant Payload Indexes | ✅ ACTIVE | indexes.py:173-241 | Auto-created on startup (document_type, timestamp, source, tenant_id) |
+| Neo4j Cypher Indexes | ✅ ACTIVE | indexes.py:57-129 | 85 indexes verified in production database |
+| **LongContextReorder** | ✅ **ADDED** | query.py:230, 525 | **Nov 5, 2025** - Fixes "lost in the middle" problem |
+| Hybrid Search (BM25) | ❌ NOT IMPLEMENTED | - | Requires Qdrant collection rebuild |
+| Entity-Type Boosting | ❌ NOT IMPLEMENTED | - | Experimental - A/B test required |
+| EmbeddingRecencyPostprocessor | ❌ NOT NEEDED | - | Current DocumentTypeRecencyPostprocessor is superior |
+
+**Bug Fixes Applied** (Nov 5, 2025):
+- Fixed GPU bypass in time-filtered queries (query.py:519 changed from hardcoded `"cpu"` to `reranker_device`)
 
 ---
 
