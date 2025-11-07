@@ -172,9 +172,9 @@ async def get_latest_insights(
 
         insights = result.data or []
 
-        # Fetch query metadata separately
+        # Fetch query metadata separately (including output_format)
         queries_result = supabase.table("intelligence_search_queries")\
-            .select("query_text, display_title, display_icon, display_order")\
+            .select("query_text, display_title, display_icon, display_order, output_format, output_schema")\
             .execute()
 
         # Build lookup map: query_text -> metadata
@@ -197,7 +197,9 @@ async def get_latest_insights(
                 "sources": insight.get("source_documents", []),
                 "total_sources": insight.get("total_sources", 0),
                 "generated_at": insight.get("generated_at"),
-                "display_order": query_info.get("display_order", 999)
+                "display_order": query_info.get("display_order", 999),
+                "output_format": query_info.get("output_format", "text"),
+                "structured_data": insight.get("structured_data")
             })
 
         # Sort by display order
