@@ -162,12 +162,13 @@ async def get_latest_insights(
         else:
             raise HTTPException(status_code=400, detail="Invalid time_period. Must be daily, weekly, or monthly")
 
-        # Fetch insights
+        # Fetch insights - get the most recent ones, not just today's
         result = supabase.table("intelligence_insights")\
             .select("*")\
             .eq("tenant_id", user_id)\
-            .eq("insight_date", target_date.isoformat())\
             .eq("time_period", time_period)\
+            .order("insight_date", desc=True)\
+            .order("generated_at", desc=True)\
             .limit(limit)\
             .execute()
 
