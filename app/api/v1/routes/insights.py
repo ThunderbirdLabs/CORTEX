@@ -3,7 +3,7 @@ RAG-Powered Intelligence Insights API
 
 Endpoints to fetch AI-generated business insights with source documents.
 """
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks
 from typing import List, Dict, Any, Optional
 from datetime import date, timedelta
 import logging
@@ -11,6 +11,7 @@ import logging
 from supabase import Client
 from app.core.dependencies import get_supabase
 from app.core.security import get_current_user_id
+from app.services.intelligence.rag_insights_generator import generate_all_insights_for_tenant
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -320,4 +321,39 @@ async def regenerate_insight(
         raise
     except Exception as e:
         logger.error(f"Failed to regenerate insight: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate")
+async def generate_insights(
+    background_tasks: BackgroundTasks,
+    target_date: Optional[str] = Query(default=None, description="Date to generate insights for (defaults to today)"),
+    user_id: str = Depends(get_current_user_id),
+    supabase: Client = Depends(get_supabase)
+):
+    """
+    Trigger RAG insight generation for all time periods (daily, weekly, monthly).
+    Runs in background - returns immediately.
+    """
+    try:
+        # Parse date or default to today
+        insight_date = date.fromisoformat(target_date) if target_date else date.today()
+
+        # Run generation in background
+        background_tasks.add_task(
+            generate_all_insights_for_tenant,
+            supabase=supabase,
+            tenant_id=user_id,
+            target_date=insight_date
+        )
+
+        return {
+            "success": True,
+            "message": "Insight generation started in background. This will take 45-75 minutes.",
+            "date": insight_date.isoformat(),
+            "note": "Refresh the page in a few minutes to see new insights"
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to trigger insight generation: {e}")
         raise HTTPException(status_code=500, detail=str(e))

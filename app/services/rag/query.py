@@ -34,7 +34,7 @@ from .recency import DocumentTypeRecencyPostprocessor
 from llama_index.postprocessor.sbert_rerank import SentenceTransformerRerank
 
 # Import dynamic company context loader
-from app.services.company_context import build_ceo_prompt_template
+from app.services.tenant.context import build_ceo_prompt_template
 
 logger = logging.getLogger(__name__)
 
@@ -209,11 +209,12 @@ class HybridQueryEngine:
             llm=self.llm,
             text_qa_template=vector_qa_prompt,
             node_postprocessors=[
-                SentenceTransformerRerank(
-                    model="BAAI/bge-reranker-base",
-                    top_n=20,  # Keep all 20, just reorder by relevance
-                    device=reranker_device  # GPU if available, CPU fallback
-                ),
+                # TEMPORARILY DISABLED: SentenceTransformerRerank takes too long to load on first run
+                # SentenceTransformerRerank(
+                #     model="BAAI/bge-reranker-base",
+                #     top_n=20,  # Keep all 20, just reorder by relevance
+                #     device=reranker_device  # GPU if available, CPU fallback
+                # ),
                 DocumentTypeRecencyPostprocessor(),  # Document-type-aware decay (email: 30d, attachment: 90d)
             ]
         )

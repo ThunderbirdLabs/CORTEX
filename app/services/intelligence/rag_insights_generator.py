@@ -11,9 +11,29 @@ import time
 
 from supabase import Client
 from app.core.config import settings
-from app.core.dependencies import query_engine
+from app.core.dependencies import query_engine as global_query_engine
 
 logger = logging.getLogger(__name__)
+
+# Module-level query engine (initialized if running standalone)
+_standalone_query_engine = None
+
+def get_query_engine():
+    """Get query engine, initializing if needed for standalone use."""
+    global _standalone_query_engine
+
+    # Try global first (FastAPI context)
+    if global_query_engine:
+        return global_query_engine
+
+    # Initialize standalone if needed
+    if not _standalone_query_engine:
+        logger.info("🔧 Initializing query engine for standalone script...")
+        from app.services.rag.query import HybridQueryEngine
+        _standalone_query_engine = HybridQueryEngine()
+        logger.info("✅ Query engine initialized")
+
+    return _standalone_query_engine
 
 
 async def generate_rag_insights(
@@ -136,15 +156,16 @@ async def _run_single_rag_query(
 
     logger.info(f"   🔎 Running: {query_config['display_title']}")
 
-    # Check if query_engine is available
-    if not query_engine:
+    # Get query engine (initialized if needed)
+    engine = get_query_engine()
+    if not engine:
         logger.error("Query engine not initialized!")
         return None
 
     # Run the RAG search
     try:
         # Use the hybrid search (combines vector + keyword + graph)
-        response = query_engine.query(contextualized_query)
+        response = engine.query(contextualized_query)
 
         # Extract AI answer
         ai_answer = str(response.response) if response.response else "No insights found"

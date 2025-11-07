@@ -248,21 +248,30 @@ def render_prompt_template(prompt_key: str, variables: Dict[str, str]) -> str:
 
 def build_ceo_prompt_template() -> str:
     """
-    Load CEO Assistant prompt template from Supabase (NO fallback).
+    Load CEO Assistant prompt template from Supabase (with fallback).
 
     Used by query_engine.py for response synthesis.
     """
-    # Load template from Supabase (no fallback allowed)
+    # Try to load template from Supabase
     logger.info("🔄 Loading ceo_assistant prompt from Supabase...")
     template = get_prompt_template("ceo_assistant")
 
-    if not template:
-        error_msg = "❌ FATAL: ceo_assistant prompt not found in Supabase! Run seed script: migrations/master/004_seed_unit_industries_prompts.sql"
-        logger.error(error_msg)
-        raise ValueError(error_msg)
+    if template:
+        logger.info("✅ Loaded ceo_assistant prompt from Supabase (version loaded dynamically)")
+        return template
 
-    logger.info("✅ Loaded ceo_assistant prompt from Supabase (version loaded dynamically)")
-    return template
+    # Fallback if no template in Supabase
+    logger.warning("⚠️  CEO assistant prompt not found in Supabase, using fallback")
+    return """You are synthesizing information from sub-questions to answer the user's original question.
+
+Context from sub-question answers:
+---------------------
+{context_str}
+---------------------
+
+Original Question: {query_str}
+
+Provide a comprehensive, conversational answer based ONLY on the information above. Do not add information not present in the context."""
 
 
 def build_email_classification_context() -> str:
