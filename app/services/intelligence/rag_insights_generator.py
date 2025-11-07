@@ -526,8 +526,18 @@ CRITICAL: Use ONLY real data from the documents. If you don't have specific info
 
             metadata = node.metadata if hasattr(node, 'metadata') else {}
 
+            # Get actual document ID from metadata, fallback to node_id
+            doc_id = metadata.get("document_id")
+            if not doc_id:
+                # Try to parse from node_id if it's numeric
+                node_id_str = str(node.node_id) if hasattr(node, 'node_id') else None
+                if node_id_str and node_id_str.isdigit():
+                    doc_id = node_id_str
+                else:
+                    doc_id = None
+
             source_doc = {
-                "document_id": node.node_id if hasattr(node, 'node_id') else None,
+                "document_id": doc_id,
                 "text": node.text if hasattr(node, 'text') else "",
                 "score": score,
                 "from": metadata.get("subject") or metadata.get("title") or metadata.get("file_name") or "Unknown",
