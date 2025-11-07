@@ -167,20 +167,20 @@ async def _run_single_rag_query(
         # Use the hybrid search (combines vector + keyword + graph)
         response = await engine.query(contextualized_query)
 
-        # Extract AI answer
-        ai_answer = str(response.response) if response.response else "No insights found"
+        # Extract AI answer from dict response
+        ai_answer = response.get("answer", "No insights found") if response else "No insights found"
 
-        # Extract source documents with scores
+        # Extract source documents with scores from dict response
         source_documents = []
-        if hasattr(response, 'source_nodes') and response.source_nodes:
-            for node in response.source_nodes[:max_sources]:
-                source_doc = {
-                    "node_id": node.node_id if hasattr(node, 'node_id') else None,
-                    "text": node.text[:500] if hasattr(node, 'text') else "",  # Truncate long text
-                    "score": float(node.score) if hasattr(node, 'score') else 0.0,
-                    "metadata": node.metadata if hasattr(node, 'metadata') else {}
-                }
-                source_documents.append(source_doc)
+        source_nodes = response.get("source_nodes", []) if response else []
+        for node in source_nodes[:max_sources]:
+            source_doc = {
+                "node_id": node.node_id if hasattr(node, 'node_id') else None,
+                "text": node.text[:500] if hasattr(node, 'text') else "",  # Truncate long text
+                "score": float(node.score) if hasattr(node, 'score') else 0.0,
+                "metadata": node.metadata if hasattr(node, 'metadata') else {}
+            }
+            source_documents.append(source_doc)
 
         generation_duration_ms = int((time.time() - start_time) * 1000)
 
