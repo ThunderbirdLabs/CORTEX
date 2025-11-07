@@ -4,6 +4,7 @@ RAG-Powered Intelligence Insights API
 Endpoints to fetch AI-generated business insights with source documents.
 """
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks
+from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from datetime import date, timedelta
 import logging
