@@ -314,6 +314,34 @@ async def ingest_document_universal(
         logger.info(f"   ✅ Saved to documents table (id: {inserted_doc['id']})")
 
         # ========================================================================
+        # STEP 3.5: Detect Urgency (Async - non-blocking)
+        # ========================================================================
+
+        # Only detect urgency for emails and messages (not files like PDFs)
+        # Files can be analyzed later if needed
+        should_detect_urgency = document_type in ['email', 'message', 'note', 'ticket']
+
+        if should_detect_urgency and content and len(content.strip()) > 50:
+            try:
+                from app.services.jobs.alert_tasks import detect_document_urgency_task
+
+                # Queue urgency detection as background task (non-blocking)
+                detect_document_urgency_task.send(
+                    document_id=inserted_doc['id'],
+                    title=title or "",
+                    content=content[:2000],  # First 2K chars for efficiency
+                    metadata=metadata or {},
+                    source=source,
+                    tenant_id=tenant_id
+                )
+
+                logger.info(f"   🔍 Queued urgency detection for document {inserted_doc['id']}")
+
+            except Exception as urgency_error:
+                # Don't fail ingestion if urgency detection fails
+                logger.warning(f"   ⚠️  Failed to queue urgency detection: {urgency_error}")
+
+        # ========================================================================
         # STEP 4: Ingest to PropertyGraph (Neo4j + Qdrant) - FROM DOCUMENTS TABLE
         # ========================================================================
 
