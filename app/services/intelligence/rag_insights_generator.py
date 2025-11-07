@@ -388,3 +388,198 @@ async def generate_all_insights_for_tenant(
     logger.info(f"✅ Completed insight generation for {tenant_id}")
 
     return results
+
+
+async def generate_drill_down_report(
+    supabase: Client,
+    tenant_id: str,
+    widget_title: str,
+    widget_message: str
+) -> Dict[str, Any]:
+    """
+    Generate a detailed drill-down report for a specific widget.
+    Re-queries RAG system with focused query to get comprehensive information.
+
+    Args:
+        supabase: Supabase client
+        tenant_id: Tenant ID
+        widget_title: Title of the widget being drilled into
+        widget_message: Brief message from the widget
+
+    Returns:
+        Detailed report with:
+        - Full analysis
+        - All related source documents
+        - Recommendations
+        - Data visualizations
+    """
+    logger.info(f"🔍 Generating drill-down report for: {widget_title}")
+
+    # Build focused query
+    focused_query = f"""You are conducting a deep-dive analysis on the following business issue:
+
+ISSUE: {widget_title}
+SUMMARY: {widget_message}
+
+Your task is to provide a COMPREHENSIVE report that includes:
+
+1. **Root Cause Analysis** - What is causing this issue? Connect all the dots from your data.
+
+2. **Impact Assessment** - Quantify the business impact:
+   - Dollar amounts at risk
+   - Customers affected (with names)
+   - Orders/deals blocked (with specific IDs)
+   - Timeline urgency
+
+3. **Full Context** - Find ALL related emails, documents, and conversations:
+   - Who is involved?
+   - What decisions are pending?
+   - What has been tried?
+   - What communication threads are relevant?
+
+4. **Recommended Actions** - Specific, actionable next steps with:
+   - Who should do what
+   - When it should be done
+   - Expected outcomes
+
+5. **Data & Metrics** - Any relevant numbers, trends, or KPIs related to this issue
+
+Return your analysis in JSON format with this structure:
+{{
+    "title": "{widget_title}",
+    "executive_summary": "2-3 sentence overview of the entire situation",
+    "root_cause": {{
+        "primary_cause": "string",
+        "contributing_factors": ["string"],
+        "evidence": ["specific quotes or data points"]
+    }},
+    "impact": {{
+        "financial_impact": "dollar amount or range",
+        "customers_affected": ["customer names"],
+        "orders_blocked": ["order IDs or numbers"],
+        "urgency": "immediate|this-week|this-month",
+        "risk_level": "critical|high|medium|low"
+    }},
+    "timeline": [
+        {{
+            "date": "YYYY-MM-DD or relative",
+            "event": "what happened",
+            "source": "who/where this came from"
+        }}
+    ],
+    "key_stakeholders": [
+        {{
+            "name": "person or company name",
+            "role": "their role in this situation",
+            "status": "what they're waiting for or what they need"
+        }}
+    ],
+    "recommendations": [
+        {{
+            "action": "specific action to take",
+            "owner": "who should do it",
+            "deadline": "when",
+            "expected_outcome": "what this will achieve",
+            "priority": "1-5"
+        }}
+    ],
+    "metrics": [
+        {{
+            "metric_name": "string",
+            "current_value": "number or string",
+            "trend": "up|down|stable",
+            "context": "why this matters"
+        }}
+    ]
+}}
+
+CRITICAL: Use ONLY real data from the documents. If you don't have specific information for a field, use "Not found in available data" rather than making something up."""
+
+    # Get query engine
+    engine = get_query_engine()
+    if not engine:
+        logger.error("Query engine not initialized!")
+        return {
+            "error": "Query engine not available",
+            "title": widget_title
+        }
+
+    # Run deep RAG search with more sources
+    try:
+        import time
+        start_time = time.time()
+
+        response = await engine.query(focused_query)
+        ai_answer = response.get("answer", "No detailed information found") if response else "No detailed information found"
+
+        # Extract and enrich source documents
+        source_documents = []
+        source_nodes = response.get("source_nodes", []) if response else []
+
+        for node in source_nodes[:15]:  # Get up to 15 sources for drill-down
+            score = 0.0
+            if hasattr(node, 'score') and node.score is not None:
+                try:
+                    score = float(node.score)
+                except (TypeError, ValueError):
+                    score = 0.0
+
+            metadata = node.metadata if hasattr(node, 'metadata') else {}
+
+            source_doc = {
+                "document_id": node.node_id if hasattr(node, 'node_id') else None,
+                "text": node.text if hasattr(node, 'text') else "",
+                "score": score,
+                "from": metadata.get("subject") or metadata.get("title") or metadata.get("file_name") or "Unknown",
+                "date": metadata.get("date") or metadata.get("created_at"),
+                "type": metadata.get("doc_type") or metadata.get("type"),
+                "sender": metadata.get("sender") or metadata.get("from"),
+                "metadata": metadata
+            }
+            source_documents.append(source_doc)
+
+        # Parse JSON response
+        import json
+        import re
+
+        report_data = None
+        try:
+            # Try direct JSON parse
+            try:
+                report_data = json.loads(ai_answer)
+            except json.JSONDecodeError:
+                # Extract JSON from markdown
+                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', ai_answer, re.DOTALL)
+                if json_match:
+                    report_data = json.loads(json_match.group(1))
+                else:
+                    json_match = re.search(r'(\{.*?\})', ai_answer, re.DOTALL)
+                    if json_match:
+                        report_data = json.loads(json_match.group(1))
+
+            logger.info(f"✅ Parsed drill-down report JSON")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to parse drill-down JSON: {e}")
+            # Fallback to text response
+            report_data = {
+                "title": widget_title,
+                "executive_summary": ai_answer[:500],
+                "raw_analysis": ai_answer
+            }
+
+        # Add sources to report
+        report_data["sources"] = source_documents
+        report_data["total_sources"] = len(source_documents)
+        report_data["generation_time_ms"] = int((time.time() - start_time) * 1000)
+
+        logger.info(f"✅ Generated drill-down report with {len(source_documents)} sources in {report_data['generation_time_ms']}ms")
+
+        return report_data
+
+    except Exception as e:
+        logger.error(f"Failed to generate drill-down report: {e}")
+        return {
+            "error": str(e),
+            "title": widget_title,
+            "message": "Failed to generate detailed report"
+        }

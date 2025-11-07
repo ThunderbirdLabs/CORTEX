@@ -11,7 +11,7 @@ import logging
 from supabase import Client
 from app.core.dependencies import get_supabase
 from app.core.security import get_current_user_id
-from app.services.intelligence.rag_insights_generator import generate_all_insights_for_tenant
+from app.services.intelligence.rag_insights_generator import generate_all_insights_for_tenant, generate_drill_down_report
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -358,4 +358,37 @@ async def generate_insights(
 
     except Exception as e:
         logger.error(f"Failed to trigger insight generation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/drill-down")
+async def get_drill_down_report(
+    widget_title: str,
+    widget_message: str,
+    user_id: str = Depends(get_current_user_id),
+    supabase: Client = Depends(get_supabase)
+):
+    """
+    Generate a detailed drill-down report for a specific widget/insight.
+    Re-queries the RAG system with a focused query to get comprehensive information.
+    Returns detailed analysis with all related sources.
+    """
+    try:
+        logger.info(f"🔍 Generating drill-down report for: {widget_title}")
+
+        # Generate detailed report
+        report = await generate_drill_down_report(
+            supabase=supabase,
+            tenant_id=user_id,
+            widget_title=widget_title,
+            widget_message=widget_message
+        )
+
+        return {
+            "success": True,
+            "report": report
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to generate drill-down report: {e}")
         raise HTTPException(status_code=500, detail=str(e))
