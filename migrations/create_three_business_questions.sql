@@ -26,13 +26,14 @@ INSERT INTO intelligence_search_queries (
 ) VALUES (
     'What are the 3 most urgent issues that came up in communications today that need leadership attention?
 
-    Return exactly 3 widgets highlighting:
-    - Fires that need putting out
-    - Emerging problems or escalations
-    - Operational stress points
+    Return exactly 3 widgets highlighting fires that need putting out, emerging problems, or operational stress points.
+
+    IMPORTANT - Mix visualization types for visual variety:
+    - First widget: Use "alert" widget_type (critical issues with severity bars)
+    - Second widget: Use "snapshot" widget_type (status update with circular progress)
+    - Third widget: Use "trend" widget_type (pattern with bar chart)
 
     For each widget:
-    - Choose widget_type: "alert" (critical issues), "stat" (numbers), "trend" (patterns), "snapshot" (status), or "highlight" (wins)
     - Keep title short (2-4 words)
     - Keep message concise (1-2 sentences)
     - Include 1-2 source quotes with document IDs
@@ -83,13 +84,14 @@ INSERT INTO intelligence_search_queries (
 ) VALUES (
     'Which deals, projects, or initiatives moved forward or backward today, and what caused the change?
 
-    Return exactly 3 widgets showing:
-    - Business momentum and revenue pipeline health
-    - What''s driving results vs. what''s stalled
-    - Cause-and-effect relationships in outcomes
+    Return exactly 3 widgets showing business momentum, pipeline health, and what''s driving results.
+
+    IMPORTANT - Mix visualization types:
+    - First widget: Use "stat" widget_type (big numbers like revenue, deal count)
+    - Second widget: Use "highlight" widget_type (wins with sparkline chart)
+    - Third widget: Use "snapshot" widget_type (status with circular progress)
 
     For each widget:
-    - Choose appropriate widget_type based on the insight
     - Keep title short (2-4 words)
     - Keep message concise (1-2 sentences)
     - Include 1-2 source quotes with document IDs
@@ -140,13 +142,14 @@ INSERT INTO intelligence_search_queries (
 ) VALUES (
     'What decisions are people waiting on, and what information do they need to move forward?
 
-    Return exactly 3 widgets revealing:
-    - Bottlenecks blocking progress
-    - Where leadership input or resources are needed
-    - Information gaps costing velocity
+    Return exactly 3 widgets revealing bottlenecks, leadership needs, and information gaps.
+
+    IMPORTANT - Mix visualization types:
+    - First widget: Use "trend" widget_type (patterns in blockers with bar chart)
+    - Second widget: Use "alert" widget_type (critical blocker needing attention)
+    - Third widget: Use "snapshot" widget_type (current status with progress ring)
 
     For each widget:
-    - Choose appropriate widget_type
     - Keep title short (2-4 words)
     - Keep message concise (1-2 sentences)
     - Include 1-2 source quotes with document IDs
