@@ -14,16 +14,8 @@ from supabase import Client
 
 logger = logging.getLogger(__name__)
 
-# Lazy initialization for OpenAI client
-_openai_client: Optional[AsyncOpenAI] = None
-
-def get_openai_client() -> AsyncOpenAI:
-    """Get or create AsyncOpenAI client (lazy initialization)"""
-    global _openai_client
-    if _openai_client is None:
-        from app.core.config import settings
-        _openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
-    return _openai_client
+# Initialize OpenAI client
+client = AsyncOpenAI()
 
 
 URGENCY_DETECTION_PROMPT = """Analyze this business document for urgency and potential issues.
@@ -158,7 +150,6 @@ async def detect_urgency(
         logger.info(f"🔍 Analyzing document {document_id} for urgency (tenant: {tenant_id})")
 
         # Call GPT-4o-mini
-        client = get_openai_client()
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
