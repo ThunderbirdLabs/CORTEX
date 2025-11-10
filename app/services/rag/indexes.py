@@ -47,13 +47,13 @@ SAFETY:
 
 import logging
 from typing import Dict, Any
-# from neo4j import GraphDatabase
-# from qdrant_client import QdrantClient
-# from qdrant_client.models import PayloadSchemaType
-# 
-# logger = logging.getLogger(__name__)
-# 
-# 
+from qdrant_client import QdrantClient
+from qdrant_client.models import PayloadSchemaType
+
+logger = logging.getLogger(__name__)
+
+
+# Neo4j indexes removed - function commented out for reference
 # async def ensure_neo4j_indexes() -> Dict[str, Any]:
 #     """
 #     Create Neo4j indexes based on schema defined in config.py.
