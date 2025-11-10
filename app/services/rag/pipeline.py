@@ -1,14 +1,11 @@
 """
-LlamaIndex Universal Ingestion Pipeline (Expert Recommended Pattern)
+Universal Ingestion Pipeline
 
 Architecture:
 1. Supabase document row → Document with metadata
 2. Text chunking (SentenceSplitter) → Multiple chunks per document
 3. Embedding (OpenAI) → Vectors
-4. Storage:
-   - Qdrant: Chunks with embeddings + metadata (document_id, chunk_index)
-   - Neo4j: Full document node + Entity nodes (Person/Company/etc.) + relationships
-5. Entity extraction: SchemaLLMPathExtractor for validated business schema
+4. Storage: Qdrant (chunks with embeddings + metadata)
 
 Handles ALL document types:
 - Emails (Gmail, Outlook)
@@ -213,8 +210,8 @@ class UniversalIngestionPipeline:
         logger.info(f"   ⚡ Parallel workers: {NUM_WORKERS}")
 
         logger.info("✅ Universal Ingestion Pipeline ready")
-        logger.info("   Architecture: IngestionPipeline → Qdrant + Neo4j")
-        logger.info("   Storage: Dual (chunks in Qdrant, full documents in Neo4j)")
+        logger.info("   Architecture: IngestionPipeline → Qdrant")
+        logger.info("   Storage: Qdrant vector store (chunks with embeddings + metadata)")
         logger.info("   Supports: Emails, PDFs, Sheets, Structured data")
 
     async def ingest_document(
@@ -228,15 +225,12 @@ class UniversalIngestionPipeline:
         Process:
         1. Create Document from Supabase row
         2. Chunk text and embed → Store in Qdrant
-        3. Create Document node → Store in Neo4j
-        4. Extract entities (Person, Company, Deal, etc.) → Store in Neo4j
-        5. Create relationships based on document type → Store in Neo4j
 
         Args:
-            document_row: Supabase document row (from 'documents' OR 'emails' table)
-                Required fields: id, content, title (or subject)
+            document_row: Supabase document row (from 'documents' table)
+                Required fields: id, content, title
                 Optional: source, document_type, metadata, etc.
-            extract_entities: Whether to extract entities (LLM-based, expensive)
+            extract_entities: Deprecated (always False - Neo4j removed)
 
         Returns:
             Dict with ingestion results

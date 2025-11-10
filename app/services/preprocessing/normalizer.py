@@ -2,11 +2,11 @@
 Universal Document Ingestion
 Normalizes ALL sources (Gmail, Drive, Slack, HubSpot, uploads, etc.) into unified format.
 
-Flow for ANY source (matches Alex's pattern):
+Flow for ANY source:
 1. Extract text (if file provided) → Plain text
 2. Check for duplicates (content-based deduplication)
 3. Save to documents table → Supabase (SOURCE OF TRUTH)
-4. Ingest from documents table → Neo4j + Qdrant
+4. Ingest from documents table → Qdrant (vector search)
 """
 import logging
 from typing import Dict, Any, Optional

@@ -1,6 +1,6 @@
 """
-LlamaIndex Universal Ingestion System (Expert Pattern)
-IngestionPipeline → Qdrant + Neo4j with SubQuestionQueryEngine
+Universal Ingestion System
+IngestionPipeline → Qdrant with SubQuestionQueryEngine
 """
 from app.services.ingestion.llamaindex import (
     UniversalIngestionPipeline,
