@@ -1,10 +1,9 @@
 """
-LlamaIndex Configuration (Expert Recommended Pattern)
+LlamaIndex Configuration
 
 Architecture:
-- IngestionPipeline → Qdrant (vector store) + Neo4j (knowledge graph)
-- Custom Email, Person, Company nodes
-- SubQuestionQueryEngine for hybrid retrieval
+- IngestionPipeline → Qdrant (vector store only)
+- SubQuestionQueryEngine for semantic search with recency boosting
 """
 
 import os
@@ -12,15 +11,6 @@ from typing import Literal
 from dotenv import load_dotenv
 
 load_dotenv()
-
-# ============================================
-# NEO4J CONFIGURATION
-# ============================================
-
-NEO4J_URI = os.getenv("NEO4J_URI")
-NEO4J_USERNAME = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
-NEO4J_DATABASE = "neo4j"
 
 # ============================================
 # QDRANT CONFIGURATION

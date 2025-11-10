@@ -116,11 +116,10 @@ async def initialize_clients():
 
     # Database Indexes (ensure indexes exist before querying - production autopilot)
     try:
-        from app.services.ingestion.llamaindex.index_manager import ensure_neo4j_indexes, ensure_qdrant_indexes
+        from app.services.ingestion.llamaindex.index_manager import ensure_qdrant_indexes
         logger.info("🔍 Ensuring database indexes exist...")
-        await ensure_neo4j_indexes()
         await ensure_qdrant_indexes()
-        logger.info("✅ Database indexes configured (Neo4j + Qdrant)")
+        logger.info("✅ Database indexes configured (Qdrant)")
     except Exception as e:
         logger.warning(f"⚠️  Failed to create database indexes: {e}")
         logger.warning("   Queries may be slow without indexes!")
@@ -156,7 +155,7 @@ async def shutdown_clients():
         await http_client.aclose()
         logger.info("✅ HTTP client closed")
 
-    # Cleanup query engine connections (Neo4j/Qdrant)
+    # Cleanup query engine connections (Qdrant)
     # This is the main production resource that needs cleanup
     if query_engine:
         try:

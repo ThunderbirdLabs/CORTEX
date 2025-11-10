@@ -27,25 +27,12 @@ from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.vector_stores.qdrant import QdrantVectorStore
-from llama_index.graph_stores.neo4j import Neo4jPropertyGraphStore
-from llama_index.core.indices.property_graph import SchemaLLMPathExtractor
-from llama_index.llms.openai import OpenAI
-from llama_index.core.graph_stores.types import EntityNode, Relation
-from llama_index.core.prompts import PromptTemplate
 from qdrant_client import QdrantClient, AsyncQdrantClient
 
-# Import retry decorators for production resilience
-from app.core.circuit_breakers import with_neo4j_retry
-
 from .config import (
-    NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE,
-    NEO4J_MAX_POOL_SIZE, NEO4J_LIVENESS_CHECK_TIMEOUT,
-    NEO4J_CONNECTION_TIMEOUT, NEO4J_MAX_RETRY_TIME, NEO4J_KEEP_ALIVE,
     QDRANT_URL, QDRANT_API_KEY, QDRANT_COLLECTION_NAME,
-    OPENAI_API_KEY, EXTRACTION_MODEL, EXTRACTION_TEMPERATURE,
-    EMBEDDING_MODEL, CHUNK_SIZE, CHUNK_OVERLAP, SHOW_PROGRESS,
-    NUM_WORKERS, ENABLE_CACHE, REDIS_HOST, REDIS_PORT, CACHE_COLLECTION,
-    POSSIBLE_ENTITIES, POSSIBLE_RELATIONS, KG_VALIDATION_SCHEMA
+    OPENAI_API_KEY, EMBEDDING_MODEL, CHUNK_SIZE, CHUNK_OVERLAP,
+    SHOW_PROGRESS, NUM_WORKERS, ENABLE_CACHE, REDIS_HOST, REDIS_PORT, CACHE_COLLECTION
 )
 
 logger = logging.getLogger(__name__)
@@ -148,110 +135,13 @@ class UniversalIngestionPipeline:
         )
         logger.info(f"✅ Qdrant Vector Store: {QDRANT_COLLECTION_NAME}")
 
-        # Neo4j graph store with production connection pooling
-        self.graph_store = Neo4jPropertyGraphStore(
-            username=NEO4J_USERNAME,
-            password=NEO4J_PASSWORD,
-            url=NEO4J_URI,
-            database=NEO4J_DATABASE,
-            # Production connection pooling (passed via **neo4j_kwargs)
-            max_connection_pool_size=NEO4J_MAX_POOL_SIZE,
-            connection_timeout=NEO4J_CONNECTION_TIMEOUT,
-            liveness_check_timeout=NEO4J_LIVENESS_CHECK_TIMEOUT,
-            max_transaction_retry_time=NEO4J_MAX_RETRY_TIME,
-            keep_alive=NEO4J_KEEP_ALIVE
-        )
-        logger.info(f"✅ Neo4j Graph Store: {NEO4J_URI} (database: {NEO4J_DATABASE})")
-        logger.info(f"   Connection pool: max_size={NEO4J_MAX_POOL_SIZE}, liveness_check={NEO4J_LIVENESS_CHECK_TIMEOUT}s")
-
-        # Neo4j driver for label reordering (visualization fix)
-        from neo4j import GraphDatabase
-        self.neo4j_driver = GraphDatabase.driver(
-            NEO4J_URI,
-            auth=(NEO4J_USERNAME, NEO4J_PASSWORD),
-            # Same production config for consistency
-            max_connection_pool_size=NEO4J_MAX_POOL_SIZE,
-            connection_timeout=NEO4J_CONNECTION_TIMEOUT,
-            liveness_check_timeout=NEO4J_LIVENESS_CHECK_TIMEOUT,
-            max_transaction_retry_time=NEO4J_MAX_RETRY_TIME,
-            keep_alive=NEO4J_KEEP_ALIVE
-        )
-        logger.info(f"   Label reordering driver: same pool config")
-
         # Embedding model
         self.embed_model = OpenAIEmbedding(
             model_name=EMBEDDING_MODEL,
             api_key=OPENAI_API_KEY
         )
 
-        # Entity extraction LLM
-        self.extraction_llm = OpenAI(
-            model=EXTRACTION_MODEL,
-            temperature=EXTRACTION_TEMPERATURE,
-            api_key=OPENAI_API_KEY
-        )
-
-        # Entity extractor (for Person/Company/Deal/etc.)
-        # Using SchemaLLMPathExtractor with manufacturing-specific prompt
-        from .config import POSSIBLE_ENTITIES, POSSIBLE_RELATIONS
-        from app.services.company_context import get_prompt_template
-
-        # Validate schemas loaded from Supabase (fail-fast if missing)
-        if not POSSIBLE_ENTITIES:
-            error_msg = "❌ FATAL: POSSIBLE_ENTITIES not loaded from Supabase! Check COMPANY_ID and master Supabase credentials."
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        if not POSSIBLE_RELATIONS:
-            error_msg = "❌ FATAL: POSSIBLE_RELATIONS not loaded from Supabase! Check COMPANY_ID and master Supabase credentials."
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        if not KG_VALIDATION_SCHEMA:
-            error_msg = "❌ FATAL: KG_VALIDATION_SCHEMA not loaded from Supabase! Check COMPANY_ID and master Supabase credentials."
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        # Count Literal types for logging (get_args extracts Literal values)
-        from typing import get_args
-        entity_count = len(get_args(POSSIBLE_ENTITIES)) if POSSIBLE_ENTITIES else 0
-        relation_count = len(get_args(POSSIBLE_RELATIONS)) if POSSIBLE_RELATIONS else 0
-        validation_count = len(KG_VALIDATION_SCHEMA)
-
-        logger.info(f"✅ Loaded schemas from Supabase: {entity_count} entities, {relation_count} relations, {validation_count} validation rules")
-
-        # Load entity extraction prompt from Supabase (NO hardcoded fallback)
-        logger.info("🔄 Loading entity_extraction prompt from Supabase...")
-        entity_extraction_template = get_prompt_template("entity_extraction")
-        if not entity_extraction_template:
-            error_msg = "❌ FATAL: entity_extraction prompt not found in Supabase! Run seed script: migrations/master/004_seed_unit_industries_prompts.sql"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        logger.info("✅ Loaded entity_extraction prompt from Supabase (version loaded dynamically)")
-
-        # CRITICAL FIX: Append {text} placeholder if missing
-        # SchemaLLMPathExtractor requires {text} to inject document content
-        if '{text}' not in entity_extraction_template:
-            logger.warning("⚠️  Adding missing {text} placeholder to prompt template!")
-            entity_extraction_template = entity_extraction_template.strip() + "\n\nNow extract entities and relationships from the following text:\n\n{text}"
-
-        extraction_prompt = PromptTemplate(template=entity_extraction_template.strip())
-
-        # Import Literal types for SchemaLLMPathExtractor (strict mode requires Literal, not list)
-        from .config import ENTITIES, RELATIONS
-
-        self.entity_extractor = SchemaLLMPathExtractor(
-            llm=self.extraction_llm,
-            max_triplets_per_chunk=5,  # Extract up to 5 highest-value relationships (quality over quantity)
-            num_workers=4,
-            possible_entities=ENTITIES,  # Use Literal type for pydantic validation (strict mode)
-            possible_relations=RELATIONS,  # Use Literal type for pydantic validation (strict mode)
-            kg_validation_schema=KG_VALIDATION_SCHEMA,  # Loaded from Supabase (fail-fast if missing)
-            strict=True,  # Enforce schema strictly - dynamic Literal types from Supabase
-            extract_prompt=extraction_prompt  # Manufacturing-specific extraction guidance
-        )
-        logger.info(f"✅ Entity Extractor: SchemaLLMPathExtractor (validated business schema)")
+        # Neo4j entity extraction removed - no longer extracting entities
 
         # Production caching setup (optional but recommended)
         cache = None
@@ -327,34 +217,10 @@ class UniversalIngestionPipeline:
         logger.info("   Storage: Dual (chunks in Qdrant, full documents in Neo4j)")
         logger.info("   Supports: Emails, PDFs, Sheets, Structured data")
 
-    # ============================================================================
-    # PRODUCTION RESILIENCE: Neo4j operations with automatic retry
-    # ============================================================================
-
-    @with_neo4j_retry
-    def _upsert_nodes_with_retry(self, nodes: List[EntityNode]):
-        """
-        Upsert nodes to Neo4j with automatic retry on transient failures.
-
-        Retries on: Connection errors, timeouts, transient errors
-        Strategy: 3 attempts, exponential backoff (1s, 2s, 4s)
-        """
-        self.graph_store.upsert_nodes(nodes)
-
-    @with_neo4j_retry
-    def _upsert_relations_with_retry(self, relations: List[Relation]):
-        """
-        Upsert relations to Neo4j with automatic retry on transient failures.
-
-        Retries on: Connection errors, timeouts, transient errors
-        Strategy: 3 attempts, exponential backoff (1s, 2s, 4s)
-        """
-        self.graph_store.upsert_relations(relations)
-
     async def ingest_document(
         self,
         document_row: Dict[str, Any],
-        extract_entities: bool = True
+        extract_entities: bool = False  # Neo4j removed - no entity extraction
     ) -> Dict[str, Any]:
         """
         Ingest ANY document from Supabase row (universal format).

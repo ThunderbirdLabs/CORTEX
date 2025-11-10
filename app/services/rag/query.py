@@ -1,11 +1,11 @@
 """
-LlamaIndex Query Engine (Expert Recommended Pattern)
+LlamaIndex Query Engine
 
 Architecture:
-- SubQuestionQueryEngine for hybrid retrieval
+- SubQuestionQueryEngine for query decomposition
 - VectorStoreIndex for semantic search (Qdrant)
-- PropertyGraphIndex for graph queries (Neo4j)
-- Intelligent routing and result synthesis
+- DocumentTypeRecencyPostprocessor for time-aware ranking
+- Enhanced synthesis with raw chunks for CEO cross-analysis
 """
 
 import logging
@@ -14,17 +14,14 @@ from typing import Dict, Any, Optional, List
 from llama_index.core import VectorStoreIndex, PromptTemplate, Settings
 from llama_index.core.query_engine import SubQuestionQueryEngine
 from llama_index.core.tools import QueryEngineTool
-from llama_index.core.indices.property_graph import PropertyGraphIndex
 from llama_index.core.response_synthesizers import get_response_synthesizer
 from llama_index.core.callbacks import CallbackManager, LlamaDebugHandler
 from llama_index.vector_stores.qdrant import QdrantVectorStore
-from llama_index.graph_stores.neo4j import Neo4jPropertyGraphStore
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.openai import OpenAI
 from qdrant_client import QdrantClient, AsyncQdrantClient
 
 from .config import (
-    NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE,
     QDRANT_URL, QDRANT_API_KEY, QDRANT_COLLECTION_NAME,
     OPENAI_API_KEY, QUERY_MODEL, QUERY_TEMPERATURE,
     EMBEDDING_MODEL, SIMILARITY_TOP_K
@@ -51,15 +48,14 @@ def get_ceo_prompt_template():
 
 class HybridQueryEngine:
     """
-    Hybrid query engine using SubQuestionQueryEngine.
+    Query engine using SubQuestionQueryEngine with vector search.
 
-    Combines:
-    1. VectorStoreIndex (Qdrant) - Semantic search over document chunks
-    2. PropertyGraphIndex (Neo4j) - Graph queries over Document/Person/Company/Entity nodes
+    Uses:
+    1. VectorStoreIndex (Qdrant) - Semantic search over document chunks with recency boosting
 
     The SubQuestionQueryEngine:
     - Breaks down complex questions
-    - Routes sub-questions to appropriate index
+    - Routes sub-questions to vector search
     - Synthesizes comprehensive answers
     """
 
@@ -134,29 +130,6 @@ class HybridQueryEngine:
         )
         logger.info("✅ VectorStoreIndex created for semantic search")
 
-        # Neo4j graph store with connection pool limits
-        graph_store = Neo4jPropertyGraphStore(
-            username=NEO4J_USERNAME,
-            password=NEO4J_PASSWORD,
-            url=NEO4J_URI,
-            database=NEO4J_DATABASE,
-            timeout=60.0,  # 60s timeout for queries (increased from 30s)
-            # Neo4j driver config (prevent connection exhaustion under load)
-            max_connection_pool_size=50,  # Max 50 concurrent connections
-            connection_acquisition_timeout=60.0,  # 60s wait for connection from pool (increased from 30s)
-            max_connection_lifetime=3600,  # Recycle connections after 1 hour
-        )
-        self.graph_store = graph_store
-        logger.info(f"✅ Neo4j Graph Store: {NEO4J_URI}")
-
-        # PropertyGraphIndex for graph queries
-        self.property_graph_index = PropertyGraphIndex.from_existing(
-            property_graph_store=graph_store,
-            llm=self.llm,
-            embed_model=self.embed_model
-        )
-        logger.info("✅ PropertyGraphIndex created for graph queries")
-
         # Sub-question prompts - CRITICAL: Must preserve exact information for final synthesis
         # The final CEO assistant only sees these sub-answers, not the raw chunks!
         vector_qa_prompt = PromptTemplate(
@@ -174,22 +147,6 @@ class HybridQueryEngine:
             "- Use the actual file_url value from the chunk metadata, not the word 'file_url'\n"
             "- For documents without file_url, just mention the title naturally\n\n"
             "Use quotation marks for verbatim text.\n"
-            "If the context doesn't contain relevant information, say so clearly.\n\n"
-            "Question: {query_str}\n"
-            "Answer: "
-        )
-
-        graph_qa_prompt = PromptTemplate(
-            "Your answer will be passed to another agent for final synthesis. Focus on precise entity information.\n\n"
-            "Context from knowledge graph:\n"
-            "---------------------\n"
-            "{context_str}\n"
-            "---------------------\n\n"
-            "Given the context above and not prior knowledge, answer the question about entities and relationships:\n"
-            "- Use EXACT names, titles, company names (don't paraphrase proper nouns)\n"
-            "- Describe relationships clearly: who did what, who works where, who sent what\n"
-            "- If context includes quotes or specific statements, preserve them\n"
-            "- Translate technical relationship types to natural language (CREATED_BY → \"created by\")\n\n"
             "If the context doesn't contain relevant information, say so clearly.\n\n"
             "Question: {query_str}\n"
             "Answer: "
@@ -214,30 +171,14 @@ class HybridQueryEngine:
             ]
         )
 
-        self.graph_query_engine = self.property_graph_index.as_query_engine(
-            llm=self.llm,
-            include_text=True,  # Include node text in retrieval
-            text_qa_template=graph_qa_prompt
-        )
-
-        # Wrap as tools for SubQuestionQueryEngine
+        # Wrap as tool for SubQuestionQueryEngine
         vector_tool = QueryEngineTool.from_defaults(
             query_engine=self.vector_query_engine,
-            name="vector_search",
+            name="document_search",
             description=(
-                "Useful for semantic search over document content. "
-                "Use this for questions about what was said in documents, "
-                "document content, topics discussed, specific information mentioned."
-            )
-        )
-
-        graph_tool = QueryEngineTool.from_defaults(
-            query_engine=self.graph_query_engine,
-            name="graph_search",
-            description=(
-                "Useful for querying relationships between people, companies, and documents. "
-                "Use this for questions about who sent what, who works where, "
-                "connections between people, organizational structure."
+                "Useful for searching document content including emails, attachments, and files. "
+                "Can answer questions about what was said, who sent what, topics discussed, "
+                "people mentioned, companies involved, and any information contained in documents."
             )
         )
 
@@ -255,18 +196,17 @@ class HybridQueryEngine:
 
         # SubQuestionQueryEngine with custom response synthesizer
         # Note: callback_manager is set via Settings.callback_manager (already done in __init__)
-        # Note: use_async requires llama-index-question-gen-openai package (not in current deps)
         self.query_engine = SubQuestionQueryEngine.from_defaults(
-            query_engine_tools=[vector_tool, graph_tool],
+            query_engine_tools=[vector_tool],  # Vector-only (Neo4j removed)
             llm=self.llm,
             response_synthesizer=response_synthesizer
         )
-        logger.info("✅ SubQuestionQueryEngine ready (vector + graph)")
+        logger.info("✅ SubQuestionQueryEngine ready (vector-only)")
         logger.info("✅ CEO Assistant prompts applied (sub-queries + final synthesis)")
 
-        logger.info("✅ Hybrid Query Engine ready")
-        logger.info("   Architecture: SubQuestionQueryEngine (used for both query + chat)")
-        logger.info("   Indexes: VectorStoreIndex (Qdrant) + PropertyGraphIndex (Neo4j)")
+        logger.info("✅ Query Engine ready")
+        logger.info("   Architecture: SubQuestionQueryEngine with vector search")
+        logger.info("   Index: VectorStoreIndex (Qdrant) with recency boosting")
         logger.info("   Chat: Manual history injection into prompts (per LlamaIndex best practice)")
 
 
@@ -299,7 +239,7 @@ class HybridQueryEngine:
         """
 
         logger.info(f"\n{'='*80}")
-        logger.info(f"🔍 HYBRID QUERY: {question}")
+        logger.info(f"🔍 QUERY: {question}")
         logger.info(f"{'='*80}")
 
         try:
@@ -553,20 +493,11 @@ class HybridQueryEngine:
                 query_engine_tools=[
                     QueryEngineTool.from_defaults(
                         query_engine=self.vector_query_engine,
-                        name="vector_search",
+                        name="document_search",
                         description=(
-                            "Useful for semantic search over document content. "
-                            "Use this for questions about what was said in documents, "
-                            "document content, topics discussed, specific information mentioned."
-                        )
-                    ),
-                    QueryEngineTool.from_defaults(
-                        query_engine=self.graph_query_engine,
-                        name="graph_search",
-                        description=(
-                            "Useful for querying relationships between people, companies, and documents. "
-                            "Use this for questions about who sent what, who works where, "
-                            "connections between people, organizational structure."
+                            "Useful for searching document content including emails, attachments, and files. "
+                            "Can answer questions about what was said, who sent what, topics discussed, "
+                            "people mentioned, companies involved, and any information contained in documents."
                         )
                     )
                 ],
@@ -632,54 +563,33 @@ class HybridQueryEngine:
 
     async def retrieve_only(
         self,
-        question: str,
-        use_vector: bool = True,
-        use_graph: bool = True
+        question: str
     ):
         """
         Retrieve relevant nodes without synthesis.
 
         Args:
             question: Search query
-            use_vector: Use vector search
-            use_graph: Use graph search
 
         Returns:
-            List of retrieved nodes
+            List of retrieved nodes from vector search
         """
-
-        nodes = []
-
-        if use_vector:
-            try:
-                vector_nodes = await self.vector_query_engine.aretrieve(question)
-                nodes.extend(vector_nodes)
-                logger.info(f"Retrieved {len(vector_nodes)} nodes from vector index")
-            except Exception as e:
-                logger.error(f"Vector retrieval failed: {e}")
-
-        if use_graph:
-            try:
-                graph_nodes = await self.graph_query_engine.aretrieve(question)
-                nodes.extend(graph_nodes)
-                logger.info(f"Retrieved {len(graph_nodes)} nodes from graph index")
-            except Exception as e:
-                logger.error(f"Graph retrieval failed: {e}")
-
-        return nodes
+        try:
+            nodes = await self.vector_query_engine.aretrieve(question)
+            logger.info(f"Retrieved {len(nodes)} nodes from vector index")
+            return nodes
+        except Exception as e:
+            logger.error(f"Vector retrieval failed: {e}")
+            return []
 
     async def cleanup(self):
         """
         Cleanup database connections and resources.
 
         PRODUCTION: Call this on application shutdown to prevent resource leaks.
-        Research: "Containerized setups need proper resource cleanup" (2025 best practice)
 
         Cleans up:
-        - Neo4j driver connections (with connection pool)
         - Qdrant client connections
-        - Chat memory buffers
-        - SentenceTransformer models (if loaded)
 
         Example:
             >>> engine = HybridQueryEngine()
@@ -687,11 +597,6 @@ class HybridQueryEngine:
             >>> await engine.cleanup()  # On shutdown
         """
         try:
-            # Close Neo4j connection pool
-            if hasattr(self, 'graph_store') and hasattr(self.graph_store, '_driver'):
-                self.graph_store._driver.close()
-                logger.info("   ✅ Neo4j driver & connection pool closed")
-
             # Close Qdrant clients
             if hasattr(self, 'qdrant_client'):
                 try:
@@ -714,11 +619,6 @@ class HybridQueryEngine:
 
     def __del__(self):
         """Destructor - ensure cleanup on garbage collection"""
-        try:
-            # Sync cleanup for destructor (can't use async)
-            if hasattr(self, 'graph_store') and hasattr(self.graph_store, '_driver'):
-                self.graph_store._driver.close()
-        except:
-            pass  # Silent cleanup on destruction
+        pass  # Qdrant cleanup handled by async cleanup() method
 
 
