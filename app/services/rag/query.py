@@ -182,27 +182,8 @@ class HybridQueryEngine:
             )
         )
 
-        # Custom CEO Assistant prompt for final response synthesis
-        # CRITICAL: Instructs LLM to correlate information using shared document_id
-        ceo_assistant_prompt = PromptTemplate(get_ceo_prompt_template())
-
-        # Create custom response synthesizer with CEO Assistant prompt (compact mode)
-        # Compact mode: concatenates full chunks for fewer LLM calls while preserving all text
-        response_synthesizer = get_response_synthesizer(
-            llm=self.llm,
-            response_mode="compact",
-            text_qa_template=ceo_assistant_prompt
-        )
-
-        # SubQuestionQueryEngine with custom response synthesizer
-        # Note: callback_manager is set via Settings.callback_manager (already done in __init__)
-        self.query_engine = SubQuestionQueryEngine.from_defaults(
-            query_engine_tools=[vector_tool],  # Vector-only (Neo4j removed)
-            llm=self.llm,
-            response_synthesizer=response_synthesizer
-        )
-        logger.info("✅ SubQuestionQueryEngine ready (vector-only)")
-        logger.info("✅ CEO Assistant prompts applied (sub-queries + final synthesis)")
+        # Query engines are created dynamically in query() method with time filtering
+        # No need for pre-built query engine since each query has different time filters
 
         logger.info("✅ Query Engine ready")
         logger.info("   Architecture: SubQuestionQueryEngine with vector search")
