@@ -562,21 +562,72 @@ Examples:
                 messages_loaded = len(messages_to_include)
                 logger.info(f"   📚 Chat history: {messages_loaded}/{len(chat_history)} messages (~{total_tokens} tokens)")
 
-            # Use enhanced query() method (same retrieval as search)
+            # Call enhanced query() to get time-filtered retrieval + enhanced synthesis
+            # We'll add chat history to the synthesis after
             result = await self.query(message)
 
-            # Inject chat history into the answer if needed
-            # The query already has all the enhanced features, we just add chat context metadata
+            # If we have chat history, re-synthesize with history context
+            if chat_history_str:
+                logger.info(f"   💬 Re-synthesizing with chat history context...")
+
+                # Get the enhanced_context that was built in query()
+                # We need to prepend chat history and re-run CEO synthesis
+                from llama_index.core.schema import TextNode, NodeWithScore, QueryBundle
+                from app.services.tenant.context import get_prompt_template
+
+                # Rebuild enhanced context WITH chat history at the top
+                enhanced_with_history = f"--- Previous Conversation ---\n{chat_history_str}\n\n"
+
+                # Extract original enhanced parts from the query result
+                # We'll rebuild it by re-extracting from source_nodes
+                source_nodes = result.get('source_nodes', [])
+                sub_answers = [n for n in source_nodes if 'Sub question:' in str(n.text if hasattr(n, 'text') else '')]
+                raw_chunks = [n for n in source_nodes if 'Sub question:' not in str(n.text if hasattr(n, 'text') else '')]
+
+                # Add sub-answers
+                for i, sub_node in enumerate(sub_answers, 1):
+                    sub_text = str(sub_node.text if hasattr(sub_node, 'text') else sub_node)
+                    enhanced_with_history += f"--- Sub-Question {i} ---\n{sub_text}\n"
+
+                # Add raw chunks
+                enhanced_with_history += f"\n--- Top {len(raw_chunks)} Source Chunks ---\n"
+                for i, chunk in enumerate(raw_chunks, 1):
+                    meta = chunk.metadata if hasattr(chunk, 'metadata') else {}
+                    chunk_text = chunk.text if hasattr(chunk, 'text') else str(chunk)
+                    chunk_part = f"\n[Chunk {i}]\n"
+                    chunk_part += f"Document ID: {meta.get('document_id', 'N/A')}\n"
+                    chunk_part += f"Type: {meta.get('document_type', 'N/A')}\n"
+                    chunk_part += f"Created: {meta.get('created_at', 'N/A')}\n"
+                    chunk_part += f"Content: {chunk_text}\n"
+                    enhanced_with_history += chunk_part
+
+                # Re-synthesize with chat history context
+                context_node = TextNode(text=enhanced_with_history)
+                context_node_with_score = NodeWithScore(node=context_node, score=1.0)
+
+                ceo_prompt = PromptTemplate(get_prompt_template('ceo_assistant'))
+                synthesizer = get_response_synthesizer(
+                    llm=self.llm,
+                    response_mode="compact",
+                    text_qa_template=ceo_prompt
+                )
+
+                query_bundle = QueryBundle(query_str=message)
+                final_response = await synthesizer.asynthesize(
+                    query=query_bundle,
+                    nodes=[context_node_with_score]
+                )
+
+                # Update result with chat-aware answer
+                result["answer"] = str(final_response)
+                logger.info(f"   ✅ Re-synthesized with chat history ({len(chat_history)} messages)")
+
+            # Add chat metadata
             result["metadata"]["is_chat"] = True
             result["metadata"]["chat_history_provided"] = bool(chat_history)
             result["metadata"]["chat_history_length"] = len(chat_history) if chat_history else 0
 
-            # If we have chat history, we could optionally prepend it to enhanced_context
-            # But for now, the question itself can reference "it" or "that" and query() will handle it
-            if chat_history_str:
-                logger.info(f"   💬 Chat mode with {len(chat_history)} history messages")
-
-            logger.info(f"✅ CHAT COMPLETE (using enhanced query)")
+            logger.info(f"✅ CHAT COMPLETE (enhanced query + history context)")
 
             return result
 
