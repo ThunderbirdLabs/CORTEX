@@ -358,7 +358,7 @@ async def run_gmail_sync(
                         # Normalize Gmail message
                         normalized = normalize_gmail_message(record, tenant_id)
 
-                        # Ingest email body using UNIVERSAL FLOW (documents table + PropertyGraph)
+                        # Ingest email body using UNIVERSAL FLOW (documents table + Qdrant)
                         cortex_result = await ingest_to_cortex(
                             cortex_pipeline,
                             normalized,

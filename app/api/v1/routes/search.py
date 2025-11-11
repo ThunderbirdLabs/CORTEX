@@ -9,9 +9,9 @@ from supabase import Client
 from app.core.config import settings
 from app.core.security import verify_api_key, get_current_user_id
 from app.core.dependencies import get_supabase
+from app.core import dependencies as deps
 from app.models.schemas import SearchQuery, SearchResponse, VectorResult, GraphResult
 from app.services.search.query_rewriter import rewrite_query_with_context
-from app.services.ingestion.llamaindex import HybridQueryEngine
 from app.middleware.rate_limit import limiter
 from app.core.circuit_breakers import with_openai_retry
 
@@ -19,21 +19,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["search"])
 
-# Global hybrid query engine (lazy initialized)
-query_engine = None
-_engine_initialized = False
 
-
-async def _initialize_query_engine():
-    """Initialize the LlamaIndex hybrid query engine (lazy)"""
-    global query_engine, _engine_initialized
-
-    if not _engine_initialized:
-        query_engine = HybridQueryEngine()
-        _engine_initialized = True
-        logger.info("✅ Hybrid query engine initialized with circuit breakers")
-
-    return query_engine
+async def _get_query_engine():
+    """Get the global query engine from dependencies"""
+    if not deps.query_engine:
+        raise HTTPException(status_code=503, detail="Query engine not initialized")
+    return deps.query_engine
 
 
 @with_openai_retry
@@ -60,7 +51,7 @@ async def search(
     This endpoint uses HybridQueryEngine with SubQuestionQueryEngine:
     - SubQuestionQueryEngine: Breaks down complex queries into sub-questions
     - VectorStoreIndex (Qdrant): Semantic search over text chunks
-    - PropertyGraphIndex (Neo4j): Graph queries over entities and relationships
+    - VectorStoreIndex (Qdrant): Semantic search over document chunks
     - Multi-strategy concurrent retrieval with intelligent result merging
     - Synthesizes comprehensive answer from all retrieval strategies
     - Optionally fetches full email objects from Supabase
@@ -86,7 +77,7 @@ async def search(
         logger.info(f"Search - Rewritten: {rewritten_query}")
 
         # Initialize hybrid query engine (lazy)
-        engine = await _initialize_query_engine()
+        engine = await _get_query_engine()
 
         # Execute query using hybrid retrieval with automatic retry on failures
         result = await _execute_search_with_retry(engine, rewritten_query)

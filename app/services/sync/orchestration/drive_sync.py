@@ -162,7 +162,7 @@ async def run_drive_sync(
     Args:
         http_client: HTTP client
         supabase: Supabase client
-        cortex_pipeline: PropertyGraph pipeline
+        cortex_pipeline: Qdrant ingestion pipeline
         tenant_id: Tenant/user ID
         provider_key: Nango provider key
         folder_ids: Optional folder IDs to sync (None = entire Drive)

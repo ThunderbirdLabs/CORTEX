@@ -53,7 +53,7 @@ async def ingest_to_cortex(
     This uses the new unified system that:
     1. Normalizes email into universal format
     2. Saves to documents table (Supabase)
-    3. Ingests to PropertyGraph (Neo4j + Qdrant)
+    3. Ingests to Qdrant vector store
 
     Args:
         cortex_pipeline: Cortex pipeline instance (or None if disabled)

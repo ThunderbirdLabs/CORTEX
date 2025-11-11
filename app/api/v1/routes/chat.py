@@ -1,6 +1,6 @@
 """
 Chat Routes - Simple Query Interface for Hybrid Property Graph System
-Uses HybridQueryEngine with SubQuestionQueryEngine (VectorStoreIndex + PropertyGraphIndex)
+Uses HybridQueryEngine with SubQuestionQueryEngine (VectorStoreIndex (Qdrant))
 """
 import logging
 from fastapi import APIRouter, HTTPException, Depends, Request
@@ -91,7 +91,7 @@ async def chat(
     Now saves chat history to Supabase!
 
     Uses:
-    - Single PropertyGraphIndex combining Neo4j + Qdrant
+    - VectorStoreIndex (Qdrant vector search only)
     - VectorContextRetriever for graph-aware vector search
     - LLMSynonymRetriever for query expansion with entity synonyms
     - Multi-strategy concurrent retrieval with intelligent result merging
@@ -302,7 +302,7 @@ async def chat(
             error_message = "The knowledge base is taking longer than expected to respond. Please try again."
         elif "qdrant" in error_str:
             error_message = "Unable to connect to the knowledge base. Please try again."
-        elif "neo4j" in error_str:
+        elif "qdrant" in error_str:
             error_message = "Unable to connect to the graph database. Please try again."
         elif "openai" in error_str or "api" in error_str:
             error_message = "The AI service is temporarily unavailable. Please try again."

@@ -191,30 +191,6 @@ async def full_health_check(
             "error": str(e)
         }
 
-    # Neo4j (Graph DB)
-    try:
-        from app.core.dependencies import query_engine
-        if query_engine and hasattr(query_engine, 'neo4j_graph_store'):
-            # Try a simple cypher query
-            driver = query_engine.neo4j_graph_store._driver
-            with driver.session() as session:
-                result = session.run("MATCH (n) RETURN count(n) as count LIMIT 1")
-                node_count = result.single()["count"]
-            components["neo4j"] = {
-                "status": "healthy",
-                "nodes_count": node_count
-            }
-        else:
-            components["neo4j"] = {
-                "status": "unhealthy",
-                "error": "Query engine not initialized"
-            }
-    except Exception as e:
-        components["neo4j"] = {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-
     # Redis (Background Jobs)
     try:
         from app.services.background.broker import redis_broker
@@ -259,9 +235,8 @@ async def test_end_to_end_flow(
     1. Create test document
     2. Ingest to Supabase
     3. Chunk & embed to Qdrant
-    4. Extract entities to Neo4j
-    5. Query hybrid search
-    6. Clean up test data
+    4. Query vector search
+    5. Clean up test data
     """
     test_id = f"admin_test_{datetime.utcnow().timestamp()}"
     steps = []
@@ -370,17 +345,6 @@ async def get_system_metrics(
         except:
             qdrant_vectors = "N/A"
 
-        # Get Neo4j stats
-        try:
-            from app.services.ingestion.llamaindex.index_manager import IndexManager
-            index_manager = IndexManager()
-            with index_manager.neo4j_driver.session() as session:
-                nodes = session.run("MATCH (n) RETURN count(n) as count").single()["count"]
-                rels = session.run("MATCH ()-[r]->() RETURN count(r) as count").single()["count"]
-            neo4j_stats = {"nodes": nodes, "relationships": rels}
-        except:
-            neo4j_stats = {"nodes": "N/A", "relationships": "N/A"}
-
         return {
             "documents": {
                 "total": docs_result.count,
@@ -392,7 +356,6 @@ async def get_system_metrics(
             "qdrant": {
                 "vectors": qdrant_vectors
             },
-            "neo4j": neo4j_stats,
             "timestamp": datetime.utcnow().isoformat()
         }
 
@@ -739,205 +702,6 @@ async def retry_job(
         logger.error(f"Error retrying job: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# ============================================================================
-# SCHEMA MANAGEMENT
-# ============================================================================
-
-@router.get("/schema")
-async def get_current_schema(
-    session_id: str = Depends(verify_admin_session),
-    supabase: Client = Depends(get_supabase)
-):
-    """Get current entity and relationship schema."""
-    try:
-        from app.services.ingestion.llamaindex.config import (
-            POSSIBLE_ENTITIES,
-            POSSIBLE_RELATIONS,
-            DEFAULT_ENTITIES,
-            DEFAULT_RELATIONS
-        )
-
-        # Get overrides from database
-        overrides = supabase.table("admin_schema_overrides")\
-            .select("*")\
-            .eq("is_active", True)\
-            .execute()
-
-        # Get entity counts from Neo4j
-        entity_counts = {}
-        try:
-            from app.core.dependencies import query_engine
-            if query_engine and hasattr(query_engine, 'neo4j_graph_store'):
-                driver = query_engine.neo4j_graph_store._driver
-                for entity_type in POSSIBLE_ENTITIES:
-                    with driver.session() as session:
-                        result = session.run(
-                            f"MATCH (n:{entity_type}) RETURN count(n) as count"
-                        )
-                        record = result.single()
-                        entity_counts[entity_type] = record["count"] if record else 0
-        except Exception as e:
-            logger.warning(f"Failed to get entity counts: {e}")
-            entity_counts = {}
-
-        # Separate default vs custom for frontend display
-        custom_entities = [e for e in POSSIBLE_ENTITIES if e not in DEFAULT_ENTITIES]
-        custom_relations = [r for r in POSSIBLE_RELATIONS if r not in DEFAULT_RELATIONS]
-
-        return {
-            "entities": POSSIBLE_ENTITIES,  # All entities (default + custom merged)
-            "default_entities": DEFAULT_ENTITIES,
-            "custom_entities": custom_entities,
-            "relationships": POSSIBLE_RELATIONS,  # All relationships (default + custom merged)
-            "default_relations": DEFAULT_RELATIONS,
-            "custom_relations": custom_relations,
-            "overrides": overrides.data,
-            "entity_counts": entity_counts
-        }
-
-    except Exception as e:
-        logger.error(f"Error fetching schema: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/schema/entity/add")
-async def add_entity_type(
-    session_id: str = Depends(verify_admin_session),
-    supabase: Client = Depends(get_supabase),
-    entity_type: str = None,
-    description: str = None
-):
-    """Add a new entity type to schema."""
-    if not entity_type:
-        raise HTTPException(status_code=400, detail="entity_type required")
-
-    try:
-        # Add to overrides table
-        result = supabase.table("admin_schema_overrides").insert({
-            "override_type": "entity",
-            "entity_type": entity_type.upper(),
-            "description": description,
-            "created_by": session_id,
-            "is_active": True
-        }).execute()
-
-        # Log action
-        await log_admin_action(
-            supabase=supabase,
-            session_id=session_id,
-            action="add_entity",
-            resource_type="schema",
-            resource_id=entity_type,
-            details={"entity_type": entity_type, "description": description}
-        )
-
-        logger.info(f"✅ Admin added entity type: {entity_type}")
-
-        return {
-            "status": "success",
-            "entity_type": entity_type,
-            "id": result.data[0]["id"],
-            "note": "Restart application or hot-reload config to apply changes"
-        }
-
-    except Exception as e:
-        logger.error(f"Error adding entity: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/schema/relation/add")
-async def add_relation_type(
-    session_id: str = Depends(verify_admin_session),
-    supabase: Client = Depends(get_supabase),
-    relation_type: str = None,
-    from_entity: str = None,
-    to_entity: str = None,
-    description: str = None
-):
-    """Add a new relationship type to schema."""
-    if not relation_type or not from_entity or not to_entity:
-        raise HTTPException(
-            status_code=400,
-            detail="relation_type, from_entity, and to_entity required"
-        )
-
-    try:
-        # Add to overrides table
-        result = supabase.table("admin_schema_overrides").insert({
-            "override_type": "relation",
-            "relation_type": relation_type.upper(),
-            "from_entity": from_entity.upper(),
-            "to_entity": to_entity.upper(),
-            "description": description,
-            "created_by": session_id,
-            "is_active": True
-        }).execute()
-
-        # Log action
-        await log_admin_action(
-            supabase=supabase,
-            session_id=session_id,
-            action="add_relation",
-            resource_type="schema",
-            resource_id=relation_type,
-            details={
-                "relation_type": relation_type,
-                "from_entity": from_entity,
-                "to_entity": to_entity,
-                "description": description
-            }
-        )
-
-        logger.info(f"✅ Admin added relation: {from_entity}-[{relation_type}]->{to_entity}")
-
-        return {
-            "status": "success",
-            "relation_type": relation_type,
-            "id": result.data[0]["id"],
-            "note": "Restart application or hot-reload config to apply changes"
-        }
-
-    except Exception as e:
-        logger.error(f"Error adding relation: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/schema/{override_id}")
-async def delete_schema_override(
-    override_id: int,
-    session_id: str = Depends(verify_admin_session),
-    supabase: Client = Depends(get_supabase)
-):
-    """Delete/deactivate a schema override."""
-    try:
-        # Soft delete (set is_active = false)
-        result = supabase.table("admin_schema_overrides")\
-            .update({"is_active": False})\
-            .eq("id", override_id)\
-            .execute()
-
-        # Log action
-        await log_admin_action(
-            supabase=supabase,
-            session_id=session_id,
-            action="delete_schema_override",
-            resource_type="schema",
-            resource_id=str(override_id)
-        )
-
-        logger.info(f"✅ Admin deactivated schema override: {override_id}")
-
-        return {"status": "success", "id": override_id}
-
-    except Exception as e:
-        logger.error(f"Error deleting schema override: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ============================================================================
-# COMPANY SETTINGS MANAGEMENT
-# ============================================================================
 
 @router.get("/company/settings")
 async def get_company_settings(

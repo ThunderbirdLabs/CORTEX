@@ -120,13 +120,13 @@ async def upload_file(
     1. Upload file
     2. Parse with Unstructured (LOCAL)
     3. Save to documents table (Supabase)
-    4. Ingest to PropertyGraph (Neo4j + Qdrant)
+    4. Ingest to Qdrant vector store
 
     Args:
         file: Uploaded file
         user_id: Authenticated user (from JWT)
         supabase: Supabase client
-        cortex_pipeline: PropertyGraph pipeline
+        cortex_pipeline: Ingestion pipeline
 
     Returns:
         Ingestion result
@@ -221,7 +221,7 @@ async def upload_multiple_files(
         files: List of uploaded files
         user_id: Authenticated user
         supabase: Supabase client
-        cortex_pipeline: PropertyGraph pipeline
+        cortex_pipeline: Ingestion pipeline
 
     Returns:
         List of ingestion results
