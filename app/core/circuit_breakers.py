@@ -1,6 +1,6 @@
 """
 Circuit Breakers and Retry Logic
-Prevents cascading failures when external services (OpenAI, Neo4j, Qdrant) fail
+Prevents cascading failures when external services (OpenAI, Qdrant) fail
 """
 import logging
 from functools import wraps
@@ -91,42 +91,6 @@ def with_openai_retry(func):
         return async_wrapper
     else:
         return sync_wrapper
-
-
-# ============================================================================
-# NEO4J CIRCUIT BREAKER
-# ============================================================================
-
-def with_neo4j_retry(func):
-    """
-    Decorator for Neo4j queries with retry logic.
-    
-    Retries on:
-    - Connection errors
-    - Transient errors
-    
-    Strategy:
-    - Max 3 attempts
-    - Exponential backoff: 1s, 2s, 4s
-    """
-    @retry(
-        retry=retry_if_exception_type(Exception),  # Catch Neo4j exceptions
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=5),
-        before_sleep=before_sleep_log(logger, logging.WARNING),
-        reraise=True
-    )
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            # Log but allow retry mechanism to handle
-            if "connection" in str(e).lower() or "timeout" in str(e).lower():
-                logger.warning(f"Neo4j transient error, retrying... {e}")
-            raise
-    
-    return wrapper
 
 
 # ============================================================================
