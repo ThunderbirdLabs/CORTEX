@@ -117,40 +117,20 @@ async def main(use_batch: bool = False, num_workers: int = 4, max_concurrent_neo
             print(f"   - Expected throughput: ~2-3 docs/sec")
         print("   This will:")
         print("   - Chunk text and create embeddings → Qdrant")
-        print("   - Extract entities and relationships → Neo4j")
         print()
 
         results = []
 
-        if use_batch:
-            # Batch mode: Process in chunks
-            for i in range(0, len(documents), batch_size):
-                batch = documents[i:i+batch_size]
-                batch_num = i // batch_size + 1
-                total_batches = (len(documents) + batch_size - 1) // batch_size
-                print(f"\n   📦 Batch {batch_num}/{total_batches} ({len(batch)} documents)...")
-
-                batch_results = await pipeline.ingest_documents_batch(
-                    document_rows=batch,
-                    extract_entities=True,
-                    num_workers=num_workers,
-                    max_concurrent_neo4j=max_concurrent_neo4j
-                )
-                results.extend(batch_results)
-        else:
-            # Sequential mode: One at a time
-            for i, doc in enumerate(documents, 1):
-                print(f"   [{i}/{len(documents)}] {doc.get('title', '(No title)')[:50]}...")
-                try:
-                    await pipeline.ingest_document(
-                        document_row=doc,
-                        extract_entities=True
-                    )
-                    results.append({'status': 'success', 'title': doc.get('title')})
-                    print(f"      ✅ Success")
-                except Exception as e:
-                    results.append({'status': 'error', 'title': doc.get('title'), 'error': str(e)})
-                    print(f"      ❌ Error: {e}")
+        # Process documents one at a time (batch method removed with Neo4j)
+        for i, doc in enumerate(documents, 1):
+            print(f"   [{i}/{len(documents)}] {doc.get('title', '(No title)')[:50]}...")
+            try:
+                result = await pipeline.ingest_document(document_row=doc)
+                results.append({'status': result.get('status', 'unknown'), 'title': doc.get('title')})
+                print(f"      ✅ Success")
+            except Exception as e:
+                results.append({'status': 'error', 'title': doc.get('title'), 'error': str(e)})
+                print(f"      ❌ Error: {e}")
 
         # Step 5: Show results
         success_count = sum(1 for r in results if r.get('status') == 'success')

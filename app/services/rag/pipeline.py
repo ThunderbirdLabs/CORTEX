@@ -37,11 +37,10 @@ logger = logging.getLogger(__name__)
 
 class UniversalIngestionPipeline:
     """
-    Expert-recommended universal ingestion pipeline for ANY document type.
+    Universal ingestion pipeline for ANY document type.
 
-    Dual storage strategy:
-    - Qdrant: Text chunks + embeddings (for semantic search)
-    - Neo4j: Document/Entity nodes + relationships (for graph queries)
+    Vector-only architecture:
+    - Qdrant: Text chunks + embeddings (semantic search)
 
     Handles: Emails, PDFs, Sheets, Structured data, etc.
     """
@@ -144,8 +143,7 @@ class UniversalIngestionPipeline:
 
     async def ingest_document(
         self,
-        document_row: Dict[str, Any],
-        extract_entities: bool = False  # Neo4j removed - no entity extraction
+        document_row: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         Ingest ANY document from Supabase row (universal format).
@@ -158,7 +156,6 @@ class UniversalIngestionPipeline:
             document_row: Supabase document row (from 'documents' table)
                 Required fields: id, content, title
                 Optional: source, document_type, metadata, etc.
-            extract_entities: Deprecated (always False - Neo4j removed)
 
         Returns:
             Dict with ingestion results

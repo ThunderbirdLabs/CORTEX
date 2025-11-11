@@ -342,21 +342,20 @@ async def ingest_document_universal(
                 logger.warning(f"   ⚠️  Failed to queue urgency detection: {urgency_error}")
 
         # ========================================================================
-        # STEP 4: Ingest to PropertyGraph (Neo4j + Qdrant) - FROM DOCUMENTS TABLE
+        # STEP 4: Ingest to Qdrant (Vector Search)
         # ========================================================================
 
-        logger.info(f"   🕸️  Ingesting to PropertyGraph from documents table...")
+        logger.info(f"   🕸️  Ingesting to Qdrant vector store...")
 
         # Use the full document row with ID (CRITICAL: doc_id must be set!)
         cortex_result = await cortex_pipeline.ingest_document(
-            document_row=inserted_doc,
-            extract_entities=True
+            document_row=inserted_doc
         )
 
         if cortex_result.get('status') != 'success':
-            raise Exception(f"PropertyGraph ingestion failed: {cortex_result.get('error')}")
+            raise Exception(f"Qdrant ingestion failed: {cortex_result.get('error')}")
 
-        logger.info(f"   ✅ PropertyGraph ingestion complete")
+        logger.info(f"   ✅ Qdrant ingestion complete")
 
         # ========================================================================
         # SUCCESS
