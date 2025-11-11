@@ -12,7 +12,7 @@ from app.api.v1.routes.upload import router as upload_router
 from app.api.v1.routes.chat import router as chat_router
 from app.api.v1.routes.dashboard import router as dashboard_router
 from app.api.v1.routes.intelligence import router as intelligence_router
-from app.api.v1.routes.analytics import router as analytics_router
+# analytics_router removed - required Neo4j entities (no longer available)
 from app.api.v1.routes.insights import router as insights_router
 
 __all__ = [
@@ -26,6 +26,5 @@ __all__ = [
     "chat_router",
     "dashboard_router",
     "intelligence_router",
-    "analytics_router",
     "insights_router",
 ]

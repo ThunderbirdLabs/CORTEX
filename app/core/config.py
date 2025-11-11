@@ -75,11 +75,6 @@ class Settings(BaseSettings):
     qdrant_api_key: Optional[str] = Field(default=None, description="Qdrant API key")
     qdrant_collection_name: str = Field(default="cortex_documents", description="Qdrant collection name")
 
-    # Knowledge Graph (Neo4j + Graphiti)
-    neo4j_uri: Optional[str] = Field(default=None, description="Neo4j Aura URI")
-    neo4j_user: str = Field(default="neo4j", description="Neo4j username")
-    neo4j_password: Optional[str] = Field(default=None, description="Neo4j password")
-
     # LLM & Embeddings (OpenAI)
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
 
@@ -193,12 +188,6 @@ class Settings(BaseSettings):
                 # User should provide DATABASE_URL as env var or we need to store it in master Supabase
                 logger.warning("  ⚠️  database_url: Cannot derive from supabase_url (password not stored)")
 
-            # Neo4j
-            self.neo4j_uri = load_with_fallback("neo4j_uri", "neo4j_uri", self.neo4j_uri)
-            self.neo4j_password = load_with_fallback("neo4j_password", "neo4j_password", self.neo4j_password)
-            if not self.neo4j_user and deployment.get("neo4j_user"):
-                self.neo4j_user = deployment["neo4j_user"]
-
             # Qdrant
             self.qdrant_url = load_with_fallback("qdrant_url", "qdrant_url", self.qdrant_url)
             self.qdrant_api_key = load_with_fallback("qdrant_api_key", "qdrant_api_key", self.qdrant_api_key)
@@ -230,6 +219,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"  # Ignore deprecated NEO4J_* env vars
 
 
 # Global settings instance

@@ -264,23 +264,19 @@ class UniversalIngestionPipeline:
                         pass
 
                 # Truncate metadata values to prevent total metadata length > chunk size
-                # CRITICAL: Convert arrays to JSON strings to prevent Neo4j LongArray toString() error
                 MAX_META_VALUE_LEN = 200  # Max chars per metadata value
                 for key, value in additional_meta.items():
                     if isinstance(value, list):
-                        # Convert lists to JSON strings to prevent Neo4j LongArray error
+                        # Convert lists to JSON strings for consistent storage
                         doc_metadata[key] = json.dumps(value)
                     elif isinstance(value, str) and len(value) > MAX_META_VALUE_LEN:
                         doc_metadata[key] = value[:MAX_META_VALUE_LEN] + "..."
                     else:
                         doc_metadata[key] = value
 
-            # Determine node label early (used in return statement at end)
-            node_label = document_type.upper() if document_type else "DOCUMENT"
-
             # For emails: preserve email-specific fields
             if document_type == "email":
-                # CRITICAL: Convert to_addresses to JSON string to prevent Neo4j LongArray error
+                # Convert to_addresses to JSON string for consistent storage
                 to_addrs = document_row.get("to_addresses", "[]")
                 if isinstance(to_addrs, list):
                     to_addrs = json.dumps(to_addrs)

@@ -45,10 +45,9 @@ try:
         chat_router,
         dashboard_router,
         intelligence_router,
-        analytics_router,
         insights_router
     )
-    from app.api.v1.routes.deduplication import router as deduplication_router
+    # Note: analytics_router and deduplication_router removed (required Neo4j entities)
     from app.api.v1.routes.admin import router as admin_router
     from app.api.v1.routes.integrations import router as integrations_router
     from app.api.v1.routes.alerts import router as alerts_router
@@ -203,12 +202,12 @@ app.include_router(search_router)
 app.include_router(emails_router)
 app.include_router(upload_router)
 app.include_router(chat_router)
-app.include_router(deduplication_router)
+# deduplication_router removed - required Neo4j entities (no longer available)
 app.include_router(admin_router)  # Admin dashboard routes
 app.include_router(integrations_router)  # QuickBooks, Salesforce, etc.
 app.include_router(dashboard_router)  # Executive dashboard API
 app.include_router(intelligence_router, prefix="/api/v1")  # Organizational intelligence API (adds /api/v1 to /intelligence prefix)
-app.include_router(analytics_router, prefix="/api/v1/analytics", tags=["analytics"])  # Business intelligence analytics API
+# analytics_router removed - required Neo4j entities (no longer available)
 app.include_router(insights_router, prefix="/api/v1/insights", tags=["insights"])  # RAG-powered intelligence insights API
 app.include_router(alerts_router, prefix="/api/v1/alerts", tags=["alerts"])  # Real-time alerts API
 app.include_router(reports_router, prefix="/api/v1/reports", tags=["reports"])  # Saved reports API
