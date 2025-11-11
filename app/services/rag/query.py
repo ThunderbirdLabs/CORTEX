@@ -441,12 +441,12 @@ Examples:
             enhanced_context = "\n".join(enhanced_parts)
 
             # Re-synthesize with enhanced context
-            from app.services.tenant.context import get_prompt_template
+            from app.services.tenant.context import build_ceo_prompt_template
 
             context_node = TextNode(text=enhanced_context)
             context_node_with_score = NodeWithScore(node=context_node, score=1.0)
 
-            ceo_prompt_enhanced = PromptTemplate(get_prompt_template('ceo_assistant'))
+            ceo_prompt_enhanced = PromptTemplate(build_ceo_prompt_template())
             synthesizer_enhanced = get_response_synthesizer(
                 llm=self.llm,
                 response_mode="compact",
@@ -586,7 +586,8 @@ Examples:
                 context_node = TextNode(text=enhanced_with_history)
                 context_node_with_score = NodeWithScore(node=context_node, score=1.0)
 
-                ceo_prompt = PromptTemplate(get_prompt_template('ceo_assistant'))
+                from app.services.tenant.context import build_ceo_prompt_template as get_ceo_prompt
+                ceo_prompt = PromptTemplate(get_ceo_prompt())
                 synthesizer = get_response_synthesizer(
                     llm=self.llm,
                     response_mode="compact",
