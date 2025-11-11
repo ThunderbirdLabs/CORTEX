@@ -209,6 +209,83 @@ class HybridQueryEngine:
         logger.info("   Index: VectorStoreIndex (Qdrant) with recency boosting")
         logger.info("   Chat: Manual history injection into prompts (per LlamaIndex best practice)")
 
+    async def _parse_time_filter(self, question: str) -> Optional[Dict[str, Any]]:
+        """
+        Parse time constraints from natural language using LLM.
+
+        Uses GPT-4o-mini to interpret phrases like:
+        - "a month ago" → specific date
+        - "last week" → date range
+        - "in October" → full month
+        - "recent" → last 30 days (reasonable default)
+
+        Cost: ~$0.0001 per call (only runs when time keywords detected)
+
+        Returns:
+            Dict with start_timestamp, end_timestamp (Unix timestamps)
+            Or None if no time filter
+        """
+        from datetime import datetime, timezone, timedelta
+        import json
+
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        current_date_readable = datetime.now().strftime('%B %d, %Y')
+
+        prompt = f"""Today's date is {current_date_readable} ({current_date}).
+
+Extract time period from: "{question}"
+
+Return ONLY valid JSON:
+
+WITH time period:
+{{"has_time_filter": true, "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD"}}
+
+NO time period:
+{{"has_time_filter": false}}
+
+Examples:
+- "last month" → {{"has_time_filter": true, "start_date": "2024-10-01", "end_date": "2024-10-31"}}
+- "a month ago" → {{"has_time_filter": true, "start_date": "2024-10-05", "end_date": "2024-10-05"}}
+- "in Q3" → {{"has_time_filter": true, "start_date": "2024-07-01", "end_date": "2024-09-30"}}
+- "recent" → {{"has_time_filter": true, "start_date": "2024-10-05", "end_date": "2024-11-05"}}
+- "what materials do we use" → {{"has_time_filter": false}}
+"""
+
+        try:
+            result = await self.llm.acomplete(prompt)
+            result_text = str(result).strip()
+
+            # Remove markdown if present
+            if result_text.startswith('```'):
+                result_text = result_text.split('\n', 1)[1].rsplit('\n', 1)[0]
+
+            parsed = json.loads(result_text)
+
+            if parsed.get('has_time_filter'):
+                start_date = parsed['start_date']
+                end_date = parsed['end_date']
+
+                # Convert to timestamps
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d').replace(hour=0, minute=0, second=0, tzinfo=timezone.utc)
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d').replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+
+                start_ts = int(start_dt.timestamp())
+                end_ts = int(end_dt.timestamp())
+
+                logger.info(f"   🕐 Time filter: {start_date} to {end_date}")
+
+                return {
+                    'start_timestamp': start_ts,
+                    'end_timestamp': end_ts,
+                    'start_date': start_date,
+                    'end_date': end_date
+                }
+
+            return None
+
+        except Exception as e:
+            logger.warning(f"   ⚠️  Time parsing failed: {e}")
+            return None
 
     async def query(
         self,
@@ -243,27 +320,182 @@ class HybridQueryEngine:
         logger.info(f"{'='*80}")
 
         try:
-            # Step 1: Run standard SubQuestionQueryEngine with callbacks
-            temp_engine = HybridQueryEngine(enable_callbacks=True)
+            # Step 1: Parse time filter from question
+            # Ask LLM to interpret time phrases, default to last 30 days if no specific time mentioned
+            time_filter = await self._parse_time_filter(question)
 
-            # Execute SubQuestionQueryEngine (no time-filtering for now)
-            response = await temp_engine.query_engine.aquery(question)
+            # If no explicit time mentioned, default to last 30 days
+            if not time_filter:
+                from datetime import datetime, timedelta
+                thirty_days_ago = datetime.now() - timedelta(days=30)
+                time_filter = {
+                    'start_timestamp': int(thirty_days_ago.timestamp()),
+                    'end_timestamp': int(datetime.now().timestamp()),
+                    'start_date': thirty_days_ago.strftime('%Y-%m-%d'),
+                    'end_date': datetime.now().strftime('%Y-%m-%d')
+                }
+                logger.info(f"   📅 No time specified - defaulting to last 30 days")
 
-            # Step 2: Extract sub-question results from callbacks
-            events = temp_engine.get_callback_events()
-            subq_events = [e for e in events if e['event_type'] == 'sub_question']
+            # Step 2: Apply time filter to vector query engine
+            from llama_index.core.vector_stores import MetadataFilter, MetadataFilters, FilterOperator
 
-            # Get answered sub-questions with sources
-            answered_subqs = [
-                e['payload'].get('sub_question')
-                for e in subq_events
-                if e['payload'].get('sub_question') and
-                   hasattr(e['payload'].get('sub_question'), 'answer') and
-                   e['payload'].get('sub_question').answer and
-                   hasattr(e['payload'].get('sub_question'), 'sources')
-            ]
+            metadata_filters = MetadataFilters(filters=[
+                MetadataFilter(
+                    key="created_at_timestamp",
+                    operator=FilterOperator.GTE,
+                    value=time_filter['start_timestamp']
+                ),
+                MetadataFilter(
+                    key="created_at_timestamp",
+                    operator=FilterOperator.LTE,
+                    value=time_filter['end_timestamp']
+                )
+            ])
 
-            logger.info(f"   Sub-questions answered: {len(answered_subqs)}")
+            logger.info(f"   🔒 Qdrant time filter: {time_filter['start_date']} to {time_filter['end_date']}")
+
+            # Step 3: Build time-filtered SubQuestionQueryEngine from scratch
+            # Create filtered vector query engine
+            filtered_vector_qe = self.vector_index.as_query_engine(
+                similarity_top_k=SIMILARITY_TOP_K,
+                llm=self.llm,
+                filters=metadata_filters,  # Apply time filter to Qdrant
+                text_qa_template=PromptTemplate(
+                    "Your answer will be passed to another agent for final synthesis. Preserve exact information.\n\n"
+                    "Context from documents (each chunk has metadata with title):\n"
+                    "---------------------\n"
+                    "{context_str}\n"
+                    "---------------------\n\n"
+                    "Given the context above and not prior knowledge, answer the question. When you include:\n"
+                    "- Numbers, dates, metrics, amounts → quote them exactly\n"
+                    "- Important statements or findings → quote 1-2 key sentences verbatim\n"
+                    "- Regular facts or descriptions → you may paraphrase\n\n"
+                    "IMPORTANT: When citing documents that have a file_url in metadata, create markdown links:\n"
+                    "- Format: \"According to the [Document Title](file_url_value)...\"\n"
+                    "- Use the actual file_url value from the chunk metadata, not the word 'file_url'\n"
+                    "- For documents without file_url, just mention the title naturally\n\n"
+                    "Use quotation marks for verbatim text.\n"
+                    "If the context doesn't contain relevant information, say so clearly.\n\n"
+                    "Question: {query_str}\n"
+                    "Answer: "
+                ),
+                node_postprocessors=[DocumentTypeRecencyPostprocessor()]
+            )
+
+            # Wrap as tool
+            from llama_index.core.tools import QueryEngineTool
+            filtered_tool = QueryEngineTool.from_defaults(
+                query_engine=filtered_vector_qe,
+                name="document_search",
+                description=(
+                    "Useful for searching document content including emails, attachments, and files. "
+                    "Can answer questions about what was said, who sent what, topics discussed, "
+                    "people mentioned, companies involved, and any information contained in documents."
+                )
+            )
+
+            # Build SubQuestionQueryEngine with filtered tool
+            ceo_prompt = PromptTemplate(get_ceo_prompt_template())
+            response_synth = get_response_synthesizer(
+                llm=self.llm,
+                response_mode="compact",
+                text_qa_template=ceo_prompt
+            )
+
+            filtered_subq_engine = SubQuestionQueryEngine.from_defaults(
+                query_engine_tools=[filtered_tool],
+                llm=self.llm,
+                response_synthesizer=response_synth
+            )
+
+            # Execute with time-filtered retrieval
+            response = await filtered_subq_engine.aquery(question)
+
+            # Step 4: Extract chunks from response for enhanced synthesis
+            all_source_nodes = response.source_nodes if hasattr(response, 'source_nodes') else []
+
+            logger.info(f"   Response has {len(all_source_nodes)} source nodes")
+
+            # Separate sub-answers from raw chunks
+            sub_answers_list = []
+            raw_chunks_list = []
+
+            for node in all_source_nodes:
+                node_text = str(node.text if hasattr(node, 'text') else '')
+                if 'Sub question:' in node_text:
+                    sub_answers_list.append(node)
+                else:
+                    raw_chunks_list.append(node)
+
+            logger.info(f"   {len(sub_answers_list)} sub-answers, {len(raw_chunks_list)} raw chunks")
+
+            # Keep top 50% of raw chunks
+            top_chunks = raw_chunks_list[:len(raw_chunks_list)//2] if len(raw_chunks_list) > 0 else []
+
+            logger.info(f"   Keeping top {len(top_chunks)} chunks (50% of {len(raw_chunks_list)})")
+
+            # Build enhanced context with sub-answers + top chunks
+            from llama_index.core.schema import TextNode, NodeWithScore, QueryBundle
+
+            enhanced_parts = []
+
+            # Add each sub-answer with its text
+            for i, sub_node in enumerate(sub_answers_list, 1):
+                sub_text = str(sub_node.text if hasattr(sub_node, 'text') else sub_node)
+                enhanced_parts.append(f"--- Sub-Question {i} ---\n{sub_text}\n")
+
+            # Add top chunks
+            enhanced_parts.append(f"\n--- Top {len(top_chunks)} Source Chunks ---\n")
+            for i, chunk in enumerate(top_chunks, 1):
+                meta = chunk.metadata if hasattr(chunk, 'metadata') else {}
+                chunk_text = chunk.text if hasattr(chunk, 'text') else str(chunk)
+
+                chunk_part = f"\n[Chunk {i}]\n"
+                chunk_part += f"Document ID: {meta.get('document_id', 'N/A')}\n"
+                chunk_part += f"Type: {meta.get('document_type', 'N/A')}\n"
+                chunk_part += f"Created: {meta.get('created_at', 'N/A')}\n"
+                chunk_part += f"Content: {chunk_text}\n"
+                enhanced_parts.append(chunk_part)
+
+            enhanced_context = "\n".join(enhanced_parts)
+
+            # Re-synthesize with enhanced context
+            from app.services.tenant.context import get_prompt_template
+
+            context_node = TextNode(text=enhanced_context)
+            context_node_with_score = NodeWithScore(node=context_node, score=1.0)
+
+            ceo_prompt_enhanced = PromptTemplate(get_prompt_template('ceo_assistant'))
+            synthesizer_enhanced = get_response_synthesizer(
+                llm=self.llm,
+                response_mode="compact",
+                text_qa_template=ceo_prompt_enhanced
+            )
+
+            query_bundle = QueryBundle(query_str=question)
+            final_response = await synthesizer_enhanced.asynthesize(
+                query=query_bundle,
+                nodes=[context_node_with_score]
+            )
+
+            logger.info(f"✅ Enhanced synthesis complete with {len(top_chunks)} chunks")
+
+            # Return with enhanced answer and tracked chunks
+            final_source_nodes = sub_answers_list + top_chunks
+
+            return {
+                "question": question,
+                "answer": str(final_response),
+                "source_nodes": final_source_nodes,
+                "metadata": {
+                    "time_filtered": True,
+                    "time_range": f"{time_filter['start_date']} to {time_filter['end_date']}",
+                    "enhanced": True,
+                    "sub_questions": len(sub_answers_list),
+                    "chunks_used": len(top_chunks),
+                    "context_length": len(enhanced_context)
+                }
+            }
 
             # Step 3: Build enhanced context with sub-answers + top raw chunks
             enhanced_context_parts = []
@@ -308,8 +540,6 @@ class HybridQueryEngine:
 
             # Step 4: Call CEO synthesis with enhanced context
             from llama_index.core.schema import TextNode, NodeWithScore, QueryBundle
-            from llama_index.core import PromptTemplate
-            from llama_index.core.response_synthesizers import get_response_synthesizer
             from app.services.tenant.context import get_prompt_template
 
             # Wrap enhanced context in a TextNode (this goes into {context_str} placeholder)
