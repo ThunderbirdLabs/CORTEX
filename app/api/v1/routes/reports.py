@@ -1,369 +1,137 @@
 """
-Saved Reports API
+Daily Reports API Routes
 
-Endpoints for saving, viewing, and managing drill-down reports.
+Endpoints for generating and fetching evolving daily business intelligence reports.
 """
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
-from datetime import datetime
+from typing import Optional
+from datetime import date
 import logging
 
 from supabase import Client
-from app.core.dependencies import get_supabase
+from app.core.dependencies import get_supabase, get_master_supabase
+from app.core.dependencies import query_engine as global_query_engine
 from app.core.security import get_current_user_id
+from app.core.config_master import master_config
 
-router = APIRouter()
 logger = logging.getLogger(__name__)
 
-
-class SaveReportRequest(BaseModel):
-    """Request to save a report."""
-    title: str
-    report_type: str  # 'widget_drilldown', 'alert_investigation', 'manual_query'
-    report_data: Dict[str, Any]  # Full report JSON
-    description: Optional[str] = None
-    source_widget_title: Optional[str] = None
-    source_widget_message: Optional[str] = None
-    source_alert_id: Optional[int] = None
-    source_query: Optional[str] = None
-    tags: Optional[List[str]] = None
+router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
 
 
-class UpdateReportRequest(BaseModel):
-    """Request to update report metadata."""
-    title: Optional[str] = None
-    description: Optional[str] = None
-    tags: Optional[List[str]] = None
+class GenerateReportRequest(BaseModel):
+    """Request to generate a daily report."""
+    report_type: str  # 'client_relationships' | 'operations'
+    target_date: Optional[str] = None  # YYYY-MM-DD, defaults to yesterday
+    force_regenerate: bool = False
 
 
-@router.post("/save")
-async def save_report(
-    request: SaveReportRequest,
+@router.post("/daily/generate")
+async def generate_daily_report_endpoint(
+    request: GenerateReportRequest,
     user_id: str = Depends(get_current_user_id),
-    supabase: Client = Depends(get_supabase)
+    supabase: Client = Depends(get_supabase),
+    master_supabase: Client = Depends(get_master_supabase)
 ):
-    """
-    Save a drill-down report for later access.
-
-    Reports can be from:
-    - Widget drill-downs
-    - Alert investigations
-    - Manual search queries
-    """
+    """Generate a daily report."""
     try:
-        logger.info(f"💾 Saving report: {request.title} for user {user_id}")
+        # Parse target date
+        if request.target_date:
+            target_date = date.fromisoformat(request.target_date)
+        else:
+            from app.services.reports.memory import get_previous_business_day
+            target_date = get_previous_business_day(date.today())
 
-        # Use the SQL function
-        result = supabase.rpc(
-            'save_report',
-            {
-                'p_tenant_id': user_id,
-                'p_title': request.title,
-                'p_report_type': request.report_type,
-                'p_report_data': request.report_data,
-                'p_description': request.description,
-                'p_source_widget_title': request.source_widget_title,
-                'p_source_widget_message': request.source_widget_message,
-                'p_source_alert_id': request.source_alert_id,
-                'p_source_query': request.source_query,
-                'p_tags': request.tags or []
-            }
-        ).execute()
+        # Check existing
+        if not request.force_regenerate:
+            existing = supabase.table("daily_reports")\
+                .select("id")\
+                .eq("tenant_id", user_id)\
+                .eq("report_type", request.report_type)\
+                .eq("report_date", target_date.isoformat())\
+                .execute()
 
-        report_id = result.data if result.data else None
+            if existing.data:
+                return {
+                    "success": False,
+                    "error": f"Report exists for {target_date}. Use force_regenerate=true"
+                }
 
-        if not report_id:
-            raise HTTPException(status_code=500, detail="Failed to save report")
+        # Generate
+        if not global_query_engine:
+            raise HTTPException(503, "Query engine not initialized")
 
-        logger.info(f"✅ Report saved with ID: {report_id}")
+        from app.services.reports.generator import generate_daily_report
+
+        report = await generate_daily_report(
+            supabase=supabase,
+            master_supabase=master_supabase,
+            tenant_id=user_id,
+            company_id=master_config.company_id,
+            report_type=request.report_type,
+            target_date=target_date,
+            query_engine=global_query_engine
+        )
 
         return {
             "success": True,
-            "report_id": report_id,
-            "message": "Report saved successfully"
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to save report: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/list")
-async def list_reports(
-    report_type: Optional[str] = Query(None, description="Filter by type"),
-    starred_only: bool = Query(False, description="Only show starred reports"),
-    limit: int = Query(50, ge=1, le=200, description="Max reports to return"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-    user_id: str = Depends(get_current_user_id),
-    supabase: Client = Depends(get_supabase)
-):
-    """
-    Get list of saved reports for the current user.
-
-    Returns reports ordered by creation date (newest first).
-    """
-    try:
-        result = supabase.rpc(
-            'get_user_reports',
-            {
-                'p_tenant_id': user_id,
-                'p_report_type': report_type,
-                'p_starred_only': starred_only,
-                'p_limit': limit,
-                'p_offset': offset
-            }
-        ).execute()
-
-        reports = result.data or []
-
-        return {
-            "total": len(reports),
-            "limit": limit,
-            "offset": offset,
-            "reports": reports
+            "report": report.model_dump(mode='json')
         }
 
     except Exception as e:
-        logger.error(f"Failed to list reports: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Report generation failed: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
 
 
-@router.get("/{report_id}")
-async def get_report(
-    report_id: int,
+@router.get("/daily/{report_date}")
+async def get_daily_report(
+    report_date: str,
+    report_type: str,
     user_id: str = Depends(get_current_user_id),
     supabase: Client = Depends(get_supabase)
 ):
-    """
-    Get full details for a specific report.
-
-    Automatically tracks view count and last viewed time.
-    """
+    """Fetch a daily report."""
     try:
-        # Update view count
-        supabase.rpc(
-            'update_report_view',
-            {
-                'p_report_id': report_id,
-                'p_tenant_id': user_id
-            }
-        ).execute()
-
-        # Fetch full report
-        result = supabase.table("saved_reports")\
+        result = supabase.table("daily_reports")\
             .select("*")\
-            .eq("id", report_id)\
             .eq("tenant_id", user_id)\
+            .eq("report_type", report_type)\
+            .eq("report_date", report_date)\
             .single()\
             .execute()
 
         if not result.data:
-            raise HTTPException(status_code=404, detail="Report not found")
+            raise HTTPException(404, "Report not found")
 
-        return {
-            "report": result.data
-        }
+        return {"success": True, "report": result.data}
 
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Failed to get report: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to fetch report: {e}")
+        raise HTTPException(500, str(e))
 
 
-@router.post("/{report_id}/star")
-async def toggle_star(
-    report_id: int,
+@router.get("/daily/latest")
+async def get_latest_reports(
+    limit: int = 7,
     user_id: str = Depends(get_current_user_id),
     supabase: Client = Depends(get_supabase)
 ):
-    """
-    Toggle star/favorite status for a report.
-    """
+    """Get recent daily reports."""
     try:
-        result = supabase.rpc(
-            'toggle_report_star',
-            {
-                'p_report_id': report_id,
-                'p_tenant_id': user_id
-            }
-        ).execute()
-
-        is_starred = result.data if result.data is not None else False
-
-        return {
-            "success": True,
-            "report_id": report_id,
-            "is_starred": is_starred
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to toggle star: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.patch("/{report_id}")
-async def update_report(
-    report_id: int,
-    request: UpdateReportRequest,
-    user_id: str = Depends(get_current_user_id),
-    supabase: Client = Depends(get_supabase)
-):
-    """
-    Update report metadata (title, description, tags).
-    """
-    try:
-        update_data = {}
-        if request.title is not None:
-            update_data["title"] = request.title
-        if request.description is not None:
-            update_data["description"] = request.description
-        if request.tags is not None:
-            # Use the SQL function for tags
-            supabase.rpc(
-                'update_report_tags',
-                {
-                    'p_report_id': report_id,
-                    'p_tenant_id': user_id,
-                    'p_tags': request.tags
-                }
-            ).execute()
-
-        if update_data:
-            result = supabase.table("saved_reports")\
-                .update(update_data)\
-                .eq("id", report_id)\
-                .eq("tenant_id", user_id)\
-                .execute()
-
-            if not result.data:
-                raise HTTPException(status_code=404, detail="Report not found")
-
-        return {
-            "success": True,
-            "report_id": report_id,
-            "message": "Report updated successfully"
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to update report: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/{report_id}")
-async def delete_report(
-    report_id: int,
-    user_id: str = Depends(get_current_user_id),
-    supabase: Client = Depends(get_supabase)
-):
-    """
-    Delete a saved report.
-    """
-    try:
-        result = supabase.rpc(
-            'delete_report',
-            {
-                'p_report_id': report_id,
-                'p_tenant_id': user_id
-            }
-        ).execute()
-
-        success = result.data if result.data is not None else False
-
-        if not success:
-            raise HTTPException(status_code=404, detail="Report not found")
-
-        return {
-            "success": True,
-            "report_id": report_id,
-            "message": "Report deleted successfully"
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to delete report: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/search")
-async def search_reports(
-    q: str = Query(..., min_length=1, description="Search term"),
-    limit: int = Query(20, ge=1, le=100, description="Max results"),
-    user_id: str = Depends(get_current_user_id),
-    supabase: Client = Depends(get_supabase)
-):
-    """
-    Search reports by title, description, tags, or content.
-    """
-    try:
-        result = supabase.rpc(
-            'search_reports',
-            {
-                'p_tenant_id': user_id,
-                'p_search_term': q,
-                'p_limit': limit
-            }
-        ).execute()
-
-        reports = result.data or []
-
-        return {
-            "query": q,
-            "total": len(reports),
-            "reports": reports
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to search reports: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/stats")
-async def get_report_stats(
-    user_id: str = Depends(get_current_user_id),
-    supabase: Client = Depends(get_supabase)
-):
-    """
-    Get statistics about saved reports.
-    """
-    try:
-        # Get counts by type
-        result = supabase.table("saved_reports")\
-            .select("report_type", count="exact")\
+        result = supabase.table("daily_reports")\
+            .select("*")\
             .eq("tenant_id", user_id)\
+            .order("report_date", desc=True)\
+            .limit(limit * 2)\
             .execute()
 
-        total_count = len(result.data) if result.data else 0
-
-        # Count by type
-        by_type = {}
-        if result.data:
-            for report in result.data:
-                report_type = report.get("report_type", "unknown")
-                by_type[report_type] = by_type.get(report_type, 0) + 1
-
-        # Count starred
-        starred_result = supabase.table("saved_reports")\
-            .select("id", count="exact")\
-            .eq("tenant_id", user_id)\
-            .eq("is_starred", True)\
-            .execute()
-
-        starred_count = len(starred_result.data) if starred_result.data else 0
-
         return {
-            "total_reports": total_count,
-            "starred_count": starred_count,
-            "by_type": by_type,
-            "timestamp": datetime.utcnow().isoformat()
+            "success": True,
+            "reports": result.data,
+            "total": len(result.data)
         }
 
     except Exception as e:
-        logger.error(f"Failed to get report stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to fetch latest: {e}")
+        raise HTTPException(500, str(e))
