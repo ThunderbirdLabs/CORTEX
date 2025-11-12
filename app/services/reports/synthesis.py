@@ -86,7 +86,7 @@ KEY ITEMS TO FOLLOW UP ON:
     # Build synthesis prompt
     synthesis_prompt = prompt_template.format(
         company_name="Unit Industries Group",  # TODO: Load from company context
-        report_date=report_date.isoformat(),
+        report_date=str(report_date),
         previous_context=previous_context if previous_context else "No previous context (first report)",
         query_answers=query_answers_str,
         sections_config=json.dumps([s for s in sections_config], indent=2)

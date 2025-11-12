@@ -491,11 +491,26 @@ Examples:
                 meta = chunk.metadata if hasattr(chunk, 'metadata') else {}
                 chunk_text = chunk.text if hasattr(chunk, 'text') else str(chunk)
 
+                # Format chunk with minimal essential metadata
+                doc_id = meta.get('document_id', 'N/A')
+                doc_type = meta.get('document_type', 'N/A')
+                created = meta.get('created_at', 'N/A')[:10] if meta.get('created_at') else 'N/A'  # Date only
+                title = meta.get('title', '')
+                sender = meta.get('sender', '')
+
                 chunk_part = f"\n[Chunk {i}]\n"
-                chunk_part += f"Document ID: {meta.get('document_id', 'N/A')}\n"
-                chunk_part += f"Type: {meta.get('document_type', 'N/A')}\n"
-                chunk_part += f"Created: {meta.get('created_at', 'N/A')}\n"
-                chunk_part += f"Content: {chunk_text}\n"
+                chunk_part += f"Doc {doc_id} | {doc_type} | {created}\n"
+
+                # Add title if available (truncate long ones)
+                if title:
+                    clean_title = title.replace('[Outlook Attachment] ', '').replace('[Outlook Embedded] ', '')
+                    chunk_part += f"Title: {clean_title[:80]}\n"
+
+                # Add sender for emails only
+                if sender and doc_type == 'email':
+                    chunk_part += f"From: {sender}\n"
+
+                chunk_part += f"\n{chunk_text}\n"
                 enhanced_parts.append(chunk_part)
 
             enhanced_context = "\n".join(enhanced_parts)
@@ -635,11 +650,25 @@ Examples:
                 for i, chunk in enumerate(raw_chunks, 1):
                     meta = chunk.metadata if hasattr(chunk, 'metadata') else {}
                     chunk_text = chunk.text if hasattr(chunk, 'text') else str(chunk)
+
+                    # Format with minimal essential metadata
+                    doc_id = meta.get('document_id', 'N/A')
+                    doc_type = meta.get('document_type', 'N/A')
+                    created = meta.get('created_at', 'N/A')[:10] if meta.get('created_at') else 'N/A'
+                    title = meta.get('title', '')
+                    sender = meta.get('sender', '')
+
                     chunk_part = f"\n[Chunk {i}]\n"
-                    chunk_part += f"Document ID: {meta.get('document_id', 'N/A')}\n"
-                    chunk_part += f"Type: {meta.get('document_type', 'N/A')}\n"
-                    chunk_part += f"Created: {meta.get('created_at', 'N/A')}\n"
-                    chunk_part += f"Content: {chunk_text}\n"
+                    chunk_part += f"Doc {doc_id} | {doc_type} | {created}\n"
+
+                    if title:
+                        clean_title = title.replace('[Outlook Attachment] ', '').replace('[Outlook Embedded] ', '')
+                        chunk_part += f"Title: {clean_title[:80]}\n"
+
+                    if sender and doc_type == 'email':
+                        chunk_part += f"From: {sender}\n"
+
+                    chunk_part += f"\n{chunk_text}\n"
                     enhanced_with_history += chunk_part
 
                 # Re-synthesize with chat history context

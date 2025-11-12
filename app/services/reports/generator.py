@@ -162,7 +162,7 @@ async def _generate_summary(report: DailyReport, llm) -> str:
 
     prompt = prompt_template.format(
         report_type=report.report_type,
-        full_report=json.dumps(report.model_dump(), indent=2)
+        full_report=json.dumps(report.model_dump(mode='json'), indent=2)
     )
 
     response = await llm.acomplete(prompt)
@@ -179,7 +179,7 @@ async def _extract_key_items(report: DailyReport, llm) -> Dict[str, Any]:
         raise Exception("Missing prompt: daily_report_key_items_extractor")
 
     prompt = prompt_template.format(
-        full_report=json.dumps(report.model_dump(), indent=2)
+        full_report=json.dumps(report.model_dump(mode='json'), indent=2)
     )
 
     response = await llm.acomplete(prompt)
