@@ -26,6 +26,10 @@ async def sync_once(
 ):
     """
     Start Outlook sync as background job.
+
+    SECURITY: Only syncs for the authenticated user.
+    Multi-tenant isolation enforced by COMPANY_ID env var.
+
     Returns immediately with job_id for status tracking.
     """
     logger.info(f"Enqueueing Outlook sync for user {user_id}")
@@ -36,14 +40,14 @@ async def sync_once(
             "job_type": "outlook",
             "status": "queued"
         }).execute()
-        
+
         job_id = job.data[0]["id"]
-        
+
         # Enqueue background task
         sync_outlook_task.send(user_id, job_id)
-        
+
         logger.info(f"✅ Outlook sync job {job_id} queued")
-        
+
         return {
             "status": "queued",
             "job_id": job_id,
@@ -64,6 +68,10 @@ async def sync_once_gmail(
 ):
     """
     Start Gmail sync as background job.
+
+    SECURITY: Only syncs for the authenticated user.
+    Multi-tenant isolation enforced by COMPANY_ID env var.
+
     Returns immediately with job_id for status tracking.
     """
     logger.info(f"Enqueueing Gmail sync for user {user_id}")
@@ -77,14 +85,14 @@ async def sync_once_gmail(
             "job_type": "gmail",
             "status": "queued"
         }).execute()
-        
+
         job_id = job.data[0]["id"]
-        
+
         # Enqueue background task
         sync_gmail_task.send(user_id, job_id, modified_after)
-        
+
         logger.info(f"✅ Gmail sync job {job_id} queued")
-        
+
         return {
             "status": "queued",
             "job_id": job_id,

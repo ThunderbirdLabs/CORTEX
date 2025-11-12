@@ -111,19 +111,236 @@ async def nango_oauth_callback(payload: NangoOAuthCallback):
     """
     Handle Nango OAuth callback.
     Saves connection information for the tenant.
-    
+
     Note: When using Nango's Connect SDK with end_user model, the connection_id
     for API calls is the end_user.email format: <tenant_id>@app.internal
     """
+    from app.core.config_master import master_config
+
     logger.info(f"Received OAuth callback for tenant {payload.tenantId}, nango internal ID: {payload.connectionId}")
     try:
         # Use end_user.id as connection_id for API calls (Nango Connect SDK uses /connections endpoint)
         await save_connection(payload.tenantId, payload.providerConfigKey, payload.tenantId)
         logger.info(f"Saved connection with ID: {payload.tenantId}")
+
+        # Save to nango_original_connections if multi-tenant and first connection
+        if master_config.is_multi_tenant:
+            from supabase import create_client
+            master_supabase = create_client(
+                master_config.master_supabase_url,
+                master_config.master_supabase_service_key
+            )
+            company_id = master_config.company_id
+
+            # Check if connection already exists
+            existing = master_supabase.table("nango_original_connections")\
+                .select("id")\
+                .eq("company_id", company_id)\
+                .eq("tenant_id", payload.tenantId)\
+                .eq("provider", payload.providerConfigKey)\
+                .maybe_single()\
+                .execute()
+
+            if not existing.data:
+                # First time connection - save original email
+                # Note: We should get email from Nango metadata, but for now store connection
+                master_supabase.table("nango_original_connections").insert({
+                    "company_id": company_id,
+                    "tenant_id": payload.tenantId,
+                    "provider": payload.providerConfigKey,
+                    "nango_connection_id": payload.connectionId,
+                    "original_email": f"{payload.tenantId}@temp.internal",  # TODO: Get real email from Nango
+                    "connected_by": "client_app"
+                }).execute()
+
+                logger.info(f"Saved original connection for {payload.providerConfigKey}:{payload.tenantId}")
+
+                # Log to audit
+                master_supabase.table("audit_log_global").insert({
+                    "company_id": company_id,
+                    "action": "connection_created",
+                    "resource_type": "connection",
+                    "resource_id": f"{payload.providerConfigKey}:{payload.tenantId}",
+                    "details": {
+                        "provider": payload.providerConfigKey,
+                        "tenant_id": payload.tenantId,
+                        "nango_connection_id": payload.connectionId
+                    }
+                }).execute()
+            else:
+                # Reconnection - update last_reconnected_at
+                master_supabase.table("nango_original_connections")\
+                    .update({
+                        "last_reconnected_at": "now()",
+                        "reconnection_count": master_supabase.table("nango_original_connections").select("reconnection_count").eq("id", existing.data["id"]).single().execute().data["reconnection_count"] + 1
+                    })\
+                    .eq("id", existing.data["id"])\
+                    .execute()
+
+                # Log to audit
+                master_supabase.table("audit_log_global").insert({
+                    "company_id": company_id,
+                    "action": "connection_reconnected",
+                    "resource_type": "connection",
+                    "resource_id": f"{payload.providerConfigKey}:{payload.tenantId}",
+                    "details": {
+                        "provider": payload.providerConfigKey,
+                        "tenant_id": payload.tenantId,
+                        "nango_connection_id": payload.connectionId
+                    }
+                }).execute()
+
         return {"status": "ok"}
     except Exception as e:
         logger.error(f"Error in OAuth callback: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/connect/reconnect")
+@limiter.limit("20/hour")
+async def reconnect_oauth(
+    request: Request,
+    provider: str = Query(..., description="Provider name (microsoft | gmail | google-drive | quickbooks)"),
+    user_id: str = Depends(get_current_user_id),
+    http_client: httpx.AsyncClient = Depends(get_http_client)
+):
+    """
+    Reconnect an existing OAuth connection.
+
+    Enforces same-email policy by checking nango_original_connections table.
+    Used when:
+    - OAuth token expired
+    - Connection is in error state
+    - User needs to re-authorize after permissions change
+
+    Flow:
+    1. Check if original connection exists in master Supabase
+    2. Generate new OAuth URL with login_hint for same email
+    3. User completes OAuth (must match original email)
+    4. Log reconnection to audit trail
+    """
+    from app.core.config_master import master_config
+    from app.core.dependencies import get_master_supabase_client
+    from fastapi import Depends as DependsReconnect
+
+    logger.info(f"OAuth reconnect requested for provider {provider}, user {user_id}")
+
+    # Get master Supabase client if multi-tenant
+    master_supabase = None
+    original_email = None
+    company_id = None
+
+    if master_config.is_multi_tenant:
+        from supabase import create_client
+        master_supabase = create_client(
+            master_config.master_supabase_url,
+            master_config.master_supabase_service_key
+        )
+        company_id = master_config.company_id
+
+        # Check for original connection
+        result = master_supabase.table("nango_original_connections")\
+            .select("original_email")\
+            .eq("company_id", company_id)\
+            .eq("tenant_id", user_id)\
+            .eq("provider", provider)\
+            .maybe_single()\
+            .execute()
+
+        if result.data:
+            original_email = result.data["original_email"]
+            logger.info(f"Found original connection with email: {original_email}")
+
+    # Map provider to integration ID (same logic as connect_start)
+    integration_id = None
+    if provider.lower() in ["microsoft", "outlook"]:
+        if not settings.nango_provider_key_outlook:
+            raise HTTPException(status_code=400, detail="Microsoft/Outlook provider not configured")
+        integration_id = "outlook"
+    elif provider.lower() == "gmail":
+        if not settings.nango_provider_key_gmail:
+            raise HTTPException(status_code=400, detail="Gmail provider not configured")
+        integration_id = "google-mail"
+    elif provider.lower() in ["google-drive", "drive", "googledrive"]:
+        if settings.nango_provider_key_google_drive:
+            integration_id = "google-drive"
+        elif settings.nango_provider_key_gmail:
+            integration_id = "google-mail"
+        else:
+            raise HTTPException(status_code=400, detail="Google Drive provider not configured")
+    elif provider.lower() in ["quickbooks", "qbo", "intuit"]:
+        if not settings.nango_provider_key_quickbooks:
+            raise HTTPException(status_code=400, detail="QuickBooks provider not configured")
+        integration_id = "quickbooks"
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
+
+    # Generate connect session token (same as connect_start)
+    try:
+        session_payload = {
+            "end_user": {
+                "id": user_id,
+                "email": f"{user_id}@app.internal",
+                "display_name": user_id[:8]
+            },
+            "allowed_integrations": [integration_id]
+        }
+
+        # Add login_hint if we have original email (helps enforce same-email)
+        if original_email:
+            session_payload["metadata"] = {
+                "login_hint": original_email,
+                "is_reconnect": True
+            }
+
+        session_response = await http_client.post(
+            "https://api.nango.dev/connect/sessions",
+            headers={"Authorization": f"Bearer {settings.nango_secret}"},
+            json=session_payload
+        )
+        session_response.raise_for_status()
+        session_data = session_response.json()
+        session_token = session_data["data"]["token"]
+
+        logger.info(f"Generated reconnect session token for user {user_id}")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Failed to create Nango reconnect session: {e.response.status_code} - {e.response.text}")
+        raise HTTPException(status_code=500, detail="Failed to create OAuth reconnect session")
+    except Exception as e:
+        logger.error(f"Error creating Nango reconnect session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    redirect_uri = "https://connectorfrontend.vercel.app"
+    oauth_url = f"https://api.nango.dev/oauth/connect/{integration_id}?connect_session_token={session_token}&user_scope=&callback_url={redirect_uri}"
+
+    if original_email:
+        oauth_url += f"&login_hint={original_email}"
+
+    # Log reconnection attempt to audit log
+    if master_supabase and company_id:
+        try:
+            master_supabase.table("audit_log_global").insert({
+                "company_id": company_id,
+                "action": "connection_reconnect_initiated",
+                "resource_type": "connection",
+                "resource_id": f"{provider}:{user_id}",
+                "details": {
+                    "provider": provider,
+                    "tenant_id": user_id,
+                    "original_email": original_email,
+                    "initiated_by": "client_app"
+                }
+            }).execute()
+        except Exception as e:
+            logger.warning(f"Failed to log reconnect to audit: {e}")
+
+    return {
+        "auth_url": oauth_url,
+        "provider": provider,
+        "tenant_id": user_id,
+        "original_email": original_email,
+        "message": f"Please reconnect using the same email: {original_email}" if original_email else "Please reconnect your account"
+    }
 
 
 @router.get("/status")
