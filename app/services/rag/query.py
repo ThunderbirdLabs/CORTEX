@@ -272,7 +272,8 @@ Examples:
         self,
         question: str,
         filters: Optional[Dict[str, Any]] = None,
-        top_k_per_subq: int = 10
+        top_k_per_subq: int = 10,
+        time_override: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Query with raw chunks passed to final synthesis.
@@ -291,6 +292,8 @@ Examples:
             question: User's question
             filters: Optional metadata filters
             top_k_per_subq: Number of top chunks to keep per sub-question (default: 10)
+            time_override: Override time filter (for daily reports)
+                          Format: {'start': date, 'end': date} where date is datetime.date object
 
         Returns:
             Dict with answer, source nodes, and metadata
@@ -301,21 +304,39 @@ Examples:
         logger.info(f"{'='*80}")
 
         try:
-            # Step 1: Parse time filter from question
-            # Ask LLM to interpret time phrases, default to last 30 days if no specific time mentioned
-            time_filter = await self._parse_time_filter(question)
+            # Step 1: Determine time filter
+            from datetime import datetime, timedelta
 
-            # If no explicit time mentioned, default to last 30 days
-            if not time_filter:
-                from datetime import datetime, timedelta
-                thirty_days_ago = datetime.now() - timedelta(days=30)
+            if time_override:
+                # Daily reports override: Use exact date provided
+                start_date = time_override['start']
+                end_date = time_override['end']
+
+                # Convert date objects to timestamps
+                start_dt = datetime.combine(start_date, datetime.min.time())
+                end_dt = datetime.combine(end_date, datetime.max.time())
+
                 time_filter = {
-                    'start_timestamp': int(thirty_days_ago.timestamp()),
-                    'end_timestamp': int(datetime.now().timestamp()),
-                    'start_date': thirty_days_ago.strftime('%Y-%m-%d'),
-                    'end_date': datetime.now().strftime('%Y-%m-%d')
+                    'start_timestamp': int(start_dt.timestamp()),
+                    'end_timestamp': int(end_dt.timestamp()),
+                    'start_date': start_date.strftime('%Y-%m-%d'),
+                    'end_date': end_date.strftime('%Y-%m-%d')
                 }
-                logger.info(f"   📅 No time specified - defaulting to last 30 days")
+                logger.info(f"   🔒 Time override: {time_filter['start_date']} to {time_filter['end_date']}")
+
+            else:
+                # Normal flow: Parse time from question or default to 30 days
+                time_filter = await self._parse_time_filter(question)
+
+                if not time_filter:
+                    thirty_days_ago = datetime.now() - timedelta(days=30)
+                    time_filter = {
+                        'start_timestamp': int(thirty_days_ago.timestamp()),
+                        'end_timestamp': int(datetime.now().timestamp()),
+                        'start_date': thirty_days_ago.strftime('%Y-%m-%d'),
+                        'end_date': datetime.now().strftime('%Y-%m-%d')
+                    }
+                    logger.info(f"   📅 No time specified - defaulting to last 30 days")
 
             # Step 2: Apply time filter to vector query engine
             from llama_index.core.vector_stores import MetadataFilter, MetadataFilters, FilterOperator
