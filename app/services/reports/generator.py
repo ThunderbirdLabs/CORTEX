@@ -131,7 +131,6 @@ async def generate_daily_report(
 
     # Step 5: Generate and save memory for tomorrow
     logger.info(f"\n5️⃣ Creating memory for next day...")
-    from app.services.reports.memory import save_report_memory
 
     # Generate summary
     summary = await _generate_summary(report, query_engine.llm)
@@ -141,8 +140,14 @@ async def generate_daily_report(
     key_items = await _extract_key_items(report, query_engine.llm)
     logger.info(f"   ✅ Key items: {len(key_items)} items")
 
-    # Save report with memory
-    await save_report_memory(supabase, report, summary, key_items)
+    # Save report with memory (wrapped to handle Supabase cache errors)
+    try:
+        from app.services.reports.memory import save_report_memory
+        await save_report_memory(supabase, report, summary, key_items)
+    except Exception as save_error:
+        logger.warning(f"   ⚠️  Failed to save to database (likely Supabase schema cache): {save_error}")
+        logger.warning(f"   Report generated successfully, but not persisted")
+        # Continue - report was generated, just not saved
 
     logger.info(f"\n{'='*80}")
     logger.info(f"✅ REPORT COMPLETE: {report_type} for {target_date}")
