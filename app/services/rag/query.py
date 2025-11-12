@@ -494,21 +494,35 @@ Examples:
                 # Format chunk with minimal essential metadata
                 doc_id = meta.get('document_id', 'N/A')
                 doc_type = meta.get('document_type', 'N/A')
-                created = meta.get('created_at', 'N/A')[:10] if meta.get('created_at') else 'N/A'  # Date only
+                created = meta.get('created_at', 'N/A')[:10] if meta.get('created_at') else 'N/A'
                 title = meta.get('title', '')
                 sender = meta.get('sender', '')
+                email_subject = meta.get('email_subject', '')
+                file_url = meta.get('file_url', '')
+                score = chunk.score if hasattr(chunk, 'score') and chunk.score else None
 
                 chunk_part = f"\n[Chunk {i}]\n"
-                chunk_part += f"Doc {doc_id} | {doc_type} | {created}\n"
+                chunk_part += f"Doc {doc_id} | {doc_type} | {created}"
+                if score:
+                    chunk_part += f" | Score: {score:.2f}"
+                chunk_part += "\n"
 
-                # Add title if available (truncate long ones)
+                # Add title (cleaned)
                 if title:
                     clean_title = title.replace('[Outlook Attachment] ', '').replace('[Outlook Embedded] ', '')
                     chunk_part += f"Title: {clean_title[:80]}\n"
 
-                # Add sender for emails only
+                # Add sender for emails
                 if sender and doc_type == 'email':
                     chunk_part += f"From: {sender}\n"
+
+                # Add email subject (for attachments, shows parent email context)
+                if email_subject and email_subject.strip():
+                    chunk_part += f"Email: \"{email_subject.strip()[:60]}\"\n"
+
+                # Add file link
+                if file_url:
+                    chunk_part += f"Link: {file_url}\n"
 
                 chunk_part += f"\n{chunk_text}\n"
                 enhanced_parts.append(chunk_part)
@@ -657,9 +671,15 @@ Examples:
                     created = meta.get('created_at', 'N/A')[:10] if meta.get('created_at') else 'N/A'
                     title = meta.get('title', '')
                     sender = meta.get('sender', '')
+                    email_subject = meta.get('email_subject', '')
+                    file_url = meta.get('file_url', '')
+                    score = chunk.score if hasattr(chunk, 'score') and chunk.score else None
 
                     chunk_part = f"\n[Chunk {i}]\n"
-                    chunk_part += f"Doc {doc_id} | {doc_type} | {created}\n"
+                    chunk_part += f"Doc {doc_id} | {doc_type} | {created}"
+                    if score:
+                        chunk_part += f" | Score: {score:.2f}"
+                    chunk_part += "\n"
 
                     if title:
                         clean_title = title.replace('[Outlook Attachment] ', '').replace('[Outlook Embedded] ', '')
@@ -667,6 +687,12 @@ Examples:
 
                     if sender and doc_type == 'email':
                         chunk_part += f"From: {sender}\n"
+
+                    if email_subject and email_subject.strip():
+                        chunk_part += f"Email: \"{email_subject.strip()[:60]}\"\n"
+
+                    if file_url:
+                        chunk_part += f"Link: {file_url}\n"
 
                     chunk_part += f"\n{chunk_text}\n"
                     enhanced_with_history += chunk_part
