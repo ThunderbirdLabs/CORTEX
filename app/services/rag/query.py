@@ -375,7 +375,45 @@ Examples:
                 )
             )
 
-            # Build SubQuestionQueryEngine with filtered tool
+            # Build SubQuestionQueryEngine with custom question generator (no dates in sub-questions)
+            from llama_index.question_gen.openai import OpenAIQuestionGenerator
+
+            # Custom prompt: Vector database search queries (360-degree coverage, no dates)
+            custom_subq_prompt = PromptTemplate(
+                "You are generating search queries for a vector database containing ALL company data: "
+                "emails, documents, purchase orders, reports, meeting notes, attachments, and communications.\n\n"
+                "Your goal: Get a complete 360-degree view by exploring the question from multiple angles. "
+                "Cast a wide net to find connections between emails, documents, and records that reveal the full story.\n\n"
+                "Generate diverse sub-questions exploring different dimensions:\n"
+                "- WHO: People involved, senders, recipients, owners, decision makers, responsible parties\n"
+                "- WHAT: Specific issues, topics, actions taken, decisions made, updates, status changes\n"
+                "- WHICH: Companies, customers, suppliers, purchase orders, part numbers, projects\n"
+                "- WHERE: Documents, emails, attachments, reports, spreadsheets containing the information\n"
+                "- WHY: Root causes, reasons, explanations, justifications mentioned\n"
+                "- HOW: Processes, methods, solutions, action plans described\n\n"
+                "Requirements:\n"
+                "- Generate at least 4-6 sub-questions\n"
+                "- Each sub-question explores a different angle (WHO vs WHAT vs WHICH vs WHERE)\n"
+                "- Sub-questions should uncover hidden connections across multiple data sources\n"
+                "- Focus on retrieving concrete information from actual documents/emails\n\n"
+                "CRITICAL - NEVER INCLUDE TIME/DATE REFERENCES:\n"
+                "Time filtering happens at the database level BEFORE search.\n"
+                "Do NOT include dates, times, periods, or temporal words in sub-questions.\n"
+                "User asks about a specific time? Remove the time reference from your sub-questions.\n\n"
+                "Output by calling SubQuestionList function.\n\n"
+                "## Tools\n"
+                "```json\n"
+                "{tools_str}\n"
+                "```\n\n"
+                "## User Question\n"
+                "{query_str}\n"
+            )
+
+            question_gen = OpenAIQuestionGenerator.from_defaults(
+                llm=self.llm,
+                prompt_template_str=custom_subq_prompt.template
+            )
+
             ceo_prompt = PromptTemplate(get_ceo_prompt_template())
             response_synth = get_response_synthesizer(
                 llm=self.llm,
@@ -385,6 +423,7 @@ Examples:
 
             filtered_subq_engine = SubQuestionQueryEngine.from_defaults(
                 query_engine_tools=[filtered_tool],
+                question_gen=question_gen,
                 llm=self.llm,
                 response_synthesizer=response_synth
             )
