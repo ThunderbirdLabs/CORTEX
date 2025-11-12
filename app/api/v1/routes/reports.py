@@ -45,7 +45,7 @@ async def generate_daily_report_endpoint(
 
         # Check existing
         if not request.force_regenerate:
-            existing = supabase.table("daily_reports")\
+            existing = master_supabase.table("daily_reports")\
                 .select("id")\
                 .eq("tenant_id", user_id)\
                 .eq("report_type", request.report_type)\
@@ -93,7 +93,7 @@ async def get_daily_report(
 ):
     """Fetch a daily report."""
     try:
-        result = supabase.table("daily_reports")\
+        result = master_supabase.table("daily_reports")\
             .select("*")\
             .eq("tenant_id", user_id)\
             .eq("report_type", report_type)\
@@ -119,7 +119,7 @@ async def get_latest_reports(
 ):
     """Get recent daily reports."""
     try:
-        result = supabase.table("daily_reports")\
+        result = master_supabase.table("daily_reports")\
             .select("*")\
             .eq("tenant_id", user_id)\
             .order("report_date", desc=True)\

@@ -52,7 +52,7 @@ async def generate_daily_report(
     # Step 1: Load previous day's memory (for context)
     logger.info(f"\n1️⃣ Loading previous memory...")
     previous_memory = await load_previous_report_memory(
-        supabase=supabase,
+        master_supabase=master_supabase,
         tenant_id=tenant_id,
         report_type=report_type,
         current_date=target_date + timedelta(days=1)  # Get memory from day before target
@@ -90,10 +90,11 @@ async def generate_daily_report(
         logger.info(f"   [{i}/{len(all_qs)}] {question}")
 
         try:
-            # Call query() with time override to ONLY search target_date
+            # Call query() with 3-day time window (recency boost prioritizes most recent)
+            three_days_ago = target_date - timedelta(days=2)
             result = await query_engine.query(
                 question,
-                time_override={'start': target_date, 'end': target_date}
+                time_override={'start': three_days_ago, 'end': target_date}
             )
 
             query_answers.append(QueryAnswer(
@@ -143,7 +144,7 @@ async def generate_daily_report(
     # Save report with memory (wrapped to handle Supabase cache errors)
     try:
         from app.services.reports.memory import save_report_memory
-        await save_report_memory(supabase, report, summary, key_items)
+        await save_report_memory(master_supabase, report, summary, key_items)
     except Exception as save_error:
         logger.warning(f"   ⚠️  Failed to save to database (likely Supabase schema cache): {save_error}")
         logger.warning(f"   Report generated successfully, but not persisted")

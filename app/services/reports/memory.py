@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 async def load_previous_report_memory(
-    supabase: Client,
+    master_supabase: Client,
     tenant_id: str,
     report_type: str,
     current_date: date
@@ -45,7 +45,7 @@ async def load_previous_report_memory(
     logger.info(f"📚 Loading memory from {previous_date} ({report_type})")
 
     try:
-        result = supabase.table("daily_reports")\
+        result = master_supabase.table("daily_reports")\
             .select("summary, key_items, report_date")\
             .eq("tenant_id", tenant_id)\
             .eq("report_type", report_type)\
@@ -72,7 +72,7 @@ async def load_previous_report_memory(
 
 
 async def save_report_memory(
-    supabase: Client,
+    master_supabase: Client,
     report: DailyReport,
     summary: str,
     key_items: Dict
@@ -97,7 +97,7 @@ async def save_report_memory(
         }
 
         # Upsert (handles if report already exists)
-        result = supabase.table("daily_reports")\
+        result = master_supabase.table("daily_reports")\
             .upsert(
                 db_record,
                 on_conflict="tenant_id,report_date,report_type"
