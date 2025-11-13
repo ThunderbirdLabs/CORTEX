@@ -46,48 +46,83 @@ async def nango_webhook(
 
     # Handle auth events
     if webhook_type == "auth" and payload.get("success"):
-        try:
-            logger.info(f"Full webhook payload: {payload}")
+        logger.info(f"[WEBHOOK_AUTH] ========== AUTH WEBHOOK RECEIVED ==========")
+        logger.info(f"[WEBHOOK_AUTH] Connection ID: {nango_connection_id}")
+        logger.info(f"[WEBHOOK_AUTH] Provider: {provider_key}")
+        logger.info(f"[WEBHOOK_AUTH] Full payload: {payload}")
 
+        try:
             # Extract user information from endUser
             end_user_id = None
             end_user_email = None
             company_id = None
 
+            logger.debug(f"[WEBHOOK_AUTH] Extracting endUser from payload...")
             end_user = payload.get('endUser') or payload.get('end_user')
+
             if end_user:
+                logger.debug(f"[WEBHOOK_AUTH] endUser found in payload: {end_user}")
                 end_user_id = end_user.get("endUserId") or end_user.get("id")
                 end_user_email = end_user.get("email")
                 company_id = end_user.get("organization_id") or end_user.get("organizationId")
 
+                logger.info(f"[WEBHOOK_AUTH] Extracted from payload:")
+                logger.info(f"[WEBHOOK_AUTH]   user_id: {end_user_id}")
+                logger.info(f"[WEBHOOK_AUTH]   user_email: {end_user_email}")
+                logger.info(f"[WEBHOOK_AUTH]   company_id: {company_id}")
+            else:
+                logger.warning(f"[WEBHOOK_AUTH] ⚠️  No endUser in payload, will fetch from Nango API")
+
             # Fallback: fetch from Nango API if not in payload
             if not end_user_id or not company_id:
+                logger.info(f"[WEBHOOK_AUTH] Missing data, fetching from Nango API...")
+                logger.debug(f"[WEBHOOK_AUTH]   Missing user_id: {not end_user_id}")
+                logger.debug(f"[WEBHOOK_AUTH]   Missing company_id: {not company_id}")
+
                 conn_url = f"https://api.nango.dev/connection/{nango_connection_id}?provider_config_key={provider_key}"
-                headers = {"Authorization": f"Bearer {settings.nango_secret}"}
+                logger.debug(f"[WEBHOOK_AUTH] Fetching: {conn_url}")
+
+                headers = {"Authorization": f"Bearer {settings.nango_secret[:10]}..."}
                 response = await http_client.get(conn_url, headers=headers)
+
+                logger.debug(f"[WEBHOOK_AUTH] Nango API response status: {response.status_code}")
                 response.raise_for_status()
+
                 conn_data = response.json()
+                logger.debug(f"[WEBHOOK_AUTH] Connection data keys: {list(conn_data.keys())}")
 
                 end_user_data = conn_data.get("end_user", {}) if isinstance(conn_data.get("end_user"), dict) else {}
+                logger.debug(f"[WEBHOOK_AUTH] end_user_data: {end_user_data}")
+
                 if not end_user_id:
                     end_user_id = end_user_data.get("id")
+                    logger.info(f"[WEBHOOK_AUTH] Fetched user_id from API: {end_user_id}")
                 if not end_user_email:
                     end_user_email = end_user_data.get("email")
+                    logger.info(f"[WEBHOOK_AUTH] Fetched user_email from API: {end_user_email}")
                 if not company_id:
                     company_id = end_user_data.get("organization_id") or end_user_data.get("organizationId")
+                    logger.info(f"[WEBHOOK_AUTH] Fetched company_id from API: {company_id}")
 
+            # Validation
             if not end_user_id:
-                logger.error(f"Failed to retrieve end_user.id for connection {nango_connection_id}")
+                logger.error(f"[WEBHOOK_AUTH] ❌ VALIDATION FAILED - No user_id")
+                logger.error(f"[WEBHOOK_AUTH]   connection_id: {nango_connection_id}")
+                logger.error(f"[WEBHOOK_AUTH]   provider: {provider_key}")
+                logger.error(f"[WEBHOOK_AUTH]   Payload had endUser: {bool(payload.get('endUser') or payload.get('end_user'))}")
                 return {"status": "error", "message": "Missing end_user information"}
 
             if not company_id:
-                logger.error(f"Failed to retrieve company_id for user {end_user_id}, connection {nango_connection_id}")
+                logger.error(f"[WEBHOOK_AUTH] ❌ VALIDATION FAILED - No company_id")
+                logger.error(f"[WEBHOOK_AUTH]   user_id: {end_user_id}")
+                logger.error(f"[WEBHOOK_AUTH]   connection_id: {nango_connection_id}")
+                logger.error(f"[WEBHOOK_AUTH]   provider: {provider_key}")
                 return {"status": "error", "message": "Missing company_id information"}
 
-            logger.info(f"OAuth successful for user {end_user_id} in company {company_id}, saving connection")
+            logger.info(f"[WEBHOOK_AUTH] ✅ Validation passed - user_id={end_user_id}, company_id={company_id}")
+            logger.info(f"[WEBHOOK_AUTH] Saving connection to database...")
 
             # Save connection with full user attribution
-            # tenant_id (company_id), provider_key, nango connection_id, user_id, user_email
             await save_connection(
                 tenant_id=company_id,
                 provider_key=provider_key,
@@ -96,11 +131,29 @@ async def nango_webhook(
                 user_email=end_user_email
             )
 
-            logger.info(f"Saved connection: Nango ID={nango_connection_id}, user={end_user_id}, company={company_id}, provider={provider_key}")
+            logger.info(f"[WEBHOOK_AUTH] ✅ SUCCESS - Connection saved!")
+            logger.info(f"[WEBHOOK_AUTH]   Nango connection_id: {nango_connection_id}")
+            logger.info(f"[WEBHOOK_AUTH]   user_id: {end_user_id}")
+            logger.info(f"[WEBHOOK_AUTH]   company_id: {company_id}")
+            logger.info(f"[WEBHOOK_AUTH]   provider: {provider_key}")
+            logger.info(f"[WEBHOOK_AUTH] ========================================")
+
             return {"status": "connection_saved", "user": end_user_id, "company": company_id}
 
+        except httpx.HTTPStatusError as e:
+            logger.error(f"[WEBHOOK_AUTH] ❌ HTTP ERROR fetching from Nango")
+            logger.error(f"[WEBHOOK_AUTH]   Status: {e.response.status_code}")
+            logger.error(f"[WEBHOOK_AUTH]   Response: {e.response.text}")
+            logger.exception("[WEBHOOK_AUTH] Full traceback:")
+            return {"status": "error", "message": f"Nango API error: {e.response.status_code}"}
+
         except Exception as e:
-            logger.error(f"Error handling auth webhook: {e}", exc_info=True)
+            logger.error(f"[WEBHOOK_AUTH] ❌ UNEXPECTED ERROR handling auth webhook")
+            logger.error(f"[WEBHOOK_AUTH]   Error type: {type(e).__name__}")
+            logger.error(f"[WEBHOOK_AUTH]   Error message: {str(e)}")
+            logger.error(f"[WEBHOOK_AUTH]   connection_id: {nango_connection_id}")
+            logger.error(f"[WEBHOOK_AUTH]   provider: {provider_key}")
+            logger.exception("[WEBHOOK_AUTH] Full traceback:")
             return {"status": "error", "message": str(e)}
 
     # Handle sync events - get tenant_id

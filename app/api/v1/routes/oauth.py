@@ -44,9 +44,23 @@ async def connect_start(
     SECURITY: Uses get_current_user_context to get BOTH user_id and company_id.
     user_id is passed to Nango as endUserId for per-user connection tracking.
     """
-    user_id = user_context["user_id"]
-    company_id = user_context["company_id"]
-    logger.info(f"OAuth start requested for provider {provider}, user {user_id}, company {company_id}")
+    logger.info(f"[OAUTH_START] ========== STARTING OAUTH FLOW ==========")
+    logger.info(f"[OAUTH_START] Provider: {provider}")
+    logger.info(f"[OAUTH_START] User context received: {user_context}")
+
+    try:
+        user_id = user_context["user_id"]
+        company_id = user_context["company_id"]
+        logger.info(f"[OAUTH_START] ✅ Extracted user_id: {user_id}")
+        logger.info(f"[OAUTH_START] ✅ Extracted company_id: {company_id}")
+    except KeyError as e:
+        logger.error(f"[OAUTH_START] ❌ ERROR - Missing key in user_context: {e}")
+        logger.error(f"[OAUTH_START] user_context keys: {list(user_context.keys())}")
+        raise HTTPException(status_code=500, detail=f"Invalid user context: missing {e}")
+    except Exception as e:
+        logger.error(f"[OAUTH_START] ❌ ERROR - Failed to extract user context: {e}")
+        logger.exception("[OAUTH_START] Full traceback:")
+        raise
 
     # Map provider to integration ID
     integration_id = None
@@ -78,20 +92,25 @@ async def connect_start(
     # Generate connect session token
     # CRITICAL: Use actual user_id (not company_id) as Nango endUserId
     # This enables per-user OAuth connections and proper attribution
+    logger.info(f"[OAUTH_START] Generating Nango connect session...")
     try:
         # Get user email from JWT if available
         from app.core.config_master import MasterConfig
         master_config = MasterConfig()
-        user_email = f"{user_id}@{company_id[:8]}.internal"  # Placeholder, will be overwritten by actual email
+        user_email = f"{user_id}@{company_id[:8]}.internal"  # Placeholder
+        logger.debug(f"[OAUTH_START] Default user_email: {user_email}")
 
         # If we're in multi-tenant mode, try to get real email
         if master_config.is_multi_tenant:
+            logger.debug(f"[OAUTH_START] Multi-tenant mode detected, fetching real email...")
             try:
                 from supabase import create_client
                 master_supabase = create_client(
                     master_config.master_supabase_url,
                     master_config.master_supabase_service_key
                 )
+                logger.debug(f"[OAUTH_START] Querying company_users table for user_id={user_id}, company_id={company_id}")
+
                 company_user = master_supabase.table("company_users")\
                     .select("email")\
                     .eq("user_id", user_id)\
@@ -101,34 +120,69 @@ async def connect_start(
 
                 if company_user.data:
                     user_email = company_user.data["email"]
-            except Exception as e:
-                logger.warning(f"Could not fetch user email: {e}")
+                    logger.info(f"[OAUTH_START] ✅ Retrieved real email: {user_email}")
+                else:
+                    logger.warning(f"[OAUTH_START] ⚠️  No email found in company_users, using placeholder")
 
+            except Exception as e:
+                logger.error(f"[OAUTH_START] ❌ Could not fetch user email from Master Supabase: {e}")
+                logger.exception("[OAUTH_START] Email fetch error traceback:")
+
+        # Prepare Nango endUser payload
+        nango_payload = {
+            "end_user": {
+                "id": user_id,          # Actual user ID (not company!)
+                "email": user_email,     # User's real email
+                "display_name": user_email.split("@")[0],
+                "organization_id": company_id,  # Company in metadata
+                "organization_display_name": f"Company {company_id[:8]}"
+            },
+            "allowed_integrations": [integration_id]
+        }
+        logger.info(f"[OAUTH_START] Nango payload prepared:")
+        logger.info(f"[OAUTH_START]   endUser.id: {user_id}")
+        logger.info(f"[OAUTH_START]   endUser.email: {user_email}")
+        logger.info(f"[OAUTH_START]   endUser.organization_id: {company_id}")
+        logger.info(f"[OAUTH_START]   allowed_integrations: {[integration_id]}")
+
+        logger.debug(f"[OAUTH_START] Calling Nango API: POST https://api.nango.dev/connect/sessions")
         session_response = await http_client.post(
             "https://api.nango.dev/connect/sessions",
-            headers={"Authorization": f"Bearer {settings.nango_secret}"},
-            json={
-                "end_user": {
-                    "id": user_id,          # Actual user ID (not company!)
-                    "email": user_email,     # User's real email
-                    "display_name": user_email.split("@")[0],
-                    "organization_id": company_id,  # Company in metadata
-                    "organization_display_name": f"Company {company_id[:8]}"
-                },
-                "allowed_integrations": [integration_id]
-            }
+            headers={"Authorization": f"Bearer {settings.nango_secret[:10]}..."},
+            json=nango_payload
         )
-        session_response.raise_for_status()
-        session_data = session_response.json()
-        session_token = session_data["data"]["token"]
 
-        logger.info(f"Generated connect session token for user {user_id} in company {company_id}")
+        logger.debug(f"[OAUTH_START] Nango API response status: {session_response.status_code}")
+        session_response.raise_for_status()
+
+        session_data = session_response.json()
+        logger.debug(f"[OAUTH_START] Session data keys: {list(session_data.keys())}")
+
+        session_token = session_data["data"]["token"]
+        logger.info(f"[OAUTH_START] ✅ Generated connect session token: {session_token[:20]}...")
+        logger.info(f"[OAUTH_START] SUCCESS - Session created for user {user_id} in company {company_id}")
+
     except httpx.HTTPStatusError as e:
-        logger.error(f"Failed to create Nango session: {e.response.status_code} - {e.response.text}")
-        raise HTTPException(status_code=500, detail="Failed to create OAuth session")
+        logger.error(f"[OAUTH_START] ❌ HTTP ERROR creating Nango session")
+        logger.error(f"[OAUTH_START]   Status code: {e.response.status_code}")
+        logger.error(f"[OAUTH_START]   Response text: {e.response.text}")
+        logger.error(f"[OAUTH_START]   Request URL: {e.request.url}")
+        logger.exception("[OAUTH_START] Full traceback:")
+        raise HTTPException(status_code=500, detail=f"Failed to create OAuth session: {e.response.status_code}")
+
+    except KeyError as e:
+        logger.error(f"[OAUTH_START] ❌ KeyError parsing Nango response: {e}")
+        logger.error(f"[OAUTH_START]   Expected key: {e}")
+        logger.error(f"[OAUTH_START]   Session data: {session_data if 'session_data' in locals() else 'Not available'}")
+        logger.exception("[OAUTH_START] Full traceback:")
+        raise HTTPException(status_code=500, detail=f"Invalid Nango response: missing {e}")
+
     except Exception as e:
-        logger.error(f"Error creating Nango session: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"[OAUTH_START] ❌ UNEXPECTED ERROR creating Nango session")
+        logger.error(f"[OAUTH_START]   Error type: {type(e).__name__}")
+        logger.error(f"[OAUTH_START]   Error message: {str(e)}")
+        logger.exception("[OAUTH_START] Full traceback:")
+        raise HTTPException(status_code=500, detail=f"Error creating OAuth session: {str(e)}")
 
     redirect_uri = "https://connectorfrontend.vercel.app"
     oauth_url = f"https://api.nango.dev/oauth/connect/{integration_id}?connect_session_token={session_token}&user_scope=&callback_url={redirect_uri}"

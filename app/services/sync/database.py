@@ -49,9 +49,16 @@ async def save_connection(
     SECURITY: user_id enables per-user connections and proper attribution.
     Multiple users in same company can each have their own OAuth connections.
     """
-    conn = get_db_connection()
+    logger.info(f"[SAVE_CONNECTION] Starting - tenant_id={tenant_id}, provider={provider_key}, connection_id={connection_id}, user_id={user_id}, user_email={user_email}")
+
+    conn = None
     try:
+        logger.debug(f"[SAVE_CONNECTION] Getting database connection...")
+        conn = get_db_connection()
+        logger.debug(f"[SAVE_CONNECTION] Database connection established")
+
         with conn.cursor() as cur:
+            logger.debug(f"[SAVE_CONNECTION] Executing INSERT/UPDATE query...")
             cur.execute(
                 """
                 INSERT INTO connections (tenant_id, provider_key, connection_id, user_id, user_email, connected_at)
@@ -63,10 +70,37 @@ async def save_connection(
                 """,
                 (tenant_id, provider_key, connection_id, user_id, user_email)
             )
+            logger.debug(f"[SAVE_CONNECTION] Query executed successfully")
+
+        logger.debug(f"[SAVE_CONNECTION] Committing transaction...")
         conn.commit()
-        logger.info(f"Saved connection for tenant {tenant_id}, user {user_id}, provider {provider_key}")
+        logger.info(f"✅ [SAVE_CONNECTION] SUCCESS - Saved connection for tenant {tenant_id}, user {user_id}, provider {provider_key}")
+
+    except Exception as e:
+        logger.error(f"❌ [SAVE_CONNECTION] ERROR - Failed to save connection")
+        logger.error(f"   tenant_id: {tenant_id}")
+        logger.error(f"   provider_key: {provider_key}")
+        logger.error(f"   connection_id: {connection_id}")
+        logger.error(f"   user_id: {user_id}")
+        logger.error(f"   user_email: {user_email}")
+        logger.error(f"   Error type: {type(e).__name__}")
+        logger.error(f"   Error message: {str(e)}")
+        logger.exception(f"   Full traceback:")
+        if conn:
+            try:
+                conn.rollback()
+                logger.debug(f"[SAVE_CONNECTION] Transaction rolled back")
+            except Exception as rollback_error:
+                logger.error(f"[SAVE_CONNECTION] Failed to rollback: {rollback_error}")
+        raise
+
     finally:
-        conn.close()
+        if conn:
+            try:
+                conn.close()
+                logger.debug(f"[SAVE_CONNECTION] Database connection closed")
+            except Exception as close_error:
+                logger.error(f"[SAVE_CONNECTION] Error closing connection: {close_error}")
 
 
 async def get_connection(
