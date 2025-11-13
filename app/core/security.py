@@ -33,23 +33,24 @@ async def get_current_user_id(
     supabase: Client = Depends(get_supabase)
 ) -> str:
     """
-    Validate JWT and extract user UUID.
+    Validate JWT and return tenant_id for data filtering.
 
-    CENTRALIZED AUTH MODE:
-    - Validates against Master Supabase (all users in one auth system)
-    - Verifies user has access to this company
-    - Returns user_id from Master Supabase auth.users
+    CENTRALIZED AUTH MODE (Multi-tenant):
+    - Validates JWT against Master Supabase (centralized auth)
+    - Verifies user has access to this company via company_users table
+    - Returns company_id (tenant_id) for data isolation
+    - Multiple users from same company share same tenant_id
 
-    SINGLE-TENANT MODE (backward compatible):
-    - Validates against company Supabase (old behavior)
-    - Returns user_id from company Supabase auth.users
+    SINGLE-TENANT MODE (Legacy, backward compatible):
+    - Validates JWT against company Supabase (old behavior)
+    - Returns user_id as tenant_id (1:1 mapping)
 
     Args:
         credentials: HTTP Bearer token from Authorization header
         supabase: Supabase client (company Supabase, for backward compatibility)
 
     Returns:
-        User's UUID from Supabase auth (used as tenant_id)
+        tenant_id (company_id in multi-tenant mode, user_id in single-tenant mode)
 
     Raises:
         HTTPException: If token is invalid or user not found
@@ -140,8 +141,12 @@ async def get_current_user_id(
             except Exception as e:
                 logger.warning(f"Failed to update last_login_at: {e}")
 
-            logger.debug(f"Authenticated user: {user_id[:8]}... (role: {company_user.data['role']})")
-            return user_id
+            logger.debug(f"Authenticated user: {user_id[:8]}... (role: {company_user.data['role']}) for company: {master_config.company_id[:8]}...")
+
+            # IMPORTANT: Return company_id (not user_id) for tenant filtering
+            # In multi-tenant mode, tenant_id represents the company, not individual users
+            # This allows multiple users from the same company to access shared data
+            return master_config.company_id
 
         else:
             # SINGLE-TENANT MODE (backward compatible)
