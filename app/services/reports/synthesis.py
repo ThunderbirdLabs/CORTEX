@@ -27,6 +27,7 @@ async def synthesize_report(
     report_date: date,
     tenant_id: str,
     query_answers: List[QueryAnswer],
+    source_nodes: List[Any],  # Sub-answers + raw chunks from all queries
     previous_memory: Optional[ReportMemory],
     llm
 ) -> DailyReport:
@@ -83,12 +84,45 @@ KEY ITEMS TO FOLLOW UP ON:
         for qa in query_answers
     ])
 
+    # Format source nodes (sub-answers + chunks with clean headers)
+    source_nodes_str = ""
+    if source_nodes:
+        # Separate sub-answers from chunks
+        sub_answers = [n for n in source_nodes if 'Sub question:' in str(n.text if hasattr(n, 'text') else '')]
+        raw_chunks = [n for n in source_nodes if 'Sub question:' not in str(n.text if hasattr(n, 'text') else '')]
+
+        source_nodes_str = f"\n\n--- SOURCE DATA ({len(sub_answers)} sub-answers, {len(raw_chunks)} chunks) ---\n\n"
+
+        # Add sub-answers
+        for i, node in enumerate(sub_answers, 1):
+            text = str(node.text if hasattr(node, 'text') else node)
+            source_nodes_str += f"[Sub-Answer {i}]\n{text}\n\n"
+
+        # Add raw chunks with clean formatting
+        source_nodes_str += "\n--- RAW SOURCE CHUNKS ---\n\n"
+        for i, chunk in enumerate(raw_chunks, 1):
+            meta = chunk.metadata if hasattr(chunk, 'metadata') else {}
+            chunk_text = chunk.text if hasattr(chunk, 'text') else str(chunk)
+
+            # Clean formatting like query.py
+            doc_id = meta.get('document_id', 'N/A')
+            doc_type = meta.get('document_type', 'N/A')
+            created = meta.get('created_at', 'N/A')[:10] if meta.get('created_at') else 'N/A'
+            title = meta.get('title', '')
+
+            source_nodes_str += f"[Chunk {i}]\n"
+            source_nodes_str += f"Doc {doc_id} | {doc_type} | {created}\n"
+            if title:
+                clean_title = title.replace('[Outlook Attachment] ', '').replace('[Outlook Embedded] ', '')
+                source_nodes_str += f"Title: {clean_title[:80]}\n"
+            source_nodes_str += f"\n{chunk_text}\n\n"
+
     # Build synthesis prompt
     synthesis_prompt = prompt_template.format(
         company_name="Unit Industries Group",  # TODO: Load from company context
         report_date=str(report_date),
         previous_context=previous_context if previous_context else "No previous context (first report)",
-        query_answers=query_answers_str,
+        query_answers=query_answers_str + source_nodes_str,  # Append source data
         sections_config=json.dumps([s for s in sections_config], indent=2)
     )
 

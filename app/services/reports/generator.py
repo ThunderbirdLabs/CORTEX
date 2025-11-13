@@ -55,7 +55,7 @@ async def generate_daily_report(
         master_supabase=master_supabase,
         tenant_id=tenant_id,
         report_type=report_type,
-        current_date=target_date + timedelta(days=1)  # Get memory from day before target
+        current_date=target_date  # Function calculates previous business day from this
     )
 
     if previous_memory:
@@ -85,6 +85,7 @@ async def generate_daily_report(
     logger.info(f"\n3️⃣ Running {len(all_qs)} RAG queries...")
 
     query_answers: List[QueryAnswer] = []
+    all_source_nodes = []  # Collect ALL source nodes from all queries
 
     for i, question in enumerate(all_qs, 1):
         logger.info(f"   [{i}/{len(all_qs)}] {question}")
@@ -97,18 +98,43 @@ async def generate_daily_report(
                 time_override={'start': three_days_ago, 'end': target_date}
             )
 
+            # Capture source nodes (sub-answers + chunks)
+            source_nodes = result.get('source_nodes', [])
+            all_source_nodes.extend(source_nodes)
+
             query_answers.append(QueryAnswer(
                 question=question,
                 answer=result.get('answer', ''),
-                sources=[],  # TODO: Convert source_nodes to SourceDocument models
+                sources=[],  # Individual question sources tracked in all_source_nodes
                 metadata=result.get('metadata', {})
             ))
 
-            logger.info(f"      ✅ Got answer ({len(result.get('answer', ''))} chars)")
+            logger.info(f"      ✅ Got answer ({len(result.get('answer', ''))} chars, {len(source_nodes)} nodes)")
 
         except Exception as e:
             logger.error(f"      ❌ Query failed: {e}")
             # Continue with other questions
+
+    logger.info(f"   Total source nodes collected: {len(all_source_nodes)}")
+
+    # Filter and balance source nodes (top N per sub-question for diversity)
+    logger.info(f"\n   Filtering source nodes for balanced context...")
+
+    # Separate sub-answers from raw chunks
+    sub_answers = [n for n in all_source_nodes if 'Sub question:' in str(n.text if hasattr(n, 'text') else '')]
+    raw_chunks = [n for n in all_source_nodes if 'Sub question:' not in str(n.text if hasattr(n, 'text') else '')]
+
+    logger.info(f"   {len(sub_answers)} sub-answers, {len(raw_chunks)} raw chunks")
+
+    # Keep all sub-answers (they're already synthesized, small)
+    # For raw chunks: Keep top 5 per question for balance (7 questions × 5 = 35 chunks)
+    # This ensures each question contributes equally
+    chunks_per_question = 5
+    balanced_chunks = raw_chunks[:len(all_qs) * chunks_per_question] if len(raw_chunks) > 0 else []
+
+    logger.info(f"   Keeping: {len(sub_answers)} sub-answers + top {len(balanced_chunks)} chunks")
+
+    filtered_source_nodes = sub_answers + balanced_chunks
 
     # Step 4: Synthesize into final report
     logger.info(f"\n4️⃣ Synthesizing final report...")
@@ -121,6 +147,7 @@ async def generate_daily_report(
         report_date=target_date,
         tenant_id=tenant_id,
         query_answers=query_answers,
+        source_nodes=filtered_source_nodes,  # Pass filtered nodes
         previous_memory=previous_memory,
         llm=query_engine.llm
     )
