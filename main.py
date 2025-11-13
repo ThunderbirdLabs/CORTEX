@@ -52,6 +52,7 @@ try:
     from app.api.v1.routes.integrations import router as integrations_router
     from app.api.v1.routes.alerts import router as alerts_router
     from app.api.v1.routes.reports import router as reports_router
+    from app.api.v1.routes.users import router as users_router
 except Exception as e:
     print(f"🚨 FATAL STARTUP ERROR: {e}", file=sys.stderr)
     print(f"Traceback:\n{traceback.format_exc()}", file=sys.stderr)
@@ -211,6 +212,7 @@ app.include_router(intelligence_router, prefix="/api/v1")  # Organizational inte
 app.include_router(insights_router, prefix="/api/v1/insights", tags=["insights"])  # RAG-powered intelligence insights API
 app.include_router(alerts_router, prefix="/api/v1/alerts", tags=["alerts"])  # Real-time alerts API
 app.include_router(reports_router, prefix="/api/v1/reports", tags=["reports"])  # Saved reports API
+app.include_router(users_router)  # User management and invitations API
 
 # ============================================================================
 # SENTRY DEBUG ENDPOINT (DEV/STAGING ONLY)
