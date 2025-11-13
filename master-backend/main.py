@@ -106,6 +106,29 @@ class DeploymentCreate(BaseModel):
     nango_secret_key: Optional[str] = None
     admin_pin_hash: str
 
+class DeploymentUpdate(BaseModel):
+    """Update deployment credentials (all fields optional)."""
+    supabase_project_ref: Optional[str] = None
+    supabase_url: Optional[str] = None
+    supabase_anon_key: Optional[str] = None
+    supabase_service_key: Optional[str] = None
+    neo4j_uri: Optional[str] = None
+    neo4j_user: Optional[str] = None
+    neo4j_password: Optional[str] = None
+    qdrant_url: Optional[str] = None
+    qdrant_api_key: Optional[str] = None
+    qdrant_collection_name: Optional[str] = None
+    redis_url: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    nango_secret_key: Optional[str] = None
+    nango_public_key: Optional[str] = None
+    nango_provider_key_gmail: Optional[str] = None
+    nango_provider_key_outlook: Optional[str] = None
+    nango_provider_key_google_drive: Optional[str] = None
+    nango_provider_key_quickbooks: Optional[str] = None
+    admin_pin_hash: Optional[str] = None
+    sentry_dsn: Optional[str] = None
+
 class TeamMemberCreate(BaseModel):
     company_id: str
     name: str
@@ -253,23 +276,48 @@ async def get_company(company_id: str, admin = Depends(get_current_admin)):
 
 @app.post("/companies")
 async def create_company(company: CompanyCreate, admin = Depends(get_current_admin)):
-    """Create new company."""
+    """Create new company with auto-generated deployment placeholder."""
 
+    # Create company
     result = supabase.table("companies").insert({
         **company.model_dump(),
         "status": "provisioning",
         "created_at": datetime.utcnow().isoformat(),
     }).execute()
 
+    company_id = result.data[0]["id"]
+    company_data = result.data[0]
+
+    # Generate collection name from subdomain or slug
+    company_slug = company_data.get("subdomain") or company.slug
+    collection_name = f"company_{company_slug.lower().replace('-', '_')}"
+
+    # Auto-create deployment placeholder with smart defaults
+    # All credential fields NULL (migration 009 allows this)
+    # Admin will fill in later via PATCH /deployments/{company_id}
+    deployment_result = supabase.table("company_deployments").insert({
+        "company_id": company_id,
+        "neo4j_user": "neo4j",  # Standard default
+        "qdrant_collection_name": collection_name,  # Auto-generated
+        # All other fields NULL by default (nullable per migration 009)
+    }).execute()
+
     # Log audit event
     supabase.table("audit_log_global").insert({
         "admin_id": admin["id"],
-        "company_id": result.data[0]["id"],
+        "company_id": company_id,
         "action": "company_created",
-        "details": {"company_slug": company.slug},
+        "details": {
+            "company_slug": company.slug,
+            "deployment_id": deployment_result.data[0]["id"],
+            "collection_name": collection_name
+        },
     }).execute()
 
-    return result.data[0]
+    return {
+        "company": company_data,
+        "deployment": deployment_result.data[0]
+    }
 
 @app.patch("/companies/{company_id}")
 async def update_company(
@@ -429,6 +477,57 @@ async def create_deployment(deployment: DeploymentCreate, admin = Depends(get_cu
         "admin_id": admin["id"],
         "company_id": deployment.company_id,
         "action": "deployment_created",
+    }).execute()
+
+    return result.data[0]
+
+@app.patch("/deployments/{company_id}")
+async def update_deployment(
+    company_id: str,
+    updates: DeploymentUpdate,
+    admin = Depends(get_current_admin)
+):
+    """Update deployment credentials after provisioning infrastructure."""
+
+    # Check permission
+    if not admin.get("can_edit_deployments"):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    # Filter out None values (only update provided fields)
+    update_data = {k: v for k, v in updates.model_dump().items() if v is not None}
+    update_data["updated_at"] = datetime.utcnow().isoformat()
+
+    # Update deployment
+    result = supabase.table("company_deployments")\
+        .update(update_data)\
+        .eq("company_id", company_id)\
+        .execute()
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+
+    deployment = result.data[0]
+
+    # Check if all required fields are now present
+    required_fields = ["supabase_url", "supabase_anon_key", "supabase_service_key"]
+    all_required_present = all(deployment.get(f) for f in required_fields)
+
+    # If all required credentials present, update company status to "active"
+    if all_required_present:
+        supabase.table("companies")\
+            .update({"status": "active", "updated_at": datetime.utcnow().isoformat()})\
+            .eq("id", company_id)\
+            .execute()
+
+    # Log audit event
+    supabase.table("audit_log_global").insert({
+        "admin_id": admin["id"],
+        "company_id": company_id,
+        "action": "deployment_updated",
+        "details": {
+            "updated_fields": list(update_data.keys()),
+            "status_changed_to_active": all_required_present
+        },
     }).execute()
 
     return result.data[0]

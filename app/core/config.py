@@ -150,14 +150,17 @@ class Settings(BaseSettings):
             result = master_client.table("company_deployments")\
                 .select("*")\
                 .eq("company_id", self.company_id)\
-                .single()\
+                .maybe_single()\
                 .execute()
 
             if not result.data:
-                raise ValueError(f"No deployment found for company_id: {self.company_id}")
+                logger.warning(f"⚠️  No deployment found for company_id: {self.company_id}")
+                logger.warning("⚠️  This is expected for new companies. Using environment variables only.")
+                # Don't raise error - allow new companies with placeholder deployments
+                return self
 
             deployment = result.data
-            logger.info("✅ Successfully loaded credentials from master Supabase")
+            logger.info("✅ Successfully loaded deployment credentials from master Supabase")
 
             # Load credentials with fallback to env vars
             # Priority: ENV VAR > MASTER SUPABASE > None
@@ -207,8 +210,22 @@ class Settings(BaseSettings):
             self.nango_provider_key_google_drive = load_with_fallback("nango_provider_key_google_drive", "nango_provider_key_google_drive", self.nango_provider_key_google_drive)
             self.nango_provider_key_quickbooks = load_with_fallback("nango_provider_key_quickbooks", "nango_provider_key_quickbooks", self.nango_provider_key_quickbooks)
 
+            # Validate critical Supabase credentials are present
+            # These are REQUIRED for backend to function
+            if not self.supabase_url or not self.supabase_anon_key:
+                logger.error("❌ CRITICAL: Company Supabase credentials not configured!")
+                logger.error("   Required: supabase_url and supabase_anon_key")
+                logger.error("   Company may still be provisioning. Please configure via master dashboard.")
+                raise ValueError(
+                    f"Company Supabase not configured for company_id: {self.company_id}. "
+                    "Please update deployment credentials via master dashboard."
+                )
+
             logger.info("🎉 Multi-tenant configuration complete!")
 
+        except ValueError:
+            # Re-raise validation errors
+            raise
         except Exception as e:
             logger.error(f"❌ Failed to load from master Supabase: {e}")
             logger.warning("⚠️  Falling back to environment variables (if available)")
