@@ -127,9 +127,9 @@ async def generate_daily_report(
     logger.info(f"   {len(sub_answers)} sub-answers, {len(raw_chunks)} raw chunks")
 
     # Keep all sub-answers (they're already synthesized, small)
-    # For raw chunks: Keep top 5 per question for balance (7 questions × 5 = 35 chunks)
-    # This ensures each question contributes equally
-    chunks_per_question = 5
+    # For raw chunks: Keep top 15 per question for depth (7 questions × 15 = 105 chunks)
+    # More chunks = more evidence, quotes, cross-analysis capability
+    chunks_per_question = 15
     balanced_chunks = raw_chunks[:len(all_qs) * chunks_per_question] if len(raw_chunks) > 0 else []
 
     logger.info(f"   Keeping: {len(sub_answers)} sub-answers + top {len(balanced_chunks)} chunks")
