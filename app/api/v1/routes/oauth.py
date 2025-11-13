@@ -11,7 +11,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.core.config import settings
-from app.core.security import get_current_user_id
+from app.core.security import get_current_user_id, get_current_user_context
 from app.core.dependencies import get_http_client
 from app.models.schemas import NangoOAuthCallback
 from app.services.nango import save_connection, get_connection
@@ -27,12 +27,12 @@ router = APIRouter(prefix="", tags=["oauth"])
 async def connect_start(
     request: Request,  # Required for rate limiting
     provider: str = Query(..., description="Provider name (microsoft | gmail | google-drive | quickbooks)"),
-    user_id: str = Depends(get_current_user_id),
+    user_context: dict = Depends(get_current_user_context),
     http_client: httpx.AsyncClient = Depends(get_http_client)
 ):
     """
     Initiate OAuth flow by generating Nango OAuth URL.
-    
+
     Flow:
     1. User clicks "Connect Gmail" or "Connect Outlook"
     2. Frontend calls this endpoint
@@ -40,8 +40,13 @@ async def connect_start(
     4. Frontend redirects user to Nango OAuth URL
     5. User completes OAuth
     6. Nango webhook fires (handled by /nango/webhook)
+
+    SECURITY: Uses get_current_user_context to get BOTH user_id and company_id.
+    user_id is passed to Nango as endUserId for per-user connection tracking.
     """
-    logger.info(f"OAuth start requested for provider {provider}, user {user_id}")
+    user_id = user_context["user_id"]
+    company_id = user_context["company_id"]
+    logger.info(f"OAuth start requested for provider {provider}, user {user_id}, company {company_id}")
 
     # Map provider to integration ID
     integration_id = None
@@ -71,15 +76,44 @@ async def connect_start(
         raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
 
     # Generate connect session token
+    # CRITICAL: Use actual user_id (not company_id) as Nango endUserId
+    # This enables per-user OAuth connections and proper attribution
     try:
+        # Get user email from JWT if available
+        from app.core.config_master import MasterConfig
+        master_config = MasterConfig()
+        user_email = f"{user_id}@{company_id[:8]}.internal"  # Placeholder, will be overwritten by actual email
+
+        # If we're in multi-tenant mode, try to get real email
+        if master_config.is_multi_tenant:
+            try:
+                from supabase import create_client
+                master_supabase = create_client(
+                    master_config.master_supabase_url,
+                    master_config.master_supabase_service_key
+                )
+                company_user = master_supabase.table("company_users")\
+                    .select("email")\
+                    .eq("user_id", user_id)\
+                    .eq("company_id", company_id)\
+                    .maybe_single()\
+                    .execute()
+
+                if company_user.data:
+                    user_email = company_user.data["email"]
+            except Exception as e:
+                logger.warning(f"Could not fetch user email: {e}")
+
         session_response = await http_client.post(
             "https://api.nango.dev/connect/sessions",
             headers={"Authorization": f"Bearer {settings.nango_secret}"},
             json={
                 "end_user": {
-                    "id": user_id,
-                    "email": f"{user_id}@app.internal",
-                    "display_name": user_id[:8]
+                    "id": user_id,          # Actual user ID (not company!)
+                    "email": user_email,     # User's real email
+                    "display_name": user_email.split("@")[0],
+                    "organization_id": company_id,  # Company in metadata
+                    "organization_display_name": f"Company {company_id[:8]}"
                 },
                 "allowed_integrations": [integration_id]
             }
@@ -88,7 +122,7 @@ async def connect_start(
         session_data = session_response.json()
         session_token = session_data["data"]["token"]
 
-        logger.info(f"Generated connect session token for user {user_id}")
+        logger.info(f"Generated connect session token for user {user_id} in company {company_id}")
     except httpx.HTTPStatusError as e:
         logger.error(f"Failed to create Nango session: {e.response.status_code} - {e.response.text}")
         raise HTTPException(status_code=500, detail="Failed to create OAuth session")
@@ -102,7 +136,9 @@ async def connect_start(
     return {
         "auth_url": oauth_url,
         "provider": provider,
-        "tenant_id": user_id
+        "tenant_id": company_id,  # For backward compat
+        "user_id": user_id,       # NEW: return user_id
+        "company_id": company_id  # NEW: return company_id explicitly
     }
 
 

@@ -29,28 +29,65 @@ def get_db_connection():
 # CONNECTION MANAGEMENT
 # ============================================================================
 
-async def save_connection(tenant_id: str, provider_key: str, connection_id: str):
-    """Save or update connection in database."""
+async def save_connection(
+    tenant_id: str,
+    provider_key: str,
+    connection_id: str,
+    user_id: Optional[str] = None,
+    user_email: Optional[str] = None
+):
+    """
+    Save or update connection in database.
+
+    Args:
+        tenant_id: Company ID (for multi-tenant isolation)
+        provider_key: Provider name (gmail, outlook, etc.)
+        connection_id: Nango connection ID
+        user_id: User ID from Master Supabase (who created this connection)
+        user_email: User email (for display/logging)
+
+    SECURITY: user_id enables per-user connections and proper attribution.
+    Multiple users in same company can each have their own OAuth connections.
+    """
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO connections (tenant_id, provider_key, connection_id)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (tenant_id, provider_key)
-                DO UPDATE SET connection_id = EXCLUDED.connection_id
+                INSERT INTO connections (tenant_id, provider_key, connection_id, user_id, user_email, connected_at)
+                VALUES (%s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (tenant_id, provider_key, user_id)
+                DO UPDATE SET
+                    connection_id = EXCLUDED.connection_id,
+                    updated_at = NOW()
                 """,
-                (tenant_id, provider_key, connection_id)
+                (tenant_id, provider_key, connection_id, user_id, user_email)
             )
         conn.commit()
-        logger.info(f"Saved connection for tenant {tenant_id}")
+        logger.info(f"Saved connection for tenant {tenant_id}, user {user_id}, provider {provider_key}")
     finally:
         conn.close()
 
 
-async def get_connection(tenant_id: str, provider_key: str) -> Optional[str]:
-    """Get connection_id for a tenant using Supabase client (avoids connection thrashing)."""
+async def get_connection(
+    tenant_id: str,
+    provider_key: str,
+    user_id: Optional[str] = None
+) -> Optional[str]:
+    """
+    Get connection_id for a tenant/user using Supabase client.
+
+    Args:
+        tenant_id: Company ID
+        provider_key: Provider name (gmail, outlook, etc.)
+        user_id: Optional user ID for per-user connections. If not provided, returns first connection found.
+
+    Returns:
+        Nango connection_id if found, None otherwise
+
+    Note: After migration to user-tracked connections, user_id should be required.
+    Currently optional for backward compatibility during transition.
+    """
     from app.core.dependencies import supabase_client
 
     if not supabase_client:
@@ -58,16 +95,28 @@ async def get_connection(tenant_id: str, provider_key: str) -> Optional[str]:
         conn = get_db_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT connection_id FROM connections WHERE tenant_id = %s AND provider_key = %s",
-                    (tenant_id, provider_key)
-                )
+                if user_id:
+                    cur.execute(
+                        "SELECT connection_id FROM connections WHERE tenant_id = %s AND provider_key = %s AND user_id = %s",
+                        (tenant_id, provider_key, user_id)
+                    )
+                else:
+                    cur.execute(
+                        "SELECT connection_id FROM connections WHERE tenant_id = %s AND provider_key = %s",
+                        (tenant_id, provider_key)
+                    )
                 row = cur.fetchone()
                 return row[0] if row else None
         finally:
             conn.close()
 
-    result = supabase_client.table("connections").select("connection_id").eq("tenant_id", tenant_id).eq("provider_key", provider_key).limit(1).execute()
+    # Build query
+    query = supabase_client.table("connections").select("connection_id").eq("tenant_id", tenant_id).eq("provider_key", provider_key)
+
+    if user_id:
+        query = query.eq("user_id", user_id)
+
+    result = query.limit(1).execute()
 
     if result.data and len(result.data) > 0:
         return result.data[0]["connection_id"]

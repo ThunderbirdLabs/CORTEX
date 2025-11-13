@@ -49,28 +49,55 @@ async def nango_webhook(
         try:
             logger.info(f"Full webhook payload: {payload}")
 
+            # Extract user information from endUser
             end_user_id = None
+            end_user_email = None
+            company_id = None
+
             end_user = payload.get('endUser') or payload.get('end_user')
             if end_user:
                 end_user_id = end_user.get("endUserId") or end_user.get("id")
+                end_user_email = end_user.get("email")
+                company_id = end_user.get("organization_id") or end_user.get("organizationId")
 
-            if not end_user_id:
+            # Fallback: fetch from Nango API if not in payload
+            if not end_user_id or not company_id:
                 conn_url = f"https://api.nango.dev/connection/{nango_connection_id}?provider_config_key={provider_key}"
                 headers = {"Authorization": f"Bearer {settings.nango_secret}"}
                 response = await http_client.get(conn_url, headers=headers)
                 response.raise_for_status()
                 conn_data = response.json()
-                end_user_id = conn_data.get("end_user", {}).get("id") if isinstance(conn_data.get("end_user"), dict) else None
+
+                end_user_data = conn_data.get("end_user", {}) if isinstance(conn_data.get("end_user"), dict) else {}
+                if not end_user_id:
+                    end_user_id = end_user_data.get("id")
+                if not end_user_email:
+                    end_user_email = end_user_data.get("email")
+                if not company_id:
+                    company_id = end_user_data.get("organization_id") or end_user_data.get("organizationId")
 
             if not end_user_id:
-                logger.error(f"Failed to retrieve end_user for connection {nango_connection_id}")
+                logger.error(f"Failed to retrieve end_user.id for connection {nango_connection_id}")
                 return {"status": "error", "message": "Missing end_user information"}
 
-            logger.info(f"OAuth successful for user {end_user_id}, saving connection")
-            # Save Nango's connectionId (not end_user.id) for API calls
-            await save_connection(end_user_id, provider_key, nango_connection_id)
-            logger.info(f"Saved connection with Nango ID: {nango_connection_id} for user: {end_user_id}")
-            return {"status": "connection_saved", "user": end_user_id}
+            if not company_id:
+                logger.error(f"Failed to retrieve company_id for user {end_user_id}, connection {nango_connection_id}")
+                return {"status": "error", "message": "Missing company_id information"}
+
+            logger.info(f"OAuth successful for user {end_user_id} in company {company_id}, saving connection")
+
+            # Save connection with full user attribution
+            # tenant_id (company_id), provider_key, nango connection_id, user_id, user_email
+            await save_connection(
+                tenant_id=company_id,
+                provider_key=provider_key,
+                connection_id=nango_connection_id,
+                user_id=end_user_id,
+                user_email=end_user_email
+            )
+
+            logger.info(f"Saved connection: Nango ID={nango_connection_id}, user={end_user_id}, company={company_id}, provider={provider_key}")
+            return {"status": "connection_saved", "user": end_user_id, "company": company_id}
 
         except Exception as e:
             logger.error(f"Error handling auth webhook: {e}", exc_info=True)
