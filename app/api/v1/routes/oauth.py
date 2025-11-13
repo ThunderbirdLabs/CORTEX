@@ -347,9 +347,11 @@ async def reconnect_oauth(
 async def get_status(user_id: str = Depends(get_current_user_id)):
     """
     Get connection status for authenticated user.
-    Shows which providers are connected and last sync time from Nango.
+    Shows which providers are connected, last sync time from Nango, and sync lock status.
     """
     import httpx
+    from app.core.dependencies import get_supabase
+    from fastapi import Depends as StatusDepends
 
     async def get_nango_connection_details(connection_id: str, provider_key: str) -> dict:
         """Fetch connection details from Nango API including last sync time."""
@@ -387,6 +389,41 @@ async def get_status(user_id: str = Depends(get_current_user_id)):
         drive_details = await get_nango_connection_details(drive_connection, settings.nango_provider_key_google_drive) if drive_connection else None
         quickbooks_details = await get_nango_connection_details(quickbooks_connection, settings.nango_provider_key_quickbooks) if quickbooks_connection else None
 
+        # Get sync lock status from connections table
+        from supabase import create_client
+        supabase = create_client(settings.supabase_url, settings.supabase_service_key)
+
+        sync_status = {}
+        for provider_key in ["outlook", "gmail", "google_drive", "quickbooks"]:
+            try:
+                result = supabase.table("connections")\
+                    .select("can_manual_sync, initial_sync_completed, initial_sync_started_at")\
+                    .eq("tenant_id", user_id)\
+                    .eq("provider_key", provider_key)\
+                    .maybe_single()\
+                    .execute()
+
+                if result.data:
+                    sync_status[provider_key] = {
+                        "can_manual_sync": result.data.get("can_manual_sync", True),
+                        "initial_sync_completed": result.data.get("initial_sync_completed", False),
+                        "initial_sync_started_at": result.data.get("initial_sync_started_at")
+                    }
+                else:
+                    # No record yet, default to allowing sync
+                    sync_status[provider_key] = {
+                        "can_manual_sync": True,
+                        "initial_sync_completed": False,
+                        "initial_sync_started_at": None
+                    }
+            except Exception as e:
+                logger.warning(f"Failed to get sync status for {provider_key}: {e}")
+                sync_status[provider_key] = {
+                    "can_manual_sync": True,
+                    "initial_sync_completed": False,
+                    "initial_sync_started_at": None
+                }
+
         return {
             "tenant_id": user_id,
             "providers": {
@@ -395,26 +432,34 @@ async def get_status(user_id: str = Depends(get_current_user_id)):
                     "connected": outlook_connection is not None,
                     "connection_id": outlook_connection,
                     "last_sync": outlook_details.get("last_sync") if outlook_details else None,
-                    "email": outlook_details.get("email") if outlook_details else None
+                    "email": outlook_details.get("email") if outlook_details else None,
+                    "can_manual_sync": sync_status.get("outlook", {}).get("can_manual_sync", True),
+                    "initial_sync_completed": sync_status.get("outlook", {}).get("initial_sync_completed", False)
                 },
                 "gmail": {
                     "configured": settings.nango_provider_key_gmail is not None,
                     "connected": gmail_connection is not None,
                     "connection_id": gmail_connection,
                     "last_sync": gmail_details.get("last_sync") if gmail_details else None,
-                    "email": gmail_details.get("email") if gmail_details else None
+                    "email": gmail_details.get("email") if gmail_details else None,
+                    "can_manual_sync": sync_status.get("gmail", {}).get("can_manual_sync", True),
+                    "initial_sync_completed": sync_status.get("gmail", {}).get("initial_sync_completed", False)
                 },
                 "google_drive": {
                     "configured": (settings.nango_provider_key_google_drive is not None) or (settings.nango_provider_key_gmail is not None),
                     "connected": drive_connection is not None,
                     "connection_id": drive_connection,
-                    "last_sync": drive_details.get("last_sync") if drive_details else None
+                    "last_sync": drive_details.get("last_sync") if drive_details else None,
+                    "can_manual_sync": sync_status.get("google_drive", {}).get("can_manual_sync", True),
+                    "initial_sync_completed": sync_status.get("google_drive", {}).get("initial_sync_completed", False)
                 },
                 "quickbooks": {
                     "configured": settings.nango_provider_key_quickbooks is not None,
                     "connected": quickbooks_connection is not None,
                     "connection_id": quickbooks_connection,
-                    "last_sync": quickbooks_details.get("last_sync") if quickbooks_details else None
+                    "last_sync": quickbooks_details.get("last_sync") if quickbooks_details else None,
+                    "can_manual_sync": sync_status.get("quickbooks", {}).get("can_manual_sync", True),
+                    "initial_sync_completed": sync_status.get("quickbooks", {}).get("initial_sync_completed", False)
                 }
             }
         }
