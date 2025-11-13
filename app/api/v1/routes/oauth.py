@@ -237,7 +237,7 @@ async def nango_oauth_callback(payload: NangoOAuthCallback):
 async def reconnect_oauth(
     request: Request,
     provider: str = Query(..., description="Provider name (microsoft | gmail | google-drive | quickbooks)"),
-    user_id: str = Depends(get_current_user_id),
+    user_context: dict = Depends(get_current_user_context),
     http_client: httpx.AsyncClient = Depends(get_http_client)
 ):
     """
@@ -259,7 +259,10 @@ async def reconnect_oauth(
     from app.core.dependencies import get_master_supabase_client
     from fastapi import Depends as DependsReconnect
 
-    logger.info(f"OAuth reconnect requested for provider {provider}, user {user_id}")
+    user_id = user_context["user_id"]
+    company_id_from_context = user_context["company_id"]
+
+    logger.info(f"OAuth reconnect requested for provider {provider}, user {user_id}, company {company_id_from_context}")
 
     # Get master Supabase client if multi-tenant
     master_supabase = None
