@@ -27,7 +27,8 @@ class MasterConfig(BaseSettings):
 
     # Master Supabase (control plane)
     master_supabase_url: Optional[str] = None
-    master_supabase_service_key: Optional[str] = None
+    master_supabase_anon_key: Optional[str] = None  # For JWT validation
+    master_supabase_service_key: Optional[str] = None  # For admin operations
 
     # Multi-tenant mode flag
     is_multi_tenant: bool = False

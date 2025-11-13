@@ -62,13 +62,22 @@ async def get_current_user_id(
         # CENTRALIZED AUTH MODE
         if master_config.is_multi_tenant:
             # Validate JWT against Master Supabase
+            # IMPORTANT: Use anon key for JWT validation (service key is for admin operations)
             from supabase import create_client
+
+            # Create client with anon key to validate user JWT tokens
+            master_supabase_auth = create_client(
+                master_config.master_supabase_url,
+                master_config.master_supabase_anon_key
+            )
+
+            # Create client with service key for database queries
             master_supabase = create_client(
                 master_config.master_supabase_url,
                 master_config.master_supabase_service_key
             )
 
-            response = master_supabase.auth.get_user(token)
+            response = master_supabase_auth.auth.get_user(token)
 
             if not response or not response.user:
                 raise HTTPException(
