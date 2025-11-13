@@ -109,6 +109,7 @@ async def chat(
         engine = await _get_query_engine()
 
         logger.info(f"💬 Chat query: {message.question}")
+        logger.info(f"🔑 AUTH - Received user_id (tenant_id): {user_id}")
 
         # Create or get chat
         chat_id = message.chat_id
@@ -121,13 +122,14 @@ async def chat(
                 title += '...'
 
             # Create new chat
+            logger.info(f"📝 Creating chat with company_id: {user_id}")
             chat_result = supabase.table('chats').insert({
                 'company_id': user_id,
                 'user_email': user_id,
                 'title': title
             }).execute()
             chat_id = chat_result.data[0]['id']
-            logger.info(f"📝 Created new chat: {chat_id} - '{title}'")
+            logger.info(f"✅ Created new chat: {chat_id} - '{title}'")
 
         # Get existing chat history from database (for conversation context)
         chat_history = []
