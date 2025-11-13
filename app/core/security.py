@@ -28,52 +28,47 @@ api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
 # JWT AUTHENTICATION (Supabase)
 # ============================================================================
 
-async def get_current_user_id(
+async def get_current_user_context(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     supabase: Client = Depends(get_supabase)
-) -> str:
+) -> dict:
     """
-    Validate JWT and return tenant_id for data filtering.
-
-    CENTRALIZED AUTH MODE (Multi-tenant):
-    - Validates JWT against Master Supabase (centralized auth)
-    - Verifies user has access to this company via company_users table
-    - Returns company_id (tenant_id) for data isolation
-    - Multiple users from same company share same tenant_id
-
-    SINGLE-TENANT MODE (Legacy, backward compatible):
-    - Validates JWT against company Supabase (old behavior)
-    - Returns user_id as tenant_id (1:1 mapping)
-
-    Args:
-        credentials: HTTP Bearer token from Authorization header
-        supabase: Supabase client (company Supabase, for backward compatibility)
+    Get full user context (user_id + company_id) for multi-tenant auth.
 
     Returns:
-        tenant_id (company_id in multi-tenant mode, user_id in single-tenant mode)
-
-    Raises:
-        HTTPException: If token is invalid or user not found
+        dict with:
+        - user_id: Actual user ID from JWT (for private user data like chats)
+        - company_id: Company ID (for shared company data like documents)
+        - tenant_id: Alias for company_id (for backward compatibility)
     """
-    from app.core.config_master import master_config
+    from app.core.config_master import MasterConfig
+    master_config = MasterConfig()
+
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Authorization header required")
 
     token = credentials.credentials
 
-    # DEBUG: Log multi-tenant mode detection
-    logger.info(f"🔍 AUTH DEBUG - is_multi_tenant: {master_config.is_multi_tenant}")
-    logger.info(f"🔍 AUTH DEBUG - company_id: {master_config.company_id}")
-    logger.info(f"🔍 AUTH DEBUG - master_supabase_url: {master_config.master_supabase_url}")
-    logger.info(f"🔍 AUTH DEBUG - master_supabase_anon_key exists: {bool(master_config.master_supabase_anon_key)}")
-
-    try:
-        # CENTRALIZED AUTH MODE
-        if master_config.is_multi_tenant:
-            logger.info("✅ MULTI-TENANT MODE ACTIVATED")
-            # Validate JWT against Master Supabase
-            # IMPORTANT: Use anon key for JWT validation (service key is for admin operations)
+    if master_config.is_multi_tenant:
+        # Multi-tenant mode: validate against Master Supabase
+        try:
             from supabase import create_client
 
-            # Create client with anon key to validate user JWT tokens
+            logger.info("🔍 AUTH DEBUG - is_multi_tenant: True")
+            logger.info(f"🔍 AUTH DEBUG - company_id: {master_config.company_id}")
+            logger.info(f"🔍 AUTH DEBUG - master_supabase_url: {master_config.master_supabase_url}")
+            logger.info(f"🔍 AUTH DEBUG - master_supabase_anon_key exists: {bool(master_config.master_supabase_anon_key)}")
+
+            if not all([master_config.master_supabase_url, master_config.master_supabase_anon_key, master_config.company_id]):
+                logger.error("❌ Missing multi-tenant configuration")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Multi-tenant mode enabled but missing configuration"
+                )
+
+            logger.info("✅ MULTI-TENANT MODE ACTIVATED")
+
+            # Create Master Supabase auth client (for JWT validation)
             logger.info(f"🔑 Creating Master Supabase auth client with URL: {master_config.master_supabase_url}")
             master_supabase_auth = create_client(
                 master_config.master_supabase_url,
@@ -81,7 +76,7 @@ async def get_current_user_id(
             )
             logger.info("✅ Master Supabase auth client created")
 
-            # Create client with service key for database queries
+            # Create Master Supabase service client (for company_users query)
             logger.info("🔑 Creating Master Supabase service client")
             master_supabase = create_client(
                 master_config.master_supabase_url,
@@ -89,54 +84,33 @@ async def get_current_user_id(
             )
             logger.info("✅ Master Supabase service client created")
 
+            # Validate JWT with Master Supabase
             logger.info("🔐 Validating JWT token with Master Supabase")
             response = master_supabase_auth.auth.get_user(token)
             logger.info(f"✅ JWT validation response received: {bool(response)}")
 
             if not response or not response.user:
-                logger.error("❌ JWT validation failed - no user in response")
-                raise HTTPException(
-                    status_code=401,
-                    detail="Invalid authentication token"
-                )
+                logger.error("❌ No user returned from JWT validation")
+                raise HTTPException(status_code=401, detail="Invalid authentication token")
 
             user_id = response.user.id
             logger.info(f"✅ User ID extracted: {user_id[:8]}...")
-            if not user_id:
-                raise HTTPException(
-                    status_code=401,
-                    detail="User ID not found in token"
-                )
 
-            # SECURITY LAYER 1: JWT Cryptographic Validation
-            # Extract company_id from JWT user_metadata (signed by Supabase, can't be tampered)
+            # SECURITY LAYER 1: Validate JWT metadata contains correct company_id
             logger.info("🔒 SECURITY LAYER 1: Validating JWT metadata")
-            user_metadata = response.user.user_metadata or {}
-            jwt_company_id = user_metadata.get("company_id")
+            jwt_company_id = response.user.user_metadata.get("company_id")
             logger.info(f"📋 JWT metadata company_id: {jwt_company_id}")
             logger.info(f"📋 Expected company_id: {master_config.company_id}")
 
-            if not jwt_company_id:
-                # No company_id in JWT - reject for security
-                # (All users in multi-tenant mode MUST have company_id in metadata)
-                logger.error(f"❌ User {user_id[:8]}... has no company_id in JWT metadata")
-                raise HTTPException(
-                    status_code=403,
-                    detail="Invalid user configuration. Contact administrator."
-                )
-
-            # Validate JWT company_id matches COMPANY_ID env var (cryptographic binding)
             if jwt_company_id != master_config.company_id:
-                logger.error(f"❌ User {user_id[:8]}... JWT company_id mismatch: {jwt_company_id} != {master_config.company_id}")
+                logger.error(f"❌ JWT company_id mismatch: {jwt_company_id} != {master_config.company_id}")
                 raise HTTPException(
                     status_code=403,
-                    detail="You do not have access to this company"
+                    detail="Access denied: company mismatch"
                 )
-
             logger.info("✅ JWT company_id validation passed")
 
-            # SECURITY LAYER 2: Database Validation (defense in depth)
-            # Verify user has access to this company via company_users table
+            # SECURITY LAYER 2: Verify user exists in company_users table
             logger.info("🔒 SECURITY LAYER 2: Checking company_users table")
             logger.info(f"🔍 Querying company_users: user_id={user_id[:8]}..., company_id={master_config.company_id}")
             company_user = master_supabase.table("company_users")\
@@ -169,44 +143,63 @@ async def get_current_user_id(
 
             logger.info(f"✅ Authenticated user: {user_id[:8]}... (role: {company_user.data['role']}) for company: {master_config.company_id[:8]}...")
 
-            # IMPORTANT: Return company_id (not user_id) for tenant filtering
-            # In multi-tenant mode, tenant_id represents the company, not individual users
-            # This allows multiple users from the same company to access shared data
-            logger.info(f"🎯 RETURNING TENANT_ID (company_id): {master_config.company_id}")
-            return master_config.company_id
+            # Return BOTH user_id and company_id
+            logger.info(f"🎯 RETURNING user_id: {user_id[:8]}..., company_id: {master_config.company_id[:8]}...")
+            return {
+                "user_id": user_id,
+                "company_id": master_config.company_id,
+                "tenant_id": master_config.company_id  # For backward compatibility
+            }
 
-        else:
-            logger.info("⚠️ SINGLE-TENANT MODE - Using company Supabase for auth")
-            # SINGLE-TENANT MODE (backward compatible)
-            # Verify JWT using company Supabase client
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ Authentication failed with exception: {e}")
+            logger.error("Full traceback:", exc_info=True)
+            raise HTTPException(status_code=401, detail="Authentication failed")
+
+    else:
+        # Single-tenant mode: validate against Company Supabase
+        logger.info("⚠️ SINGLE-TENANT MODE - Using company Supabase for auth")
+        try:
             response = supabase.auth.get_user(token)
-
             if not response or not response.user:
-                raise HTTPException(
-                    status_code=401,
-                    detail="Invalid authentication token"
-                )
+                raise HTTPException(status_code=401, detail="Invalid authentication token")
 
             user_id = response.user.id
-            if not user_id:
-                raise HTTPException(
-                    status_code=401,
-                    detail="User ID not found in token"
-                )
+            logger.info(f"✅ Single-tenant auth successful: {user_id[:8]}...")
 
-            # SECURITY: Don't log PII (user_id) - use sanitized logging
-            logger.debug(f"Authenticated user: {user_id[:8]}...")
-            return user_id
+            # In single-tenant mode, user_id IS the tenant_id
+            return {
+                "user_id": user_id,
+                "company_id": user_id,
+                "tenant_id": user_id
+            }
 
-    except HTTPException:
-        raise  # Re-raise HTTP exceptions as-is
-    except Exception as e:
-        logger.error(f"❌ Authentication failed with exception: {type(e).__name__}: {e}")
-        logger.exception("Full traceback:")
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or expired authentication token"
-        )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Authentication failed: {e}")
+            raise HTTPException(status_code=401, detail="Authentication failed")
+
+
+async def get_current_user_id(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    supabase: Client = Depends(get_supabase)
+) -> str:
+    """
+    Validate JWT and return tenant_id (company_id) for shared data filtering.
+
+    This is for backward compatibility with existing routes that filter by tenant_id.
+    Returns company_id so multiple users from the same company see shared data.
+
+    For routes that need user-specific data (like chats), use get_current_user_context instead.
+
+    Returns:
+        tenant_id (company_id in multi-tenant mode, user_id in single-tenant mode)
+    """
+    context = await get_current_user_context(credentials, supabase)
+    return context["tenant_id"]
 
 
 # ============================================================================

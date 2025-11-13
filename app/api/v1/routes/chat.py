@@ -10,7 +10,7 @@ from datetime import datetime
 from supabase import Client
 
 from app.core.dependencies import get_supabase
-from app.core.security import get_current_user_id
+from app.core.security import get_current_user_id, get_current_user_context
 from app.middleware.rate_limit import limiter
 from app.core.circuit_breakers import with_openai_retry
 import app.core.dependencies as deps
@@ -83,7 +83,7 @@ async def _execute_chat_with_retry(engine, message: str, chat_history: Optional[
 async def chat(
     request: Request,
     message: ChatMessage,
-    user_id: str = Depends(get_current_user_id),
+    user_context: dict = Depends(get_current_user_context),
     supabase: Client = Depends(get_supabase)
 ):
     """
@@ -98,7 +98,7 @@ async def chat(
 
     Args:
         message: User question
-        user_id: Authenticated user
+        user_context: User context (user_id, company_id, tenant_id)
         supabase: Supabase client
 
     Returns:
@@ -108,8 +108,12 @@ async def chat(
         # Get global query engine (initialized at startup)
         engine = await _get_query_engine()
 
+        # Extract user context
+        user_id = user_context["user_id"]  # Actual user ID for private chats
+        company_id = user_context["company_id"]  # Company ID for shared data queries
+
         logger.info(f"💬 Chat query: {message.question}")
-        logger.info(f"🔑 AUTH - Received user_id (tenant_id): {user_id}")
+        logger.info(f"🔑 AUTH - user_id: {user_id[:8]}..., company_id: {company_id[:8]}...")
 
         # Create or get chat
         chat_id = message.chat_id
@@ -121,11 +125,11 @@ async def chat(
             if len(words) > 5:
                 title += '...'
 
-            # Create new chat
-            logger.info(f"📝 Creating chat with company_id: {user_id}")
+            # Create new chat (private to this user)
+            logger.info(f"📝 Creating chat for user_id: {user_id[:8]}...")
             chat_result = supabase.table('chats').insert({
-                'company_id': user_id,
-                'user_email': user_id,
+                'company_id': company_id,  # For company association
+                'user_email': user_id,     # Private to this user
                 'title': title
             }).execute()
             chat_id = chat_result.data[0]['id']
@@ -317,20 +321,25 @@ async def chat(
 
 @router.get("/chats")
 async def list_chats(
-    user_id: str = Depends(get_current_user_id),
+    user_context: dict = Depends(get_current_user_context),
     supabase: Client = Depends(get_supabase),
     limit: int = 50
 ):
     """
-    Get user's chat history.
-    
-    Returns list of chats ordered by most recent.
+    Get user's private chat history.
+
+    Returns list of chats ordered by most recent, filtered by user_id.
     """
     try:
-        # Get chats
+        # Get chats for this specific user within their company
+        user_id = user_context["user_id"]
+        company_id = user_context["company_id"]
+        logger.info(f"📋 Listing chats for user_id: {user_id[:8]}..., company_id: {company_id[:8]}...")
+
         result = supabase.table('chats')\
             .select('id, title, created_at, updated_at')\
             .eq('user_email', user_id)\
+            .eq('company_id', company_id)\
             .order('updated_at', desc=True)\
             .limit(limit)\
             .execute()
@@ -361,20 +370,24 @@ async def list_chats(
 @router.get("/chats/{chat_id}/messages")
 async def get_chat_messages(
     chat_id: str,
-    user_id: str = Depends(get_current_user_id),
+    user_context: dict = Depends(get_current_user_context),
     supabase: Client = Depends(get_supabase)
 ):
     """
     Get all messages in a chat.
-    
+
     Returns messages in chronological order.
     """
     try:
-        # Verify chat belongs to user
+        user_id = user_context["user_id"]
+        company_id = user_context["company_id"]
+
+        # Verify chat belongs to this user AND company
         chat_result = supabase.table('chats')\
             .select('id')\
             .eq('id', chat_id)\
             .eq('user_email', user_id)\
+            .eq('company_id', company_id)\
             .execute()
 
         if not chat_result.data:
@@ -399,18 +412,21 @@ async def get_chat_messages(
 @router.post("/chats")
 async def create_chat(
     request: CreateChatRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_context: dict = Depends(get_current_user_context),
     supabase: Client = Depends(get_supabase)
 ):
     """
     Create a new empty chat.
-    
+
     Returns the new chat ID.
     """
     try:
+        user_id = user_context["user_id"]
+        company_id = user_context["company_id"]
+
         result = supabase.table('chats').insert({
-            'company_id': user_id,
-            'user_email': user_id,
+            'company_id': company_id,  # For company association
+            'user_email': user_id,     # Private to this user
             'title': request.title or 'New Chat'
         }).execute()
 
@@ -424,20 +440,24 @@ async def create_chat(
 @router.delete("/chats/{chat_id}")
 async def delete_chat(
     chat_id: str,
-    user_id: str = Depends(get_current_user_id),
+    user_context: dict = Depends(get_current_user_context),
     supabase: Client = Depends(get_supabase)
 ):
     """
     Delete a chat and all its messages.
-    
+
     Messages are automatically deleted via CASCADE.
     """
     try:
-        # Verify ownership and delete
+        user_id = user_context["user_id"]
+        company_id = user_context["company_id"]
+
+        # Verify ownership (user_id AND company_id) and delete
         result = supabase.table('chats')\
             .delete()\
             .eq('id', chat_id)\
             .eq('user_email', user_id)\
+            .eq('company_id', company_id)\
             .execute()
 
         if not result.data:
