@@ -3,11 +3,12 @@ Sync Routes
 Background job-based sync endpoints for Gmail, Drive, and Outlook
 """
 import logging
+from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from supabase import Client
+from supabase import Client, create_client
 
-from app.core.security import get_current_user_id
+from app.core.security import get_current_user_id, get_current_user_context
 from app.core.dependencies import get_supabase
 from app.services.background.tasks import sync_gmail_task, sync_drive_task, sync_outlook_task, sync_quickbooks_task
 from app.middleware.rate_limit import limiter
@@ -15,6 +16,186 @@ from app.middleware.rate_limit import limiter
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sync", tags=["sync"])
+
+
+async def check_can_manual_sync(
+    user_id: str,
+    company_id: str,
+    provider: str,
+    supabase: Client
+) -> tuple[bool, str]:
+    """
+    Check if user can manually trigger sync.
+    Checks both local flag AND master admin override.
+
+    Returns:
+        (can_sync: bool, reason: str)
+    """
+    # 1. Check local flag in company Supabase
+    conn_result = supabase.table("connections")\
+        .select("can_manual_sync, initial_sync_completed")\
+        .eq("tenant_id", user_id)\
+        .eq("provider_key", provider)\
+        .maybe_single()\
+        .execute()
+
+    if not conn_result.data:
+        # No connection exists yet - allow first sync
+        return True, "first_sync"
+
+    can_sync_locally = conn_result.data.get("can_manual_sync", True)
+
+    # 2. Check admin override in master Supabase (if multi-tenant)
+    can_sync_override = False
+    override_source = None
+
+    try:
+        from app.core.config_master import MasterConfig
+        master_config = MasterConfig()
+
+        if master_config.is_multi_tenant:
+            master_supabase = create_client(
+                master_config.master_supabase_url,
+                master_config.master_supabase_service_key
+            )
+
+            override_result = master_supabase.table("sync_permissions")\
+                .select("can_manual_sync_override, override_reason")\
+                .eq("company_id", company_id)\
+                .maybe_single()\
+                .execute()
+
+            if override_result.data:
+                override_value = override_result.data.get("can_manual_sync_override")
+                if override_value is not None:  # NULL means no override
+                    can_sync_override = override_value
+                    override_source = "admin_override"
+                    logger.info(f"🔓 Admin override for {company_id}: {override_value} ({override_result.data.get('override_reason')})")
+    except Exception as e:
+        logger.warning(f"Could not check admin override: {e}")
+
+    # 3. Final decision
+    can_sync = can_sync_locally or can_sync_override
+
+    if can_sync_locally and not can_sync_override:
+        return True, "local_permission"
+    elif can_sync_override and not can_sync_locally:
+        return True, "admin_override"
+    elif can_sync_locally and can_sync_override:
+        return True, "both_allowed"
+    else:
+        return False, "locked"
+
+
+@router.post("/initial/{provider}")
+@limiter.limit("1/hour")  # Only 1 initial sync per hour per provider
+async def trigger_initial_sync(
+    provider: str,
+    request: Request,
+    user_context: dict = Depends(get_current_user_context),
+    supabase: Client = Depends(get_supabase)
+):
+    """
+    Trigger ONE-TIME historical sync (1 year backfill).
+    After this, manual sync is LOCKED and button disappears.
+
+    Admin can override via master dashboard if needed for troubleshooting.
+
+    Supported providers: outlook, gmail, drive, quickbooks
+    """
+    user_id = user_context["user_id"]
+    company_id = user_context["company_id"]
+
+    logger.info(f"Initial sync requested: {provider} for user {user_id}, company {company_id}")
+
+    # Validate provider
+    valid_providers = ["outlook", "gmail", "drive", "quickbooks"]
+    if provider not in valid_providers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid provider. Must be one of: {', '.join(valid_providers)}"
+        )
+
+    # Check if sync is allowed
+    can_sync, reason = await check_can_manual_sync(user_id, company_id, provider, supabase)
+
+    if not can_sync:
+        raise HTTPException(
+            status_code=403,
+            detail="Manual sync is locked. Initial sync already completed. Contact support if you need to re-sync."
+        )
+
+    # Lock manual sync (set to FALSE)
+    supabase.table("connections")\
+        .upsert({
+            "tenant_id": user_id,
+            "provider_key": provider,
+            "connection_id": user_id,  # Use user_id as connection_id
+            "can_manual_sync": False,
+            "initial_sync_started_at": datetime.utcnow().isoformat(),
+            "sync_lock_reason": "Initial historical sync started"
+        }, on_conflict="tenant_id,provider_key")\
+        .execute()
+
+    # If admin override was used, log and remove it (one-time unlock)
+    if reason == "admin_override":
+        try:
+            from app.core.config_master import MasterConfig
+            master_config = MasterConfig()
+
+            if master_config.is_multi_tenant:
+                master_supabase = create_client(
+                    master_config.master_supabase_url,
+                    master_config.master_supabase_service_key
+                )
+
+                logger.info(f"🔓 Admin override used for {company_id}:{provider}. Removing override.")
+
+                # Remove override after use (one-time unlock)
+                master_supabase.table("sync_permissions")\
+                    .update({"can_manual_sync_override": None})\
+                    .eq("company_id", company_id)\
+                    .execute()
+        except Exception as e:
+            logger.error(f"Failed to remove admin override: {e}")
+
+    # Create sync job
+    job = supabase.table("sync_jobs").insert({
+        "user_id": user_id,
+        "job_type": provider,
+        "status": "queued",
+        "metadata": {
+            "is_initial_sync": True,
+            "backfill_days": 365,
+            "sync_locked_after": True,
+            "admin_override_used": reason == "admin_override"
+        }
+    }).execute()
+
+    job_id = job.data[0]["id"]
+
+    # Enqueue background task based on provider
+    if provider == "outlook":
+        sync_outlook_task.send(user_id, job_id)
+    elif provider == "gmail":
+        # Calculate 1 year ago
+        one_year_ago = (datetime.utcnow() - timedelta(days=365)).isoformat()
+        sync_gmail_task.send(user_id, job_id, one_year_ago)
+    elif provider == "drive":
+        sync_drive_task.send(user_id, job_id, None)  # Sync entire drive
+    elif provider == "quickbooks":
+        sync_quickbooks_task.send(user_id, job_id)
+
+    logger.info(f"🔒 Initial sync started for {user_id}:{provider}. Manual sync LOCKED. Job ID: {job_id}")
+
+    return {
+        "status": "started",
+        "job_id": job_id,
+        "provider": provider,
+        "backfill_days": 365,
+        "locked": True,
+        "message": "Historical sync started. Manual sync is now locked. You'll receive an email when complete (4-8 hours)."
+    }
 
 
 @router.get("/once")
