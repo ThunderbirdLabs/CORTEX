@@ -237,6 +237,11 @@ class UniversalIngestionPipeline:
                 "tenant_id": tenant_id,
                 "created_at": str(created_at),
                 "created_at_timestamp": created_at_timestamp,  # Unix timestamp for filtering
+                # THREAD DEDUPLICATION: Add thread metadata to Qdrant payload
+                "thread_id": document_row.get("metadata", {}).get("thread_id", "") or
+                            document_row.get("raw_data", {}).get("thread_id", ""),
+                "message_id": document_row.get("metadata", {}).get("message_id", "") or
+                             document_row.get("raw_data", {}).get("message_id", "")
             }
 
             # Add file metadata if available (for attachments/files)
@@ -266,6 +271,10 @@ class UniversalIngestionPipeline:
                 # Truncate metadata values to prevent total metadata length > chunk size
                 MAX_META_VALUE_LEN = 200  # Max chars per metadata value
                 for key, value in additional_meta.items():
+                    # Skip overwriting thread_id/message_id if they're already set (from raw_data fallback)
+                    if key in ['thread_id', 'message_id'] and doc_metadata.get(key):
+                        continue
+
                     if isinstance(value, list):
                         # Convert lists to JSON strings for consistent storage
                         doc_metadata[key] = json.dumps(value)

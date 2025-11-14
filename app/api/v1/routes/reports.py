@@ -89,7 +89,7 @@ async def get_daily_report(
     report_date: str,
     report_type: str,
     user_id: str = Depends(get_current_user_id),
-    supabase: Client = Depends(get_supabase)
+    master_supabase: Client = Depends(get_master_supabase)
 ):
     """Fetch a daily report."""
     try:
@@ -115,7 +115,7 @@ async def get_daily_report(
 async def get_latest_reports(
     limit: int = 7,
     user_id: str = Depends(get_current_user_id),
-    supabase: Client = Depends(get_supabase)
+    master_supabase: Client = Depends(get_master_supabase)
 ):
     """Get recent daily reports."""
     try:

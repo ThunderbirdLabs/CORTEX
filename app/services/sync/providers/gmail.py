@@ -103,7 +103,8 @@ def normalize_gmail_message(
         "web_link": "",  # Gmail records from Nango may not include web link
         "full_body": full_body,  # Full email body content
         "change_key": "",  # Gmail doesn't use change keys
-        "attachments": attachments  # Attachment metadata
+        "attachments": attachments,  # Attachment metadata
+        "thread_id": gmail_record.get("threadId", "")  # Gmail thread ID for deduplication
     }
 
 

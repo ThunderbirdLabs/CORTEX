@@ -153,7 +153,10 @@ async def ingest_to_cortex(
                 "web_link": email.get("web_link", ""),
                 # IDENTITY RESOLUTION: Add canonical identity metadata
                 "canonical_identity_id": sender_canonical_id,
-                "canonical_name": sender_canonical_name
+                "canonical_name": sender_canonical_name,
+                # THREAD DEDUPLICATION: Add thread metadata
+                "thread_id": email.get("thread_id", ""),
+                "message_id": email.get("message_id", "")
             }
         )
         

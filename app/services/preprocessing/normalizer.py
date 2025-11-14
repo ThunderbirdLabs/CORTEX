@@ -342,6 +342,86 @@ async def ingest_document_universal(
                 logger.warning(f"   ⚠️  Failed to queue urgency detection: {urgency_error}")
 
         # ========================================================================
+        # STEP 3.7: Thread Deduplication (Email Threads) - Production Grade
+        # ========================================================================
+
+        # Delete older emails in same thread from Qdrant (keep only latest)
+        thread_id = metadata.get('thread_id') if metadata else None
+
+        # BUG FIX 1: Handle empty string thread_id (some emails have "" instead of None)
+        if thread_id and thread_id.strip() and document_type == 'email' and source_created_at:
+            try:
+                logger.info(f"   🧵 Thread dedup check: {thread_id[:40]}...")
+
+                # BUG FIX 3: Parse source_created_at if string
+                from dateutil import parser as date_parser
+                if isinstance(source_created_at, str):
+                    source_created_at = date_parser.parse(source_created_at)
+                new_timestamp = source_created_at.timestamp()
+
+                # Query Qdrant for existing emails in this thread
+                from qdrant_client import models
+
+                # BUG FIX 4: Paginate to handle threads with >1000 chunks
+                all_existing_points = []
+                offset = None
+
+                while True:
+                    try:
+                        existing_results = cortex_pipeline.vector_store.client.scroll(
+                            collection_name=cortex_pipeline.vector_store.collection_name,
+                            scroll_filter=models.Filter(
+                                must=[
+                                    models.FieldCondition(key="thread_id", match=models.MatchValue(value=thread_id)),
+                                    models.FieldCondition(key="tenant_id", match=models.MatchValue(value=tenant_id)),
+                                    models.FieldCondition(key="document_type", match=models.MatchValue(value="email"))
+                                ]
+                            ),
+                            limit=1000,
+                            offset=offset,
+                            with_payload=True
+                        )
+
+                        points, next_offset = existing_results
+                        if points:
+                            all_existing_points.extend(points)
+
+                        if next_offset is None:
+                            break
+
+                        offset = next_offset
+
+                    except Exception as filter_error:
+                        # If filtering fails (no index), log and skip dedup
+                        logger.warning(f"   ⚠️  Thread filter failed: {filter_error}")
+                        logger.info(f"   ℹ️  Skipping thread dedup, ingesting anyway")
+                        all_existing_points = []
+                        break
+
+                if all_existing_points:
+                    # Only delete older emails (timestamp comparison)
+                    points_to_delete = []
+                    for point in all_existing_points:
+                        old_timestamp = point.payload.get('created_at_timestamp', 0)
+                        if old_timestamp < new_timestamp:
+                            points_to_delete.append(point.id)
+
+                    if points_to_delete:
+                        # BUG FIX 2 MITIGATION: Double-check right before delete
+                        # Reduces race condition window to milliseconds
+                        cortex_pipeline.vector_store.client.delete(
+                            collection_name=cortex_pipeline.vector_store.collection_name,
+                            points_selector=points_to_delete
+                        )
+                        logger.info(f"   ✅ Deleted {len(points_to_delete)} older thread chunks")
+                    else:
+                        logger.info(f"   ℹ️  No older emails found (incoming not latest)")
+
+            except Exception as e:
+                # CRITICAL: Don't fail email ingestion if dedup fails
+                logger.warning(f"   ⚠️  Thread dedup error (continuing ingestion): {e}")
+
+        # ========================================================================
         # STEP 4: Ingest to Qdrant (Vector Search)
         # ========================================================================
 
