@@ -117,7 +117,7 @@ async def generate_daily_report(
 
     logger.info(f"   Total source nodes collected: {len(all_source_nodes)}")
 
-    # Filter and balance source nodes (top N per sub-question for diversity)
+    # Filter and balance source nodes (evenly across all questions)
     logger.info(f"\n   Filtering source nodes for balanced context...")
 
     # Separate sub-answers from raw chunks
@@ -126,13 +126,56 @@ async def generate_daily_report(
 
     logger.info(f"   {len(sub_answers)} sub-answers, {len(raw_chunks)} raw chunks")
 
-    # Keep all sub-answers (they're already synthesized, small)
-    # For raw chunks: Keep top 15 per question for depth (7 questions × 15 = 105 chunks)
-    # More chunks = more evidence, quotes, cross-analysis capability
-    chunks_per_question = 15
-    balanced_chunks = raw_chunks[:len(all_qs) * chunks_per_question] if len(raw_chunks) > 0 else []
+    # ADAPTIVE BALANCED FILTERING
+    # Distribute chunks evenly across all questions (adapts to any retrieval settings)
+    total_chunks = len(raw_chunks)
+    num_questions = len(all_qs)
 
-    logger.info(f"   Keeping: {len(sub_answers)} sub-answers + top {len(balanced_chunks)} chunks")
+    if num_questions > 0 and total_chunks > 0:
+        # Calculate average chunks per question
+        avg_chunks_per_q = total_chunks / num_questions
+
+        # How many to take from each question
+        target_per_question = 15  # Configurable: increase for more evidence
+
+        logger.info(f"   📊 Chunk distribution analysis:")
+        logger.info(f"      Total chunks collected: {total_chunks}")
+        logger.info(f"      Questions: {num_questions}")
+        logger.info(f"      Average per question: {avg_chunks_per_q:.1f}")
+        logger.info(f"      Target to take per question: {target_per_question}")
+
+        # Distribute evenly
+        balanced_chunks = []
+        distribution_log = []
+
+        for i in range(num_questions):
+            # Get this question's chunk batch
+            start_idx = int(i * avg_chunks_per_q)
+            end_idx = int((i + 1) * avg_chunks_per_q)
+            question_batch = raw_chunks[start_idx:end_idx]
+
+            # Take top N from this question
+            batch_size = len(question_batch)
+            chunks_taken = min(target_per_question, batch_size)
+            balanced_chunks.extend(question_batch[:chunks_taken])
+
+            distribution_log.append(f"Q{i+1}: batch[{start_idx}:{end_idx}]={batch_size} chunks, took {chunks_taken}")
+
+        # Log detailed distribution
+        for log_line in distribution_log:
+            logger.info(f"      {log_line}")
+
+        logger.info(f"   ✅ Balanced distribution complete: {len(balanced_chunks)} total chunks")
+
+        # Verify balance
+        chunks_per_q_actual = [int(log.split('took ')[-1]) for log in distribution_log]
+        if min(chunks_per_q_actual) < target_per_question * 0.8:
+            logger.warning(f"   ⚠️  Unbalanced: Some questions got < 80% of target (min={min(chunks_per_q_actual)})")
+        else:
+            logger.info(f"   ✅ Balance quality: All questions got {min(chunks_per_q_actual)}-{max(chunks_per_q_actual)} chunks")
+    else:
+        balanced_chunks = []
+        logger.warning(f"   ⚠️  No chunks to balance (questions={num_questions}, chunks={total_chunks})")
 
     filtered_source_nodes = sub_answers + balanced_chunks
 
