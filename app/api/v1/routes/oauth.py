@@ -450,12 +450,11 @@ async def get_connection(tenant_id: str, provider_key: str) -> Optional[str]:
     Returns:
         connection_id if found, None otherwise
     """
-    from app.core.dependencies import get_supabase_service
-    from supabase import Client
+    from supabase import create_client
 
     try:
-        # Use dependency to get properly configured Supabase client
-        supabase: Client = get_supabase_service()
+        # Create Supabase client with service key for admin access
+        supabase = create_client(settings.supabase_url, settings.supabase_service_key)
         result = supabase.table("connections")\
             .select("connection_id")\
             .eq("tenant_id", tenant_id)\
