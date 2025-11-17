@@ -231,6 +231,7 @@ class UniversalIngestionPipeline:
             doc_metadata = {
                 "document_id": str(doc_id),
                 "source_id": source_id,
+                "canonical_id": source_id,  # CANONICAL ID: Explicit field for deduplication
                 "title": title,
                 "source": source,
                 "document_type": document_type,

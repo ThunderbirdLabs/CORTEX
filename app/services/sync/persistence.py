@@ -134,12 +134,23 @@ async def ingest_to_cortex(
         # Use universal ingestion function
         logger.info(f"🔍 DEBUG: About to ingest email - tenant_id: {email.get('tenant_id')}, message_id: {email.get('message_id')}")
 
+        # CANONICAL ID: Use thread_id for email deduplication (groups conversation)
+        from app.services.sync.canonical import get_canonical_id
+
+        canonical_source_id = get_canonical_id(
+            source=email.get("source", "gmail"),
+            thread_id=email.get("thread_id", ""),
+            fallback_id=email.get("message_id")
+        )
+
+        logger.info(f"   📝 Canonical ID: {canonical_source_id}")
+
         result = await ingest_document_universal(
             supabase=supabase,
             cortex_pipeline=cortex_pipeline,
             tenant_id=email.get("tenant_id"),
             source=email.get("source", "gmail"),
-            source_id=email.get("message_id"),
+            source_id=canonical_source_id,
             document_type="email",
             title=email.get("subject", "No Subject"),
             content=email.get("full_body", ""),
