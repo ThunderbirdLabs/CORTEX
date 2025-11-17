@@ -146,6 +146,7 @@ async def connect_start(
         logger.info(f"[OAUTH_START]   allowed_integrations: {[integration_id]}")
 
         logger.debug(f"[OAUTH_START] Calling Nango API: POST https://api.nango.dev/connect/sessions")
+        logger.debug(f"[OAUTH_START] Using Nango secret: {settings.nango_secret[:10]}... (truncated for logging)")
         session_response = await http_client.post(
             "https://api.nango.dev/connect/sessions",
             headers={"Authorization": f"Bearer {settings.nango_secret}"},
