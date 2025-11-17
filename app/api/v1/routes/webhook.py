@@ -81,8 +81,9 @@ async def nango_webhook(
 
                 conn_url = f"https://api.nango.dev/connection/{nango_connection_id}?provider_config_key={provider_key}"
                 logger.debug(f"[WEBHOOK_AUTH] Fetching: {conn_url}")
+                logger.debug(f"[WEBHOOK_AUTH] Using Nango secret: {settings.nango_secret[:10]}... (truncated for logging)")
 
-                headers = {"Authorization": f"Bearer {settings.nango_secret[:10]}..."}
+                headers = {"Authorization": f"Bearer {settings.nango_secret}"}
                 response = await http_client.get(conn_url, headers=headers)
 
                 logger.debug(f"[WEBHOOK_AUTH] Nango API response status: {response.status_code}")
