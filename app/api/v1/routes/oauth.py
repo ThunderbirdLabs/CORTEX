@@ -450,10 +450,12 @@ async def get_connection(tenant_id: str, provider_key: str) -> Optional[str]:
     Returns:
         connection_id if found, None otherwise
     """
-    from supabase import create_client
+    from app.core.dependencies import get_supabase_service
+    from supabase import Client
 
     try:
-        supabase = create_client(settings.supabase_url, settings.supabase_service_key)
+        # Use dependency to get properly configured Supabase client
+        supabase: Client = get_supabase_service()
         result = supabase.table("connections")\
             .select("connection_id")\
             .eq("tenant_id", tenant_id)\
@@ -465,6 +467,7 @@ async def get_connection(tenant_id: str, provider_key: str) -> Optional[str]:
             return result.data[0]["connection_id"]
     except Exception as e:
         logger.warning(f"Failed to get connection for {provider_key}: {e}")
+        logger.exception("Full error:")
 
     return None
 

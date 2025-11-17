@@ -113,8 +113,38 @@ async def nango_webhook(
                 logger.error(f"[WEBHOOK_AUTH]   Payload had endUser: {bool(payload.get('endUser') or payload.get('end_user'))}")
                 return {"status": "error", "message": "Missing end_user information"}
 
+            # If company_id not in payload, look it up from Master Supabase
             if not company_id:
-                logger.error(f"[WEBHOOK_AUTH] ❌ VALIDATION FAILED - No company_id")
+                logger.info(f"[WEBHOOK_AUTH] company_id not in Nango payload, looking up in Master Supabase...")
+                from app.core.config_master import master_config
+                from supabase import create_client
+
+                try:
+                    master_supabase = create_client(
+                        master_config.master_supabase_url,
+                        master_config.master_supabase_service_key
+                    )
+
+                    # Look up user's company from company_users table
+                    result = master_supabase.table("company_users")\
+                        .select("company_id")\
+                        .eq("user_id", end_user_id)\
+                        .eq("is_active", True)\
+                        .limit(1)\
+                        .execute()
+
+                    if result.data and len(result.data) > 0:
+                        company_id = result.data[0]["company_id"]
+                        logger.info(f"[WEBHOOK_AUTH] ✅ Found company_id from Master Supabase: {company_id}")
+                    else:
+                        logger.error(f"[WEBHOOK_AUTH] ❌ User {end_user_id} not found in company_users table")
+                        return {"status": "error", "message": "User not associated with any company"}
+                except Exception as lookup_error:
+                    logger.error(f"[WEBHOOK_AUTH] ❌ Failed to lookup company_id: {lookup_error}")
+                    return {"status": "error", "message": "Failed to lookup company_id"}
+
+            if not company_id:
+                logger.error(f"[WEBHOOK_AUTH] ❌ VALIDATION FAILED - No company_id after lookup")
                 logger.error(f"[WEBHOOK_AUTH]   user_id: {end_user_id}")
                 logger.error(f"[WEBHOOK_AUTH]   connection_id: {nango_connection_id}")
                 logger.error(f"[WEBHOOK_AUTH]   provider: {provider_key}")
