@@ -17,7 +17,7 @@ from app.core.config_master import master_config
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
+router = APIRouter(tags=["reports"])
 
 
 class GenerateReportRequest(BaseModel):
