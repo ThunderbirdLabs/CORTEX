@@ -8,6 +8,7 @@ SECURITY:
 """
 import logging
 import httpx
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.core.config import settings
@@ -436,6 +437,36 @@ async def reconnect_oauth(
         "original_email": original_email,
         "message": f"Please reconnect using the same email: {original_email}" if original_email else "Please reconnect your account"
     }
+
+
+async def get_connection(tenant_id: str, provider_key: str) -> Optional[str]:
+    """
+    Get Nango connection_id for a given tenant and provider.
+
+    Args:
+        tenant_id: Company/tenant ID
+        provider_key: Provider key (outlook, gmail, google-drive, quickbooks)
+
+    Returns:
+        connection_id if found, None otherwise
+    """
+    from supabase import create_client
+
+    try:
+        supabase = create_client(settings.supabase_url, settings.supabase_service_key)
+        result = supabase.table("connections")\
+            .select("connection_id")\
+            .eq("tenant_id", tenant_id)\
+            .eq("provider_key", provider_key)\
+            .limit(1)\
+            .execute()
+
+        if result.data and len(result.data) > 0:
+            return result.data[0]["connection_id"]
+    except Exception as e:
+        logger.warning(f"Failed to get connection for {provider_key}: {e}")
+
+    return None
 
 
 @router.get("/status")
