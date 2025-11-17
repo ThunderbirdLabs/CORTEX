@@ -129,20 +129,21 @@ async def connect_start(
                 logger.exception("[OAUTH_START] Email fetch error traceback:")
 
         # Prepare Nango endUser payload
+        # NOTE: Nango only accepts id, email, display_name in end_user
+        # We track company_id separately in our connections table
         nango_payload = {
             "end_user": {
                 "id": user_id,          # Actual user ID (not company!)
                 "email": user_email,     # User's real email
-                "display_name": user_email.split("@")[0],
-                "organization_id": company_id,  # Company in metadata
-                "organization_display_name": f"Company {company_id[:8]}"
+                "display_name": user_email.split("@")[0]
             },
             "allowed_integrations": [integration_id]
         }
         logger.info(f"[OAUTH_START] Nango payload prepared:")
         logger.info(f"[OAUTH_START]   endUser.id: {user_id}")
         logger.info(f"[OAUTH_START]   endUser.email: {user_email}")
-        logger.info(f"[OAUTH_START]   endUser.organization_id: {company_id}")
+        logger.info(f"[OAUTH_START]   endUser.display_name: {user_email.split('@')[0]}")
+        logger.info(f"[OAUTH_START]   company_id (tracked separately): {company_id}")
         logger.info(f"[OAUTH_START]   allowed_integrations: {[integration_id]}")
 
         logger.debug(f"[OAUTH_START] Calling Nango API: POST https://api.nango.dev/connect/sessions")
