@@ -205,16 +205,48 @@ async def nango_oauth_callback(payload: NangoOAuthCallback):
     Handle Nango OAuth callback.
     Saves connection information for the tenant.
 
-    Note: When using Nango's Connect SDK with end_user model, the connection_id
-    for API calls is the end_user.email format: <tenant_id>@app.internal
+    CRITICAL: payload.tenantId is the user_id (what we sent as end_user.id in /connect/start).
+    We need to lookup the user's company_id from Master Supabase to save the connection correctly.
     """
     from app.core.config_master import master_config
 
-    logger.info(f"Received OAuth callback for tenant {payload.tenantId}, nango internal ID: {payload.connectionId}")
+    logger.info(f"[WEBHOOK] Received OAuth callback - user_id (tenantId): {payload.tenantId}, provider: {payload.providerConfigKey}")
+
     try:
-        # Use end_user.id as connection_id for API calls (Nango Connect SDK uses /connections endpoint)
-        await save_connection(payload.tenantId, payload.providerConfigKey, payload.tenantId)
-        logger.info(f"Saved connection with ID: {payload.tenantId}")
+        # CRITICAL: payload.tenantId is actually the user_id (what we sent as end_user.id)
+        # We need to lookup the company_id this user belongs to
+        user_id = payload.tenantId
+        company_id = None
+
+        # Lookup user's company_id from Master Supabase
+        if master_config.is_multi_tenant:
+            from supabase import create_client
+            master_supabase = create_client(
+                master_config.master_supabase_url,
+                master_config.master_supabase_service_key
+            )
+
+            logger.info(f"[WEBHOOK] Looking up company_id for user_id: {user_id}")
+            company_user = master_supabase.table("company_users")\
+                .select("company_id")\
+                .eq("user_id", user_id)\
+                .maybe_single()\
+                .execute()
+
+            if company_user.data:
+                company_id = company_user.data["company_id"]
+                logger.info(f"[WEBHOOK] ✅ Found company_id: {company_id} for user_id: {user_id}")
+            else:
+                logger.error(f"[WEBHOOK] ❌ No company found for user_id: {user_id}")
+                raise HTTPException(status_code=404, detail=f"User {user_id} not found in any company")
+        else:
+            # Single-tenant mode: use the configured company_id
+            company_id = master_config.company_id
+            logger.info(f"[WEBHOOK] Single-tenant mode - using company_id: {company_id}")
+
+        # Save connection with company_id as tenant_id (company-wide OAuth model)
+        await save_connection(company_id, payload.providerConfigKey, payload.tenantId)
+        logger.info(f"[WEBHOOK] ✅ Saved connection - company_id: {company_id}, provider: {payload.providerConfigKey}, connection_id: {payload.tenantId}")
 
         # Save to nango_original_connections if multi-tenant and first connection
         if master_config.is_multi_tenant:
