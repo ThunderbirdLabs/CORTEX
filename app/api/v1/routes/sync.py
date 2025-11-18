@@ -162,13 +162,11 @@ async def trigger_initial_sync(
             logger.error(f"Failed to remove admin override: {e}")
 
     # Create sync job
-    # CRITICAL: Store both user_id (who triggered) and tenant_id (which company connection)
+    # TODO: Add tenant_id column to sync_jobs table to track which company connection
     job = supabase.table("sync_jobs").insert({
         "user_id": user_id,
-        "tenant_id": company_id,
         "job_type": provider,
         "status": "queued"
-        # TODO: Add metadata column to sync_jobs table for tracking initial_sync, backfill_days, etc.
     }).execute()
 
     job_id = job.data[0]["id"]
@@ -221,7 +219,6 @@ async def sync_once(
         # Create job record
         job = supabase.table("sync_jobs").insert({
             "user_id": user_id,
-            "tenant_id": company_id,
             "job_type": "outlook",
             "status": "queued"
         }).execute()
@@ -270,7 +267,6 @@ async def sync_once_gmail(
         # Create job record
         job = supabase.table("sync_jobs").insert({
             "user_id": user_id,
-            "tenant_id": company_id,
             "job_type": "gmail",
             "status": "queued"
         }).execute()
@@ -325,7 +321,6 @@ async def sync_once_drive(
         # Create job record
         job = supabase.table("sync_jobs").insert({
             "user_id": user_id,
-            "tenant_id": company_id,
             "job_type": "drive",
             "status": "queued"
         }).execute()
@@ -371,7 +366,6 @@ async def sync_once_quickbooks(
         # Create job record
         job = supabase.table("sync_jobs").insert({
             "user_id": user_id,
-            "tenant_id": company_id,
             "job_type": "quickbooks",
             "status": "queued"
         }).execute()
