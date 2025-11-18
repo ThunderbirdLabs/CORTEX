@@ -450,20 +450,21 @@ async def get_connection(tenant_id: str, provider_key: str) -> Optional[str]:
     Returns:
         connection_id if found, None otherwise
     """
-    from supabase import create_client
+    import psycopg
 
     try:
-        # Create Supabase client with service key for admin access
-        supabase = create_client(settings.supabase_url, settings.supabase_service_key)
-        result = supabase.table("connections")\
-            .select("connection_id")\
-            .eq("tenant_id", tenant_id)\
-            .eq("provider_key", provider_key)\
-            .limit(1)\
-            .execute()
+        # Use direct PostgreSQL connection (same as save_connection)
+        conn = psycopg.connect(settings.database_url, autocommit=True)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT connection_id FROM connections WHERE tenant_id = %s AND provider_key = %s LIMIT 1",
+                (tenant_id, provider_key)
+            )
+            result = cur.fetchone()
+            conn.close()
 
-        if result.data and len(result.data) > 0:
-            return result.data[0]["connection_id"]
+            if result:
+                return result[0]
     except Exception as e:
         logger.warning(f"Failed to get connection for {provider_key}: {e}")
         logger.exception("Full error:")
@@ -518,32 +519,34 @@ async def get_status(user_id: str = Depends(get_current_user_id)):
         quickbooks_details = await get_nango_connection_details(quickbooks_connection, settings.nango_provider_key_quickbooks) if quickbooks_connection else None
 
         # Get sync lock status from connections table
-        from supabase import create_client
-        supabase = create_client(settings.supabase_url, settings.supabase_service_key)
+        import psycopg
 
         sync_status = {}
         for provider_key in ["outlook", "gmail", "google_drive", "quickbooks"]:
             try:
-                result = supabase.table("connections")\
-                    .select("can_manual_sync, initial_sync_completed, initial_sync_started_at")\
-                    .eq("tenant_id", user_id)\
-                    .eq("provider_key", provider_key)\
-                    .maybe_single()\
-                    .execute()
+                # Use direct PostgreSQL connection (consistent with save_connection)
+                conn = psycopg.connect(settings.database_url, autocommit=True)
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT can_manual_sync, initial_sync_completed, initial_sync_started_at FROM connections WHERE tenant_id = %s AND provider_key = %s LIMIT 1",
+                        (user_id, provider_key)
+                    )
+                    result = cur.fetchone()
+                    conn.close()
 
-                if result.data:
-                    sync_status[provider_key] = {
-                        "can_manual_sync": result.data.get("can_manual_sync", True),
-                        "initial_sync_completed": result.data.get("initial_sync_completed", False),
-                        "initial_sync_started_at": result.data.get("initial_sync_started_at")
-                    }
-                else:
-                    # No record yet, default to allowing sync
-                    sync_status[provider_key] = {
-                        "can_manual_sync": True,
-                        "initial_sync_completed": False,
-                        "initial_sync_started_at": None
-                    }
+                    if result:
+                        sync_status[provider_key] = {
+                            "can_manual_sync": result[0] if result[0] is not None else True,
+                            "initial_sync_completed": result[1] if result[1] is not None else False,
+                            "initial_sync_started_at": result[2]
+                        }
+                    else:
+                        # No record yet, default to allowing sync
+                        sync_status[provider_key] = {
+                            "can_manual_sync": True,
+                            "initial_sync_completed": False,
+                            "initial_sync_started_at": None
+                        }
             except Exception as e:
                 logger.warning(f"Failed to get sync status for {provider_key}: {e}")
                 sync_status[provider_key] = {
