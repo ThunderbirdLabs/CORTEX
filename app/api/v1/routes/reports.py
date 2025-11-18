@@ -98,14 +98,16 @@ async def get_daily_report(
             .eq("tenant_id", user_id)\
             .eq("report_type", report_type)\
             .eq("report_date", report_date)\
-            .single()\
+            .maybe_single()\
             .execute()
 
         if not result.data:
-            raise HTTPException(404, "Report not found")
+            raise HTTPException(404, f"Report not found for {report_date} ({report_type})")
 
         return {"success": True, "report": result.data}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to fetch report: {e}")
         raise HTTPException(500, str(e))
