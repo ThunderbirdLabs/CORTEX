@@ -61,20 +61,20 @@ async def save_connection(
             logger.debug(f"[SAVE_CONNECTION] Executing INSERT/UPDATE query...")
             cur.execute(
                 """
-                INSERT INTO connections (tenant_id, provider_key, connection_id, user_id, user_email, connected_at)
-                VALUES (%s, %s, %s, %s, %s, NOW())
-                ON CONFLICT (tenant_id, provider_key, user_id)
+                INSERT INTO connections (tenant_id, provider_key, connection_id)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (tenant_id, provider_key)
                 DO UPDATE SET
                     connection_id = EXCLUDED.connection_id,
                     updated_at = NOW()
                 """,
-                (tenant_id, provider_key, connection_id, user_id, user_email)
+                (tenant_id, provider_key, connection_id)
             )
             logger.debug(f"[SAVE_CONNECTION] Query executed successfully")
 
         logger.debug(f"[SAVE_CONNECTION] Committing transaction...")
         conn.commit()
-        logger.info(f"✅ [SAVE_CONNECTION] SUCCESS - Saved connection for tenant {tenant_id}, user {user_id}, provider {provider_key}")
+        logger.info(f"✅ [SAVE_CONNECTION] SUCCESS - Saved connection for tenant {tenant_id} (company), user {user_id}, provider {provider_key}")
 
     except Exception as e:
         logger.error(f"❌ [SAVE_CONNECTION] ERROR - Failed to save connection")

@@ -439,12 +439,12 @@ async def reconnect_oauth(
     }
 
 
-async def get_connection(tenant_id: str, provider_key: str) -> Optional[str]:
+async def get_connection(company_id: str, provider_key: str) -> Optional[str]:
     """
-    Get Nango connection_id for a given tenant and provider.
+    Get Nango connection_id for a given company and provider.
 
     Args:
-        tenant_id: Company/tenant ID
+        company_id: Company ID (tenant_id in database)
         provider_key: Provider key (outlook, gmail, google-drive, quickbooks)
 
     Returns:
@@ -458,7 +458,7 @@ async def get_connection(tenant_id: str, provider_key: str) -> Optional[str]:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT connection_id FROM connections WHERE tenant_id = %s AND provider_key = %s LIMIT 1",
-                (tenant_id, provider_key)
+                (company_id, provider_key)
             )
             result = cur.fetchone()
             conn.close()
@@ -473,14 +473,17 @@ async def get_connection(tenant_id: str, provider_key: str) -> Optional[str]:
 
 
 @router.get("/status")
-async def get_status(user_id: str = Depends(get_current_user_id)):
+async def get_status(user_context: dict = Depends(get_current_user_context)):
     """
-    Get connection status for authenticated user.
+    Get connection status for authenticated user's company.
     Shows which providers are connected, last sync time from Nango, and sync lock status.
     """
     import httpx
     from app.core.dependencies import get_supabase
     from fastapi import Depends as StatusDepends
+
+    user_id = user_context["user_id"]
+    company_id = user_context["company_id"]
 
     async def get_nango_connection_details(connection_id: str, provider_key: str) -> dict:
         """Fetch connection details from Nango API including last sync time."""
@@ -507,10 +510,11 @@ async def get_status(user_id: str = Depends(get_current_user_id)):
         return None
 
     try:
-        outlook_connection = await get_connection(user_id, settings.nango_provider_key_outlook) if settings.nango_provider_key_outlook else None
-        gmail_connection = await get_connection(user_id, settings.nango_provider_key_gmail) if settings.nango_provider_key_gmail else None
-        drive_connection = await get_connection(user_id, settings.nango_provider_key_google_drive) if settings.nango_provider_key_google_drive else gmail_connection
-        quickbooks_connection = await get_connection(user_id, settings.nango_provider_key_quickbooks) if settings.nango_provider_key_quickbooks else None
+        # Use company_id to match how webhook saves connections
+        outlook_connection = await get_connection(company_id, settings.nango_provider_key_outlook) if settings.nango_provider_key_outlook else None
+        gmail_connection = await get_connection(company_id, settings.nango_provider_key_gmail) if settings.nango_provider_key_gmail else None
+        drive_connection = await get_connection(company_id, settings.nango_provider_key_google_drive) if settings.nango_provider_key_google_drive else gmail_connection
+        quickbooks_connection = await get_connection(company_id, settings.nango_provider_key_quickbooks) if settings.nango_provider_key_quickbooks else None
 
         # Get detailed info from Nango for connected providers
         outlook_details = await get_nango_connection_details(outlook_connection, settings.nango_provider_key_outlook) if outlook_connection else None
@@ -529,7 +533,7 @@ async def get_status(user_id: str = Depends(get_current_user_id)):
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT can_manual_sync, initial_sync_completed, initial_sync_started_at FROM connections WHERE tenant_id = %s AND provider_key = %s LIMIT 1",
-                        (user_id, provider_key)
+                        (company_id, provider_key)
                     )
                     result = cur.fetchone()
                     conn.close()
@@ -556,7 +560,7 @@ async def get_status(user_id: str = Depends(get_current_user_id)):
                 }
 
         return {
-            "tenant_id": user_id,
+            "tenant_id": company_id,
             "providers": {
                 "outlook": {
                     "configured": settings.nango_provider_key_outlook is not None,

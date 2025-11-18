@@ -70,12 +70,12 @@ async def _execute_query_with_retry(engine, question: str):
 
 
 @with_openai_retry
-async def _execute_chat_with_retry(engine, message: str, chat_history: Optional[List[Dict]] = None):
+async def _execute_chat_with_retry(engine, message: str, chat_history: Optional[List[Dict]] = None, filters: Optional[Dict] = None):
     """
     Execute conversational chat with automatic retry on OpenAI failures.
     Uses CondensePlusContextChatEngine for natural conversations with memory.
     """
-    return await engine.chat(message, chat_history=chat_history)
+    return await engine.chat(message, chat_history=chat_history, filters=filters)
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -164,7 +164,9 @@ async def chat(
         # - Natural greeting handling ("hey" → friendly response, no retrieval)
         # - Context-aware follow-ups ("tell me more" → knows what "more" refers to)
         # - Full SubQuestionQueryEngine pipeline (vector + graph + reranking)
-        result = await _execute_chat_with_retry(engine, message.question, chat_history=chat_history)
+        # CRITICAL: Pass tenant_id for data isolation
+        filters = {'tenant_id': company_id}
+        result = await _execute_chat_with_retry(engine, message.question, chat_history=chat_history, filters=filters)
 
         logger.info(f"🔍 Query result keys: {result.keys()}")
         logger.info(f"🔍 Source nodes count: {len(result.get('source_nodes', []))}")

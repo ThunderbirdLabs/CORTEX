@@ -338,10 +338,25 @@ Examples:
                     }
                     logger.info(f"   📅 No time specified - defaulting to last 30 days")
 
-            # Step 2: Apply time filter to vector query engine
+            # Step 2: Apply time filter AND tenant filter to vector query engine
             from llama_index.core.vector_stores import MetadataFilter, MetadataFilters, FilterOperator
 
-            metadata_filters = MetadataFilters(filters=[
+            # CRITICAL SECURITY: Always filter by tenant_id (company_id)
+            filter_list = []
+
+            # Add tenant_id filter if provided (MUST have for multi-tenant security)
+            if filters and 'tenant_id' in filters:
+                filter_list.append(MetadataFilter(
+                    key="tenant_id",
+                    operator=FilterOperator.EQ,
+                    value=filters['tenant_id']
+                ))
+                logger.info(f"   🔒 Tenant filter: {filters['tenant_id'][:8]}...")
+            else:
+                logger.warning("   ⚠️  WARNING: No tenant_id filter provided - potential security issue!")
+
+            # Add time filters
+            filter_list.extend([
                 MetadataFilter(
                     key="created_at_timestamp",
                     operator=FilterOperator.GTE,
@@ -353,6 +368,8 @@ Examples:
                     value=time_filter['end_timestamp']
                 )
             ])
+
+            metadata_filters = MetadataFilters(filters=filter_list)
 
             logger.info(f"   🔒 Qdrant time filter: {time_filter['start_date']} to {time_filter['end_date']}")
 
