@@ -49,20 +49,20 @@ def get_cors_middleware():
         except Exception as e:
             logger.error(f"❌ CORS: Failed to load frontend URL from master Supabase: {e}")
 
-    # Production: HTTPS only (fallback if multi-tenant not configured)
-    if settings.environment == "production":
-        # Add legacy frontend for backward compatibility
-        if "https://connectorfrontend.vercel.app" not in allowed_origins:
-            allowed_origins.append("https://connectorfrontend.vercel.app")
-    else:
-        # Development/Staging: HTTPS + localhost
+    # ALWAYS add the Vercel frontend (fallback for both prod and dev)
+    if "https://connectorfrontend.vercel.app" not in allowed_origins:
+        allowed_origins.append("https://connectorfrontend.vercel.app")
+        logger.info("✅ CORS: Added Vercel frontend as fallback")
+
+    # Development/Staging: Add localhost
+    if settings.environment != "production":
         allowed_origins.extend([
-            "https://connectorfrontend.vercel.app",  # Legacy Unit Industries
             "http://localhost:3000",  # Next.js dev server
             "http://localhost:3001",  # Master admin frontend
             "http://localhost:5173",  # Vite dev server
             "http://localhost:8080",  # Backend dev
         ])
+        logger.info("✅ CORS: Added localhost origins for development")
         # SECURITY: Do NOT include "null" - it allows file:// based attacks
 
     logger.info(f"🌐 CORS allowed origins: {allowed_origins}")

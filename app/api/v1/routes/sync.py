@@ -167,13 +167,8 @@ async def trigger_initial_sync(
         "user_id": user_id,
         "tenant_id": company_id,
         "job_type": provider,
-        "status": "queued",
-        "metadata": {
-            "is_initial_sync": True,
-            "backfill_days": 365,
-            "sync_locked_after": True,
-            "admin_override_used": reason == "admin_override"
-        }
+        "status": "queued"
+        # TODO: Add metadata column to sync_jobs table for tracking initial_sync, backfill_days, etc.
     }).execute()
 
     job_id = job.data[0]["id"]
