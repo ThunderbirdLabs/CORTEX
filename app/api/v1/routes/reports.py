@@ -111,6 +111,31 @@ async def get_daily_report(
         raise HTTPException(500, str(e))
 
 
+@router.get("/daily/{report_date}/all")
+async def get_all_reports_for_date(
+    report_date: str,
+    user_id: str = Depends(get_current_user_id),
+    master_supabase: Client = Depends(get_master_supabase)
+):
+    """Get all report types for a specific date."""
+    try:
+        result = master_supabase.table("daily_reports")\
+            .select("*")\
+            .eq("tenant_id", user_id)\
+            .eq("report_date", report_date)\
+            .execute()
+
+        return {
+            "success": True,
+            "reports": result.data,
+            "total": len(result.data)
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to fetch reports for date: {e}")
+        raise HTTPException(500, str(e))
+
+
 @router.get("/daily/latest")
 async def get_latest_reports(
     limit: int = 7,
