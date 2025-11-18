@@ -32,9 +32,10 @@ async def check_can_manual_sync(
         (can_sync: bool, reason: str)
     """
     # 1. Check local flag in company Supabase
+    # CRITICAL: Use company_id to query connections (company-wide OAuth model)
     conn_result = supabase.table("connections")\
         .select("can_manual_sync, initial_sync_completed")\
-        .eq("tenant_id", user_id)\
+        .eq("tenant_id", company_id)\
         .eq("provider_key", provider)\
         .maybe_single()\
         .execute()
@@ -126,11 +127,12 @@ async def trigger_initial_sync(
         )
 
     # Lock manual sync (set to FALSE)
+    # CRITICAL: Use company_id for tenant_id (company-wide OAuth model)
     supabase.table("connections")\
         .upsert({
-            "tenant_id": user_id,
+            "tenant_id": company_id,
             "provider_key": provider,
-            "connection_id": user_id,  # Use user_id as connection_id
+            "connection_id": company_id,  # Use company_id as connection_id
             "can_manual_sync": False,
             "initial_sync_started_at": datetime.utcnow().isoformat(),
             "sync_lock_reason": "Initial historical sync started"
@@ -160,8 +162,10 @@ async def trigger_initial_sync(
             logger.error(f"Failed to remove admin override: {e}")
 
     # Create sync job
+    # CRITICAL: Store both user_id (who triggered) and tenant_id (which company connection)
     job = supabase.table("sync_jobs").insert({
         "user_id": user_id,
+        "tenant_id": company_id,
         "job_type": provider,
         "status": "queued",
         "metadata": {
@@ -175,18 +179,19 @@ async def trigger_initial_sync(
     job_id = job.data[0]["id"]
 
     # Enqueue background task based on provider
+    # CRITICAL: Pass company_id as tenant_id (company-wide OAuth connections)
     if provider == "outlook":
-        sync_outlook_task.send(user_id, job_id)
+        sync_outlook_task.send(company_id, job_id)
     elif provider == "gmail":
         # Calculate 1 year ago
         one_year_ago = (datetime.utcnow() - timedelta(days=365)).isoformat()
-        sync_gmail_task.send(user_id, job_id, one_year_ago)
+        sync_gmail_task.send(company_id, job_id, one_year_ago)
     elif provider == "drive":
-        sync_drive_task.send(user_id, job_id, None)  # Sync entire drive
+        sync_drive_task.send(company_id, job_id, None)  # Sync entire drive
     elif provider == "quickbooks":
-        sync_quickbooks_task.send(user_id, job_id)
+        sync_quickbooks_task.send(company_id, job_id)
 
-    logger.info(f"🔒 Initial sync started for {user_id}:{provider}. Manual sync LOCKED. Job ID: {job_id}")
+    logger.info(f"🔒 Initial sync started for company {company_id}:{provider} (triggered by user {user_id}). Manual sync LOCKED. Job ID: {job_id}")
 
     return {
         "status": "started",
@@ -202,30 +207,34 @@ async def trigger_initial_sync(
 @limiter.limit("30/hour")  # 30 manual Outlook syncs per hour (increased for testing)
 async def sync_once(
     request: Request,
-    user_id: str = Depends(get_current_user_id),
+    user_context: dict = Depends(get_current_user_context),
     supabase: Client = Depends(get_supabase)
 ):
     """
     Start Outlook sync as background job.
 
-    SECURITY: Only syncs for the authenticated user.
-    Multi-tenant isolation enforced by COMPANY_ID env var.
+    SECURITY: Only syncs for the authenticated company.
+    Multi-tenant isolation enforced by company_id.
 
     Returns immediately with job_id for status tracking.
     """
-    logger.info(f"Enqueueing Outlook sync for user {user_id}")
+    user_id = user_context["user_id"]
+    company_id = user_context["company_id"]
+
+    logger.info(f"Enqueueing Outlook sync for company {company_id} (user {user_id})")
     try:
         # Create job record
         job = supabase.table("sync_jobs").insert({
             "user_id": user_id,
+            "tenant_id": company_id,
             "job_type": "outlook",
             "status": "queued"
         }).execute()
 
         job_id = job.data[0]["id"]
 
-        # Enqueue background task
-        sync_outlook_task.send(user_id, job_id)
+        # Enqueue background task (use company_id for connection lookup)
+        sync_outlook_task.send(company_id, job_id)
 
         logger.info(f"✅ Outlook sync job {job_id} queued")
 
@@ -243,19 +252,22 @@ async def sync_once(
 @limiter.limit("30/hour")  # 30 manual Gmail syncs per hour (increased for testing)
 async def sync_once_gmail(
     request: Request,
-    user_id: str = Depends(get_current_user_id),
+    user_context: dict = Depends(get_current_user_context),
     supabase: Client = Depends(get_supabase),
     modified_after: Optional[str] = Query(None, description="ISO datetime to filter records")
 ):
     """
     Start Gmail sync as background job.
 
-    SECURITY: Only syncs for the authenticated user.
-    Multi-tenant isolation enforced by COMPANY_ID env var.
+    SECURITY: Only syncs for the authenticated company.
+    Multi-tenant isolation enforced by company_id.
 
     Returns immediately with job_id for status tracking.
     """
-    logger.info(f"Enqueueing Gmail sync for user {user_id}")
+    user_id = user_context["user_id"]
+    company_id = user_context["company_id"]
+
+    logger.info(f"Enqueueing Gmail sync for company {company_id} (user {user_id})")
     if modified_after:
         logger.info(f"Using modified_after filter: {modified_after}")
 
@@ -263,14 +275,15 @@ async def sync_once_gmail(
         # Create job record
         job = supabase.table("sync_jobs").insert({
             "user_id": user_id,
+            "tenant_id": company_id,
             "job_type": "gmail",
             "status": "queued"
         }).execute()
 
         job_id = job.data[0]["id"]
 
-        # Enqueue background task
-        sync_gmail_task.send(user_id, job_id, modified_after)
+        # Enqueue background task (use company_id for connection lookup)
+        sync_gmail_task.send(company_id, job_id, modified_after)
 
         logger.info(f"✅ Gmail sync job {job_id} queued")
 
@@ -288,7 +301,7 @@ async def sync_once_gmail(
 @limiter.limit("5/hour")  # Only 5 manual Drive syncs per hour
 async def sync_once_drive(
     request: Request,
-    user_id: str = Depends(get_current_user_id),
+    user_context: dict = Depends(get_current_user_context),
     supabase: Client = Depends(get_supabase),
     folder_ids: Optional[str] = Query(None, description="Comma-separated folder IDs to sync (empty = entire Drive)")
 ):
@@ -300,7 +313,10 @@ async def sync_once_drive(
     - Sync entire Drive: GET /sync/once/drive
     - Sync specific folders: GET /sync/once/drive?folder_ids=1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE,0BxiMVs...
     """
-    logger.info(f"Enqueueing Drive sync for user {user_id}")
+    user_id = user_context["user_id"]
+    company_id = user_context["company_id"]
+
+    logger.info(f"Enqueueing Drive sync for company {company_id} (user {user_id})")
 
     # Parse folder IDs
     folder_list = None
@@ -314,14 +330,15 @@ async def sync_once_drive(
         # Create job record
         job = supabase.table("sync_jobs").insert({
             "user_id": user_id,
+            "tenant_id": company_id,
             "job_type": "drive",
             "status": "queued"
         }).execute()
-        
+
         job_id = job.data[0]["id"]
-        
-        # Enqueue background task
-        sync_drive_task.send(user_id, job_id, folder_list)
+
+        # Enqueue background task (use company_id for connection lookup)
+        sync_drive_task.send(company_id, job_id, folder_list)
         
         logger.info(f"✅ Drive sync job {job_id} queued")
         
@@ -339,7 +356,7 @@ async def sync_once_drive(
 @limiter.limit("10/hour")  # 10 manual QuickBooks syncs per hour
 async def sync_once_quickbooks(
     request: Request,
-    user_id: str = Depends(get_current_user_id),
+    user_context: dict = Depends(get_current_user_context),
     supabase: Client = Depends(get_supabase)
 ):
     """
@@ -350,20 +367,24 @@ async def sync_once_quickbooks(
 
     Returns immediately with job_id for status tracking.
     """
-    logger.info(f"Enqueueing QuickBooks sync for user {user_id}")
+    user_id = user_context["user_id"]
+    company_id = user_context["company_id"]
+
+    logger.info(f"Enqueueing QuickBooks sync for company {company_id} (user {user_id})")
 
     try:
         # Create job record
         job = supabase.table("sync_jobs").insert({
             "user_id": user_id,
+            "tenant_id": company_id,
             "job_type": "quickbooks",
             "status": "queued"
         }).execute()
 
         job_id = job.data[0]["id"]
 
-        # Enqueue background task
-        sync_quickbooks_task.send(user_id, job_id)
+        # Enqueue background task (use company_id for connection lookup)
+        sync_quickbooks_task.send(company_id, job_id)
 
         logger.info(f"✅ QuickBooks sync job {job_id} queued")
 

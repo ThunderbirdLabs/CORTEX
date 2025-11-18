@@ -511,7 +511,9 @@ async def get_status(user_context: dict = Depends(get_current_user_context)):
 
     try:
         # Use company_id to match how webhook saves connections
+        logger.info(f"[STATUS] Querying connections with company_id: {company_id}")
         outlook_connection = await get_connection(company_id, settings.nango_provider_key_outlook) if settings.nango_provider_key_outlook else None
+        logger.info(f"[STATUS] Outlook connection found: {outlook_connection}")
         gmail_connection = await get_connection(company_id, settings.nango_provider_key_gmail) if settings.nango_provider_key_gmail else None
         drive_connection = await get_connection(company_id, settings.nango_provider_key_google_drive) if settings.nango_provider_key_google_drive else gmail_connection
         quickbooks_connection = await get_connection(company_id, settings.nango_provider_key_quickbooks) if settings.nango_provider_key_quickbooks else None
