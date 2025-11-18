@@ -12,7 +12,7 @@ import logging
 from supabase import Client
 from app.core.dependencies import get_supabase, get_master_supabase
 from app.core.dependencies import query_engine as global_query_engine
-from app.core.security import get_current_user_id
+from app.core.security import get_current_user_id, get_current_user_context
 from app.core.config_master import master_config
 
 logger = logging.getLogger(__name__)
@@ -30,12 +30,14 @@ class GenerateReportRequest(BaseModel):
 @router.post("/daily/generate")
 async def generate_daily_report_endpoint(
     request: GenerateReportRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_context: dict = Depends(get_current_user_context),
     supabase: Client = Depends(get_supabase),
     master_supabase: Client = Depends(get_master_supabase)
 ):
     """Generate a daily report."""
     try:
+        company_id = user_context["company_id"]
+
         # Parse target date
         if request.target_date:
             target_date = date.fromisoformat(request.target_date)
@@ -47,7 +49,7 @@ async def generate_daily_report_endpoint(
         if not request.force_regenerate:
             existing = master_supabase.table("daily_reports")\
                 .select("id")\
-                .eq("tenant_id", user_id)\
+                .eq("tenant_id", company_id)\
                 .eq("report_type", request.report_type)\
                 .eq("report_date", target_date.isoformat())\
                 .execute()
@@ -67,7 +69,7 @@ async def generate_daily_report_endpoint(
         report = await generate_daily_report(
             supabase=supabase,
             master_supabase=master_supabase,
-            tenant_id=user_id,
+            tenant_id=company_id,
             company_id=master_config.company_id,
             report_type=request.report_type,
             target_date=target_date,
@@ -88,14 +90,16 @@ async def generate_daily_report_endpoint(
 async def get_daily_report(
     report_date: str,
     report_type: str,
-    user_id: str = Depends(get_current_user_id),
+    user_context: dict = Depends(get_current_user_context),
     master_supabase: Client = Depends(get_master_supabase)
 ):
     """Fetch a daily report."""
     try:
+        company_id = user_context["company_id"]
+
         result = master_supabase.table("daily_reports")\
             .select("*")\
-            .eq("tenant_id", user_id)\
+            .eq("tenant_id", company_id)\
             .eq("report_type", report_type)\
             .eq("report_date", report_date)\
             .maybe_single()\
@@ -116,14 +120,16 @@ async def get_daily_report(
 @router.get("/daily/{report_date}/all")
 async def get_all_reports_for_date(
     report_date: str,
-    user_id: str = Depends(get_current_user_id),
+    user_context: dict = Depends(get_current_user_context),
     master_supabase: Client = Depends(get_master_supabase)
 ):
     """Get all report types for a specific date."""
     try:
+        company_id = user_context["company_id"]
+
         result = master_supabase.table("daily_reports")\
             .select("*")\
-            .eq("tenant_id", user_id)\
+            .eq("tenant_id", company_id)\
             .eq("report_date", report_date)\
             .execute()
 
@@ -141,14 +147,16 @@ async def get_all_reports_for_date(
 @router.get("/daily/latest")
 async def get_latest_reports(
     limit: int = 7,
-    user_id: str = Depends(get_current_user_id),
+    user_context: dict = Depends(get_current_user_context),
     master_supabase: Client = Depends(get_master_supabase)
 ):
     """Get recent daily reports."""
     try:
+        company_id = user_context["company_id"]
+
         result = master_supabase.table("daily_reports")\
             .select("*")\
-            .eq("tenant_id", user_id)\
+            .eq("tenant_id", company_id)\
             .order("report_date", desc=True)\
             .limit(limit * 2)\
             .execute()
