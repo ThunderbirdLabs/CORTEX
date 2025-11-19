@@ -255,7 +255,7 @@ async def nango_oauth_callback(payload: NangoOAuthCallback):
                 master_config.master_supabase_url,
                 master_config.master_supabase_service_key
             )
-            company_id = master_config.company_id
+            # NOTE: company_id already set above from user lookup - don't overwrite it!
 
             # Check if connection already exists
             existing = master_supabase.table("nango_original_connections")\
