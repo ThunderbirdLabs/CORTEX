@@ -245,8 +245,9 @@ async def nango_oauth_callback(payload: NangoOAuthCallback):
             logger.info(f"[WEBHOOK] Single-tenant mode - using company_id: {company_id}")
 
         # Save connection with company_id as tenant_id (company-wide OAuth model)
-        await save_connection(company_id, payload.providerConfigKey, payload.tenantId)
-        logger.info(f"[WEBHOOK] ✅ Saved connection - company_id: {company_id}, provider: {payload.providerConfigKey}, connection_id: {payload.tenantId}")
+        # CRITICAL: Use payload.connectionId (Nango's connection ID), NOT payload.tenantId (user_id)!
+        await save_connection(company_id, payload.providerConfigKey, payload.connectionId)
+        logger.info(f"[WEBHOOK] ✅ Saved connection - company_id: {company_id}, provider: {payload.providerConfigKey}, connection_id: {payload.connectionId}")
 
         # Save to nango_original_connections if multi-tenant and first connection
         if master_config.is_multi_tenant:
