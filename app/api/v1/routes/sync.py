@@ -89,7 +89,7 @@ async def check_can_manual_sync(
 
 
 @router.post("/initial/{provider}")
-@limiter.limit("1/hour")  # Only 1 initial sync per hour per provider
+@limiter.limit("100/hour")  # Increased for testing/debugging
 async def trigger_initial_sync(
     provider: str,
     request: Request,
@@ -197,7 +197,7 @@ async def trigger_initial_sync(
 
 
 @router.get("/once")
-@limiter.limit("30/hour")  # 30 manual Outlook syncs per hour (increased for testing)
+@limiter.limit("100/hour")  # Increased for testing/debugging
 async def sync_once(
     request: Request,
     user_context: dict = Depends(get_current_user_context),
@@ -241,7 +241,7 @@ async def sync_once(
 
 
 @router.get("/once/gmail")
-@limiter.limit("30/hour")  # 30 manual Gmail syncs per hour (increased for testing)
+@limiter.limit("100/hour")  # Increased for testing/debugging
 async def sync_once_gmail(
     request: Request,
     user_context: dict = Depends(get_current_user_context),
@@ -289,7 +289,7 @@ async def sync_once_gmail(
 
 
 @router.get("/once/drive")
-@limiter.limit("5/hour")  # Only 5 manual Drive syncs per hour
+@limiter.limit("100/hour")  # Increased for testing/debugging
 async def sync_once_drive(
     request: Request,
     user_context: dict = Depends(get_current_user_context),
@@ -343,7 +343,7 @@ async def sync_once_drive(
 
 
 @router.get("/once/quickbooks")
-@limiter.limit("10/hour")  # 10 manual QuickBooks syncs per hour
+@limiter.limit("100/hour")  # Increased for testing/debugging
 async def sync_once_quickbooks(
     request: Request,
     user_context: dict = Depends(get_current_user_context),
