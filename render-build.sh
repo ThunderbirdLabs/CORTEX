@@ -6,7 +6,9 @@ set -o errexit  # Exit on error
 
 echo "📦 Installing Python dependencies..."
 pip install --upgrade pip
-pip install --no-cache-dir -r requirements.txt
+
+# Force fresh install without hash verification
+pip install --force-reinstall --no-cache-dir -r requirements.txt
 
 echo "🔥 Pre-downloading & exporting reranker model to ONNX (prevents first-query timeout)..."
 python3 -c "
