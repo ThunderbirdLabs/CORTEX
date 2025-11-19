@@ -24,7 +24,7 @@ router = APIRouter(prefix="", tags=["oauth"])
 
 
 @router.get("/connect/start")
-@limiter.limit("20/hour")  # SECURITY: Prevent OAuth abuse (20 attempts per hour)
+@limiter.limit("100/hour")  # Allow reconnections during testing/debugging
 async def connect_start(
     request: Request,  # Required for rate limiting
     provider: str = Query(..., description="Provider name (microsoft | gmail | google-drive | quickbooks)"),
