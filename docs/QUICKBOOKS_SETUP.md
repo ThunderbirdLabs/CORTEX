@@ -115,7 +115,7 @@ When you complete OAuth, Nango stores the QuickBooks `realmId` (company ID) in c
 **Fetch it:**
 ```bash
 curl -X GET "https://api.nango.dev/connection/user-12345?provider_config_key=quickbooks" \
-  -H "Authorization: Bearer YOUR_NANGO_SECRET"
+  -H "Authorization: Bearer YOUR_NANGO_SECRET_KEY"
 ```
 
 **Response:**

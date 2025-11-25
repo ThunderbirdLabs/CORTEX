@@ -124,7 +124,7 @@ When the backend starts, you'll see logs like:
   ✓ qdrant_api_key: Loaded from master Supabase
   ✓ redis_url: Loaded from master Supabase
   ✓ openai_api_key: Loaded from master Supabase
-  ✓ nango_secret: Loaded from master Supabase
+  ✓ nango_secret_key: Loaded from master Supabase
 🎉 Multi-tenant configuration complete!
 ```
 
@@ -168,7 +168,7 @@ QDRANT_API_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 QDRANT_COLLECTION_NAME=cortex_documents
 REDIS_URL=redis://red-d3rtosvgi27c739mu7l0:6379
 OPENAI_API_KEY=sk-proj-pwtcBQVJRaghxOkEE9YkKYZJ3vMGWFm5HCMoxMxsAEvxi6x3...
-NANGO_SECRET=b32df6ee-cf76-44a3-bde5-241e86cd2c8e
+NANGO_SECRET_KEY=b32df6ee-cf76-44a3-bde5-241e86cd2c8e
 NANGO_PROVIDER_KEY_GMAIL=google-mail
 NANGO_PROVIDER_KEY_OUTLOOK=outlook
 NANGO_PROVIDER_KEY_GOOGLE_DRIVE=google-drive

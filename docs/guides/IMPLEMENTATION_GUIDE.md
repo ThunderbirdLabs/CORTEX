@@ -239,7 +239,7 @@ OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 **Get This Value:**
 
 ```bash
-NANGO_SECRET=nango_secret_xxxxxxxxxxxxxxxxxxxxx
+NANGO_SECRET_KEY=nango_secret_xxxxxxxxxxxxxxxxxxxxx
 
 # Provider keys (created in Nango dashboard)
 NANGO_PROVIDER_KEY_GMAIL=gmail-connector
@@ -301,7 +301,7 @@ OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxxxxx
 # ============================================
 # NANGO (OAuth - Optional)
 # ============================================
-NANGO_SECRET=nango_secret_xxxxxxxxxxxxx
+NANGO_SECRET_KEY=nango_secret_xxxxxxxxxxxxx
 NANGO_PROVIDER_KEY_GMAIL=gmail-connector
 NANGO_PROVIDER_KEY_OUTLOOK=outlook-connector
 NANGO_CONNECTION_ID_GMAIL=  # Set after OAuth flow

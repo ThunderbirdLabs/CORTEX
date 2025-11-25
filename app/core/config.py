@@ -204,7 +204,7 @@ class Settings(BaseSettings):
             self.openai_api_key = load_with_fallback("openai_api_key", "openai_api_key", self.openai_api_key)
 
             # Nango
-            self.nango_secret = load_with_fallback("nango_secret", "nango_secret_key", self.nango_secret)
+            self.nango_secret_key = load_with_fallback("nango_secret_key", "nango_secret_key", self.nango_secret_key)
             self.nango_provider_key_gmail = load_with_fallback("nango_provider_key_gmail", "nango_provider_key_gmail", self.nango_provider_key_gmail)
             self.nango_provider_key_outlook = load_with_fallback("nango_provider_key_outlook", "nango_provider_key_outlook", self.nango_provider_key_outlook)
             self.nango_provider_key_google_drive = load_with_fallback("nango_provider_key_google_drive", "nango_provider_key_google_drive", self.nango_provider_key_google_drive)
