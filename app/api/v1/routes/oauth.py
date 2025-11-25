@@ -148,10 +148,10 @@ async def connect_start(
         logger.info(f"[OAUTH_START]   allowed_integrations: {[integration_id]}")
 
         logger.debug(f"[OAUTH_START] Calling Nango API: POST https://api.nango.dev/connect/sessions")
-        logger.debug(f"[OAUTH_START] Using Nango secret: {settings.nango_secret[:10]}... (truncated for logging)")
+        logger.debug(f"[OAUTH_START] Using Nango secret: {settings.nango_secret_key[:10]}... (truncated for logging)")
         session_response = await http_client.post(
             "https://api.nango.dev/connect/sessions",
-            headers={"Authorization": f"Bearer {settings.nango_secret}"},
+            headers={"Authorization": f"Bearer {settings.nango_secret_key}"},
             json=nango_payload
         )
 
@@ -424,7 +424,7 @@ async def reconnect_oauth(
 
         session_response = await http_client.post(
             "https://api.nango.dev/connect/sessions",
-            headers={"Authorization": f"Bearer {settings.nango_secret}"},
+            headers={"Authorization": f"Bearer {settings.nango_secret_key}"},
             json=session_payload
         )
         session_response.raise_for_status()
@@ -526,7 +526,7 @@ async def get_status(user_context: dict = Depends(get_current_user_context)):
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 url = f"https://api.nango.dev/connection/{connection_id}?provider_config_key={provider_key}"
-                headers = {"Authorization": f"Bearer {settings.nango_secret}"}
+                headers = {"Authorization": f"Bearer {settings.nango_secret_key}"}
                 response = await client.get(url, headers=headers)
 
                 if response.status_code == 200:

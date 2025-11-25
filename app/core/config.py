@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     # OAUTH (Nango)
     # ============================================================================
 
-    nango_secret: Optional[str] = Field(default=None, description="Nango API secret key")
+    nango_secret_key: Optional[str] = Field(default=None, description="Nango API secret key")
 
     # Provider configurations
     nango_provider_key_outlook: Optional[str] = Field(default=None, description="Nango provider key for Outlook")

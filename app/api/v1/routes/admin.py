@@ -415,7 +415,7 @@ async def get_connected_users(
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 url = f"https://api.nango.dev/connection/{connection_id}?provider_config_key={provider_key}"
-                headers = {"Authorization": f"Bearer {settings.nango_secret}"}
+                headers = {"Authorization": f"Bearer {settings.nango_secret_key}"}
                 response = await client.get(url, headers=headers)
                 if response.status_code == 200:
                     data = response.json()

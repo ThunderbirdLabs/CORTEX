@@ -73,7 +73,7 @@ async def nango_list_drive_files(
         url,
         params=params,
         headers={
-            "Authorization": f"Bearer {settings.nango_secret}",
+            "Authorization": f"Bearer {settings.nango_secret_key}",
             "Connection-Id": connection_id,
             "Provider-Config-Key": provider_key
         }
@@ -130,7 +130,7 @@ async def get_drive_access_token(
     response = await http_client.get(
         url,
         params={"provider_config_key": provider_key},
-        headers={"Authorization": f"Bearer {settings.nango_secret}"}
+        headers={"Authorization": f"Bearer {settings.nango_secret_key}"}
     )
 
     response.raise_for_status()

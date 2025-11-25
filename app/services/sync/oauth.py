@@ -39,10 +39,10 @@ async def get_graph_token_via_nango(
     """
     # When using Connect SDK with end_user model, use /connections (plural) endpoint with query param
     url = f"https://api.nango.dev/connections/{connection_id}?provider_config_key={provider_key}"
-    headers = {"Authorization": f"Bearer {settings.nango_secret}"}
+    headers = {"Authorization": f"Bearer {settings.nango_secret_key}"}
     
     # Debug: log secret prefix/suffix to verify it's correct
-    secret_preview = f"{settings.nango_secret[:4]}...{settings.nango_secret[-4:]}" if settings.nango_secret else "MISSING"
+    secret_preview = f"{settings.nango_secret_key[:4]}...{settings.nango_secret_key[-4:]}" if settings.nango_secret_key else "MISSING"
     logger.info(f"Nango API call: {url} with secret {secret_preview}")
 
     try:
@@ -109,7 +109,7 @@ async def nango_list_email_records(
         params["modified_after"] = modified_after
 
     headers = {
-        "Authorization": f"Bearer {settings.nango_secret}",
+        "Authorization": f"Bearer {settings.nango_secret_key}",
         "Connection-Id": connection_id,
         "Provider-Config-Key": provider_key
     }
@@ -201,7 +201,7 @@ async def nango_fetch_attachment(
     url = f"https://api.nango.dev/proxy/v1.0/users/{user_id}/messages/{thread_id}/attachments/{attachment_id}/$value"
     
     headers = {
-        "Authorization": f"Bearer {settings.nango_secret}",
+        "Authorization": f"Bearer {settings.nango_secret_key}",
         "Connection-Id": connection_id,
         "Provider-Config-Key": provider_key
     }

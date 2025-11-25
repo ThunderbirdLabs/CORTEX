@@ -51,7 +51,7 @@ async def nango_fetch_file(
         url,
         params=params,
         headers={
-            "Authorization": f"Bearer {settings.nango_secret}",
+            "Authorization": f"Bearer {settings.nango_secret_key}",
             "Connection-Id": connection_id,
             "Provider-Config-Key": provider_key
         }

@@ -46,7 +46,7 @@ async def nango_fetch_quickbooks_records(
     url = f"https://api.nango.dev/quickbooks{endpoint}"
 
     headers = {
-        "Authorization": f"Bearer {settings.nango_secret}",
+        "Authorization": f"Bearer {settings.nango_secret_key}",
         "Connection-Id": connection_id,
         "Provider-Config-Key": "quickbooks"
     }
